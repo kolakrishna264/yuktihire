@@ -2,132 +2,84 @@ import Link from "next/link"
 
 export default function MarketingPage() {
   return (
-    <main className="min-h-screen bg-white text-gray-900">
+    <main style={{ minHeight: "100vh", background: "#fff", color: "#111", fontFamily: "Inter, system-ui, sans-serif" }}>
       {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <span className="text-xl font-bold text-indigo-600">YuktiHire</span>
-        <div className="flex gap-3">
-          <Link
-            href="/auth/login"
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-indigo-600 transition-colors"
-          >
+      <nav style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 32px", maxWidth: 1100, margin: "0 auto" }}>
+        <span style={{ fontSize: 22, fontWeight: 800, color: "#4f46e5" }}>YuktiHire</span>
+        <div style={{ display: "flex", gap: 12 }}>
+          <Link href="/auth/login" style={{ padding: "8px 20px", fontSize: 14, fontWeight: 500, color: "#374151", textDecoration: "none", borderRadius: 8, border: "1px solid #e5e7eb" }}>
             Log in
           </Link>
-          <Link
-            href="/auth/signup"
-            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-          >
+          <Link href="/auth/signup" style={{ padding: "8px 20px", fontSize: 14, fontWeight: 600, color: "#fff", background: "#4f46e5", textDecoration: "none", borderRadius: 8 }}>
             Get started free
           </Link>
         </div>
       </nav>
 
       {/* Hero */}
-      <section className="text-center px-6 py-24 max-w-4xl mx-auto">
-        <div className="inline-block mb-4 px-3 py-1 text-xs font-semibold text-indigo-600 bg-indigo-50 rounded-full uppercase tracking-wide">
+      <section style={{ textAlign: "center", padding: "80px 32px 60px", maxWidth: 860, margin: "0 auto" }}>
+        <div style={{ display: "inline-block", marginBottom: 16, padding: "4px 14px", fontSize: 12, fontWeight: 700, color: "#4f46e5", background: "#eef2ff", borderRadius: 999, letterSpacing: "0.05em", textTransform: "uppercase" }}>
           AI-Powered Job Search
         </div>
-        <h1 className="text-5xl font-extrabold leading-tight mb-6 text-gray-900">
+        <h1 style={{ fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 800, lineHeight: 1.15, marginBottom: 24, color: "#111827" }}>
           Land your dream job with{" "}
-          <span className="text-indigo-600">AI-tailored resumes</span>
+          <span style={{ color: "#4f46e5" }}>AI-tailored resumes</span>
         </h1>
-        <p className="text-xl text-gray-500 mb-10 max-w-2xl mx-auto">
-          YuktiHire analyzes job descriptions and tailors your resume to beat ATS
-          filters — so recruiters actually see your application.
+        <p style={{ fontSize: 20, color: "#6b7280", marginBottom: 40, maxWidth: 600, margin: "0 auto 40px" }}>
+          YuktiHire analyzes job descriptions and tailors your resume to beat ATS filters — so recruiters actually see your application.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            href="/auth/signup"
-            className="px-8 py-3 text-base font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg"
-          >
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
+          <Link href="/auth/signup" style={{ padding: "14px 36px", fontSize: 16, fontWeight: 700, color: "#fff", background: "#4f46e5", textDecoration: "none", borderRadius: 12, boxShadow: "0 4px 14px rgba(79,70,229,0.4)" }}>
             Start for free
           </Link>
-          <Link
-            href="/auth/login"
-            className="px-8 py-3 text-base font-semibold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
-          >
+          <Link href="/auth/login" style={{ padding: "14px 36px", fontSize: 16, fontWeight: 600, color: "#374151", background: "#f3f4f6", textDecoration: "none", borderRadius: 12 }}>
             Sign in
           </Link>
         </div>
       </section>
 
       {/* Features */}
-      <section className="bg-gray-50 py-20 px-6">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold text-center mb-12">
+      <section style={{ background: "#f9fafb", padding: "80px 32px" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <h2 style={{ fontSize: 32, fontWeight: 800, textAlign: "center", marginBottom: 48, color: "#111827" }}>
             Everything you need to get hired
           </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <FeatureCard
-              icon="🎯"
-              title="AI Resume Tailoring"
-              description="Paste a job description and get a tailored resume in seconds. Our AI matches your experience to what recruiters want."
-            />
-            <FeatureCard
-              icon="📊"
-              title="ATS Score Checker"
-              description="See exactly how your resume scores against Applicant Tracking Systems before you apply."
-            />
-            <FeatureCard
-              icon="💼"
-              title="Job Application Tracker"
-              description="Track every application, interview, and offer in one place. Never lose track of your job search."
-            />
-            <FeatureCard
-              icon="📄"
-              title="Multiple Resumes"
-              description="Create and manage different resume versions for different roles or industries."
-            />
-            <FeatureCard
-              icon="✨"
-              title="Smart Recommendations"
-              description="Get AI-powered suggestions to improve your bullet points, skills, and keywords."
-            />
-            <FeatureCard
-              icon="⚡"
-              title="PDF Export"
-              description="Download polished, recruiter-ready PDF resumes with professional formatting."
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24 }}>
+            {features.map((f) => (
+              <div key={f.title} style={{ background: "#fff", borderRadius: 16, padding: 28, border: "1px solid #e5e7eb", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>{f.icon}</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: "#111827" }}>{f.title}</h3>
+                <p style={{ fontSize: 14, color: "#6b7280", lineHeight: 1.6 }}>{f.description}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* CTA */}
-      <section className="py-20 px-6 text-center">
-        <h2 className="text-3xl font-bold mb-4">Ready to get hired faster?</h2>
-        <p className="text-gray-500 mb-8 text-lg">
+      <section style={{ padding: "80px 32px", textAlign: "center" }}>
+        <h2 style={{ fontSize: 32, fontWeight: 800, marginBottom: 16, color: "#111827" }}>Ready to get hired faster?</h2>
+        <p style={{ fontSize: 18, color: "#6b7280", marginBottom: 32 }}>
           Join thousands of job seekers using YuktiHire to land interviews.
         </p>
-        <Link
-          href="/auth/signup"
-          className="inline-block px-10 py-4 text-lg font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg"
-        >
+        <Link href="/auth/signup" style={{ display: "inline-block", padding: "16px 48px", fontSize: 18, fontWeight: 700, color: "#fff", background: "#4f46e5", textDecoration: "none", borderRadius: 14, boxShadow: "0 4px 14px rgba(79,70,229,0.4)" }}>
           Create your free account
         </Link>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-gray-100 py-8 px-6 text-center text-sm text-gray-400">
+      <footer style={{ borderTop: "1px solid #f3f4f6", padding: "32px", textAlign: "center", fontSize: 14, color: "#9ca3af" }}>
         © {new Date().getFullYear()} YuktiHire. All rights reserved.
       </footer>
     </main>
   )
 }
 
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: string
-  title: string
-  description: string
-}) {
-  return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-      <div className="text-3xl mb-3">{icon}</div>
-      <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className="text-gray-500 text-sm leading-relaxed">{description}</p>
-    </div>
-  )
-}
+const features = [
+  { icon: "🎯", title: "AI Resume Tailoring", description: "Paste a job description and get a tailored resume in seconds. Our AI matches your experience to what recruiters want." },
+  { icon: "📊", title: "ATS Score Checker", description: "See exactly how your resume scores against Applicant Tracking Systems before you apply." },
+  { icon: "💼", title: "Job Application Tracker", description: "Track every application, interview, and offer in one place. Never lose track of your job search." },
+  { icon: "📄", title: "Multiple Resumes", description: "Create and manage different resume versions for different roles or industries." },
+  { icon: "✨", title: "Smart Recommendations", description: "Get AI-powered suggestions to improve your bullet points, skills, and keywords." },
+  { icon: "⚡", title: "PDF Export", description: "Download polished, recruiter-ready PDF resumes with professional formatting." },
+]
