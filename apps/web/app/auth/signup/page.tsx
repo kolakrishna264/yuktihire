@@ -3,8 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
-import { Zap, AlertCircle, Loader2, Mail, CheckCircle2 } from "lucide-react"
-import { toast } from "sonner"
+import { Zap, AlertCircle, Loader2, Mail, CheckCircle2, RefreshCw } from "lucide-react"
 
 export default function SignupPage() {
   const [email, setEmail] = useState("")
@@ -12,23 +11,55 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState("")
+  const [resending, setResending] = useState(false)
+  const [resendSuccess, setResendSuccess] = useState(false)
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setLoading(true)
     const supabase = createClient()
-    const { error } = await supabase.auth.signUp({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+      },
     })
     setLoading(false)
-    if (error) {
-      setError(error.message)
-      toast.error(error.message)
+
+    if (signUpError) {
+      setError(signUpError.message)
+      return
+    }
+
+    // Supabase returns a user even if email confirmation is pending.
+    // If identities is empty or session is null, confirmation email was sent.
+    if (data.session) {
+      // Email confirmation is disabled — user is already logged in
+      window.location.href = "/dashboard"
     } else {
       setSent(true)
+    }
+  }
+
+  const handleResend = async () => {
+    setResending(true)
+    setResendSuccess(false)
+    const supabase = createClient()
+    const { error: resendError } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+      },
+    })
+    setResending(false)
+    if (resendError) {
+      setError(resendError.message)
+    } else {
+      setResendSuccess(true)
+      setTimeout(() => setResendSuccess(false), 5000)
     }
   }
 
@@ -54,21 +85,15 @@ export default function SignupPage() {
         justifyContent: "center",
         background: "#0a0a14",
         padding: "24px 16px",
-        fontFamily:
-          "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
       <div style={{ width: "100%", maxWidth: "420px" }}>
         {/* Logo */}
         <div style={{ display: "flex", justifyContent: "center", marginBottom: "32px" }}>
           <Link
-            href="/marketing"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              textDecoration: "none",
-            }}
+            href="/"
+            style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none" }}
           >
             <div
               style={{
@@ -84,14 +109,7 @@ export default function SignupPage() {
             >
               <Zap style={{ width: "20px", height: "20px", color: "#fff" }} strokeWidth={2.5} />
             </div>
-            <span
-              style={{
-                fontWeight: 700,
-                fontSize: "20px",
-                letterSpacing: "-0.5px",
-                color: "#f0f0ff",
-              }}
-            >
+            <span style={{ fontWeight: 700, fontSize: "20px", letterSpacing: "-0.5px", color: "#f0f0ff" }}>
               YuktiHire
             </span>
           </Link>
@@ -108,8 +126,8 @@ export default function SignupPage() {
           }}
         >
           {sent ? (
-            /* ---- Success state ---- */
-            <div style={{ textAlign: "center", padding: "12px 0" }}>
+            /* ── Email sent / verification state ── */
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
               <div
                 style={{
                   width: "64px",
@@ -146,29 +164,147 @@ export default function SignupPage() {
                   fontSize: "14px",
                   color: "rgba(240,240,255,0.5)",
                   lineHeight: "1.6",
-                  marginBottom: "24px",
+                  marginBottom: "20px",
                 }}
               >
                 We sent a confirmation link to{" "}
                 <strong style={{ color: "#a78bfa" }}>{email}</strong>.
                 <br />
-                Click the link to activate your account.
+                Click it to activate your account and sign in.
               </p>
 
+              {/* Steps */}
               <div
                 style={{
-                  padding: "12px 16px",
-                  background: "rgba(108,99,255,0.08)",
-                  border: "1px solid rgba(108,99,255,0.2)",
-                  borderRadius: "10px",
+                  padding: "14px 16px",
+                  background: "rgba(108,99,255,0.07)",
+                  border: "1px solid rgba(108,99,255,0.18)",
+                  borderRadius: "12px",
                   marginBottom: "20px",
-                  fontSize: "12px",
-                  color: "rgba(240,240,255,0.45)",
-                  lineHeight: "1.5",
+                  textAlign: "left",
                 }}
               >
-                Didn&apos;t receive it? Check your spam folder or wait a minute.
+                {[
+                  "Open the email from YuktiHire",
+                  'Click "Confirm your email"',
+                  "You'll be signed in automatically",
+                ].map((step, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                      marginBottom: i < 2 ? "10px" : 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: "20px",
+                        height: "20px",
+                        borderRadius: "50%",
+                        background: "rgba(108,99,255,0.2)",
+                        border: "1px solid rgba(108,99,255,0.3)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: "#a78bfa",
+                        flexShrink: 0,
+                        marginTop: "1px",
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span style={{ fontSize: "13px", color: "rgba(240,240,255,0.6)", lineHeight: 1.5 }}>
+                      {step}
+                    </span>
+                  </div>
+                ))}
               </div>
+
+              {/* Spam warning */}
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(240,240,255,0.35)",
+                  marginBottom: "20px",
+                  lineHeight: 1.5,
+                }}
+              >
+                Can't find it? Check your spam or promotions folder.
+              </p>
+
+              {/* Resend */}
+              {resendSuccess ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    padding: "10px",
+                    background: "rgba(52,211,153,0.1)",
+                    border: "1px solid rgba(52,211,153,0.2)",
+                    borderRadius: "10px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <CheckCircle2 style={{ width: "14px", height: "14px", color: "#34d399" }} />
+                  <span style={{ fontSize: "13px", color: "#34d399", fontWeight: 500 }}>
+                    Verification email resent!
+                  </span>
+                </div>
+              ) : (
+                <button
+                  onClick={handleResend}
+                  disabled={resending}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    width: "100%",
+                    padding: "11px",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: "10px",
+                    color: "rgba(240,240,255,0.7)",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: resending ? "not-allowed" : "pointer",
+                    marginBottom: "16px",
+                    opacity: resending ? 0.6 : 1,
+                    transition: "background 0.2s",
+                  }}
+                >
+                  {resending ? (
+                    <Loader2 style={{ width: "14px", height: "14px", animation: "spin 1s linear infinite" }} />
+                  ) : (
+                    <RefreshCw style={{ width: "14px", height: "14px" }} />
+                  )}
+                  {resending ? "Resending..." : "Resend verification email"}
+                </button>
+              )}
+
+              {error && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 14px",
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.25)",
+                    borderRadius: "10px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <AlertCircle style={{ width: "14px", height: "14px", color: "#f87171", flexShrink: 0 }} />
+                  <span style={{ fontSize: "13px", color: "#f87171" }}>{error}</span>
+                </div>
+              )}
 
               <Link
                 href="/auth/login"
@@ -186,7 +322,7 @@ export default function SignupPage() {
               </Link>
             </div>
           ) : (
-            /* ---- Signup form ---- */
+            /* ── Sign-up form ── */
             <>
               <div style={{ textAlign: "center", marginBottom: "28px" }}>
                 <h1
@@ -205,7 +341,6 @@ export default function SignupPage() {
                 </p>
               </div>
 
-              {/* Error */}
               {error && (
                 <div
                   style={{
@@ -251,12 +386,9 @@ export default function SignupPage() {
                     placeholder="you@example.com"
                     required
                     style={inputStyle}
-                    onFocus={(e) =>
-                      ((e.target as HTMLInputElement).style.borderColor = "#6c63ff")
-                    }
+                    onFocus={(e) => ((e.target as HTMLInputElement).style.borderColor = "#6c63ff")}
                     onBlur={(e) =>
-                      ((e.target as HTMLInputElement).style.borderColor =
-                        "rgba(255,255,255,0.12)")
+                      ((e.target as HTMLInputElement).style.borderColor = "rgba(255,255,255,0.12)")
                     }
                   />
                 </div>
@@ -283,21 +415,12 @@ export default function SignupPage() {
                     minLength={8}
                     required
                     style={inputStyle}
-                    onFocus={(e) =>
-                      ((e.target as HTMLInputElement).style.borderColor = "#6c63ff")
-                    }
+                    onFocus={(e) => ((e.target as HTMLInputElement).style.borderColor = "#6c63ff")}
                     onBlur={(e) =>
-                      ((e.target as HTMLInputElement).style.borderColor =
-                        "rgba(255,255,255,0.12)")
+                      ((e.target as HTMLInputElement).style.borderColor = "rgba(255,255,255,0.12)")
                     }
                   />
-                  <p
-                    style={{
-                      fontSize: "11px",
-                      color: "rgba(240,240,255,0.35)",
-                      marginTop: "5px",
-                    }}
-                  >
+                  <p style={{ fontSize: "11px", color: "rgba(240,240,255,0.35)", marginTop: "5px" }}>
                     Minimum 8 characters
                   </p>
                 </div>
@@ -325,21 +448,10 @@ export default function SignupPage() {
                     boxShadow: loading ? "none" : "0 4px 20px rgba(108,99,255,0.35)",
                     marginTop: "4px",
                   }}
-                  onMouseEnter={(e) => {
-                    if (!loading)
-                      (e.currentTarget as HTMLButtonElement).style.opacity = "0.92"
-                  }}
-                  onMouseLeave={(e) => {
-                    ;(e.currentTarget as HTMLButtonElement).style.opacity = "1"
-                  }}
                 >
                   {loading && (
                     <Loader2
-                      style={{
-                        width: "16px",
-                        height: "16px",
-                        animation: "spin 1s linear infinite",
-                      }}
+                      style={{ width: "16px", height: "16px", animation: "spin 1s linear infinite" }}
                     />
                   )}
                   {loading ? "Creating account..." : "Get started free"}
@@ -376,17 +488,11 @@ export default function SignupPage() {
           }}
         >
           By signing up you agree to our{" "}
-          <Link
-            href="/marketing"
-            style={{ color: "rgba(240,240,255,0.4)", textDecoration: "none" }}
-          >
+          <Link href="/" style={{ color: "rgba(240,240,255,0.4)", textDecoration: "none" }}>
             Terms
           </Link>{" "}
           &amp;{" "}
-          <Link
-            href="/marketing"
-            style={{ color: "rgba(240,240,255,0.4)", textDecoration: "none" }}
-          >
+          <Link href="/" style={{ color: "rgba(240,240,255,0.4)", textDecoration: "none" }}>
             Privacy Policy
           </Link>
         </p>
