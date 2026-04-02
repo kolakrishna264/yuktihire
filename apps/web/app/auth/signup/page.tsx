@@ -19,12 +19,12 @@ export default function SignupPage() {
     setError("")
     setLoading(true)
     const supabase = createClient()
+    // Keep emailRedirectTo clean — no query params, so Supabase URL matching works
+    const redirectTo = `${window.location.origin}/auth/callback`
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
-      },
+      options: { emailRedirectTo: redirectTo },
     })
     setLoading(false)
 
@@ -33,14 +33,20 @@ export default function SignupPage() {
       return
     }
 
-    // Supabase returns a user even if email confirmation is pending.
-    // If identities is empty or session is null, confirmation email was sent.
-    if (data.session) {
-      // Email confirmation is disabled — user is already logged in
-      window.location.href = "/dashboard"
-    } else {
-      setSent(true)
+    // identities=[] means this email is already registered (Supabase returns fake success)
+    if (data.user && (data.user.identities?.length ?? 0) === 0) {
+      setError("An account with this email already exists. Please sign in instead.")
+      return
     }
+
+    // session present = email confirmation is disabled in Supabase dashboard
+    if (data.session) {
+      window.location.href = "/dashboard"
+      return
+    }
+
+    // Normal path: confirmation email was sent
+    setSent(true)
   }
 
   const handleResend = async () => {
@@ -51,7 +57,7 @@ export default function SignupPage() {
       type: "signup",
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     })
     setResending(false)
