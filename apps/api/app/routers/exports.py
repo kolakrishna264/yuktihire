@@ -72,7 +72,7 @@ async def create_export(
 
     # Generate synchronously for now (move to background in V2)
     if data.format == ExportFormat.PDF:
-        from app.services.export.pdf_gen import generate_pdf
+        from pdf_gen import generate_pdf
         file_bytes = await generate_pdf(resume.content, data.template_id or "standard")
         export.file_url = f"export:{export.id}"  # placeholder
         await db.flush()
@@ -83,7 +83,7 @@ async def create_export(
         )
 
     elif data.format == ExportFormat.DOCX:
-        from app.services.export.docx_gen import generate_docx
+        from docx_gen import generate_docx
         file_bytes = await generate_docx(resume.content)
         export.file_url = f"export:{export.id}"
         await db.flush()

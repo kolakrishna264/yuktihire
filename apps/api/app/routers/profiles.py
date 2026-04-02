@@ -327,6 +327,6 @@ async def import_from_resume(
     content = await file.read()
     filename = (file.filename or "").lower()
 
-    from app.services.import_service.resume_parser import parse_resume
+    from resume_parser import parse_resume
     parsed = await parse_resume(content, filename)
     return {"parsed": parsed, "confidence": parsed.get("confidence", 0.7)}
