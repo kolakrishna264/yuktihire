@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JobGenie</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 340px; min-height: 200px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0a0e1a 0%, #16213e 100%);
+      color: #e2e8f0;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 16px 18px 12px;
+      text-align: center;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; color: white; margin-bottom: 2px; }
+    .header p { font-size: 11px; color: rgba(255,255,255,0.8); }
+    .status {
+      margin: 12px 15px 8px;
+      padding: 8px 12px;
+      background: #1e293b;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+      min-height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .status.active { color: #4ade80; background: #0f2a1a; }
+    .btn {
+      display: block;
+      width: calc(100% - 30px);
+      margin: 6px 15px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-secondary {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .divider {
+      height: 1px;
+      background: #1e293b;
+      margin: 8px 15px;
+    }
+    .footer {
+      padding: 10px 15px;
+      text-align: center;
+      font-size: 10px;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🧞 JobGenie</h1>
+    <p>AI Powered Job Application Assistant</p>
+  </div>
+
+  <div class="status" id="status">Checking profile...</div>
+
+  <button class="btn btn-primary" id="resumeBtn">✨ Tailor My Resume</button>
+  <button class="btn btn-primary" id="analyzeBtn">🔍 Analyze Job Page</button>
+  <button class="btn btn-primary" id="fillBtn">📝 Auto Fill Application</button>
+
+  <div class="divider"></div>
+
+  <button class="btn btn-secondary" id="profileBtn">⚙️ Setup Profile</button>
+
+  <div class="footer">JobGenie v1.0 — Make sure backend is running</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

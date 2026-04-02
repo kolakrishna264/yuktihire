@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment files (contain secrets — never commit)
+.env
+.env.local
+.env.production
+.env.production.local
+.env.*.local
+apps/api/.env
+apps/web/.env.local
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+*.dockerignore
