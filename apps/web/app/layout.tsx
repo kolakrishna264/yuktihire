@@ -11,11 +11,11 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: { default: "JobGenie — Tailored Resumes That Get Interviews", template: "%s | JobGenie" },
+  title: { default: "YuktiHire — Tailored Resumes That Get Interviews", template: "%s | YuktiHire" },
   description: "AI-powered resume tailoring and job tracking platform",
   keywords: ["resume", "ATS", "AI resume tailor", "job application", "career"],
   openGraph: {
-    title: "JobGenie — Tailored Resumes That Get Interviews",
+    title: "YuktiHire — Tailored Resumes That Get Interviews",
     description: "AI-powered resume tailoring and ATS optimization",
     type: "website",
   },
