@@ -43,7 +43,10 @@ async def get_current_user(
         email: str = payload.get("email", "")
         if not user_id:
             raise credentials_exception
-    except JWTError:
+    except JWTError as e:
+        print(f"JWT decode error: {e}")
+        print(f"JWT secret configured: {bool(settings.supabase_jwt_secret)}")
+        print(f"JWT secret length: {len(settings.supabase_jwt_secret) if settings.supabase_jwt_secret else 0}")
         raise credentials_exception
 
     return await _get_or_create_user(user_id, email, db)
