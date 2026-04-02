@@ -39,16 +39,26 @@ app = FastAPI(
 )
 
 # CORS — allow frontend and local dev
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+import re
+
+def is_allowed_origin(origin: str) -> bool:
+    allowed = [
         "https://yuktihire.com",
         "https://www.yuktihire.com",
         "https://yuktihire.vercel.app",
         settings.frontend_url,
         "http://localhost:3000",
         "http://localhost:3001",
-    ],
+    ]
+    if origin in allowed:
+        return True
+    if re.match(r"https://yuktihire-.*\.vercel\.app", origin):
+        return True
+    return False
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https://(yuktihire\.com|www\.yuktihire\.com|yuktihire(-.+)?\.vercel\.app)|http://localhost:(3000|3001)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
