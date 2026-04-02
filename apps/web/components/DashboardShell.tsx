@@ -27,7 +27,7 @@ const { data: tailoringSessions = [] } = useTailor()
 
 const name = user?.email?.split("@")[0] ?? "there"
 
-const resumeList = resumes?.resumes ?? []
+const resumeList = resumes ?? []
 const resumeCount = resumeList.length
 const jobsCount = jobs.length
 const tailoringCount = tailoringSessions.length
