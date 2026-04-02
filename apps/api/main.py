@@ -44,6 +44,7 @@ app.add_middleware(
     allow_origins=[
         "https://yuktihire.com",
         "https://www.yuktihire.com",
+        "https://yuktihire.vercel.app",
         settings.frontend_url,
         "http://localhost:3000",
         "http://localhost:3001",
