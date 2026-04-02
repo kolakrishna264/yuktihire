@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 
 // --- Magnetic Button ---
@@ -43,7 +43,7 @@ function MagneticButton({
         fontWeight: 600,
         textDecoration: "none",
         borderRadius: 12,
-        transition: "transform 0.15s ease, box-shadow 0.15s ease",
+        transition: "transform 0.15s ease-out, box-shadow 0.15s ease",
         transform: `translate(${pos.x}px, ${pos.y}px)`,
         letterSpacing: "0.01em",
         cursor: "pointer",
@@ -162,17 +162,19 @@ function FeatureCard({
         border: "1px solid rgba(255,255,255,0.07)",
         borderRadius: 20,
         padding: "28px 24px",
-        transition: "border-color 0.2s ease, transform 0.2s ease",
+        transition: "border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease",
       }}
       onMouseEnter={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.borderColor =
-          "rgba(108,99,255,0.35)"
-        ;(e.currentTarget as HTMLDivElement).style.transform = "translateY(-3px)"
+        const el = e.currentTarget as HTMLDivElement
+        el.style.borderColor = "rgba(108,99,255,0.35)"
+        el.style.transform = "translateY(-3px) scale(1.02)"
+        el.style.boxShadow = "0 8px 32px rgba(0,0,0,0.35)"
       }}
       onMouseLeave={(e) => {
-        ;(e.currentTarget as HTMLDivElement).style.borderColor =
-          "rgba(255,255,255,0.07)"
-        ;(e.currentTarget as HTMLDivElement).style.transform = "translateY(0)"
+        const el = e.currentTarget as HTMLDivElement
+        el.style.borderColor = "rgba(255,255,255,0.07)"
+        el.style.transform = "translateY(0) scale(1)"
+        el.style.boxShadow = "none"
       }}
     >
       <div style={{ fontSize: 28, marginBottom: 14 }}>{icon}</div>
@@ -276,6 +278,145 @@ function TestimonialCard({
   )
 }
 
+// --- Count-Up Hook ---
+function useCountUp(target: number, duration: number, triggered: boolean) {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (!triggered) return
+    let start: number | null = null
+    const step = (timestamp: number) => {
+      if (!start) start = timestamp
+      const elapsed = timestamp - start
+      const progress = Math.min(elapsed / duration, 1)
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3)
+      setCount(Math.floor(eased * target))
+      if (progress < 1) requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }, [triggered, target, duration])
+  return count
+}
+
+// --- Stats Bar with count-up ---
+const rawStats = [
+  { numeric: 50000, suffix: "+", label: "Resumes Analyzed", display: "50,000+" },
+  { numeric: 87, suffix: "%", label: "Avg ATS Score Improvement", display: "87%" },
+  { numeric: 3, suffix: "×", label: "Faster Job Applications", display: "3×" },
+  { numeric: 200, suffix: "+", label: "Companies Hiring", display: "200+" },
+]
+
+function AnimatedStat({
+  numeric,
+  suffix,
+  label,
+  triggered,
+}: {
+  numeric: number
+  suffix: string
+  label: string
+  triggered: boolean
+}) {
+  const count = useCountUp(numeric, 1500, triggered)
+  const formatted =
+    numeric >= 1000
+      ? count.toLocaleString()
+      : count.toString()
+
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: "clamp(28px, 4vw, 40px)",
+          fontWeight: 800,
+          letterSpacing: "-0.02em",
+          background: "linear-gradient(135deg, #6c63ff, #a78bfa)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          marginBottom: 6,
+        }}
+      >
+        {triggered ? `${formatted}${suffix}` : "\u00a0"}
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          color: "rgba(240,240,255,0.45)",
+          fontWeight: 500,
+          letterSpacing: "0.02em",
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  )
+}
+
+function StatsBar() {
+  const ref = useRef<HTMLElement>(null)
+  const [triggered, setTriggered] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setTriggered(true)
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.3 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <section
+      ref={ref}
+      style={{
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        background: "rgba(255,255,255,0.025)",
+        padding: "40px 24px",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1100,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 32,
+          textAlign: "center",
+        }}
+      >
+        {rawStats.map((s) => (
+          <AnimatedStat
+            key={s.label}
+            numeric={s.numeric}
+            suffix={s.suffix}
+            label={s.label}
+            triggered={triggered}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// --- Social Proof Avatars ---
+const socialProofAvatars = [
+  { initials: "PK", bg: "linear-gradient(135deg, #6c63ff, #a78bfa)" },
+  { initials: "AM", bg: "linear-gradient(135deg, #0ea5e9, #38bdf8)" },
+  { initials: "SR", bg: "linear-gradient(135deg, #f59e0b, #fbbf24)" },
+  { initials: "JL", bg: "linear-gradient(135deg, #10b981, #34d399)" },
+  { initials: "MK", bg: "linear-gradient(135deg, #ec4899, #f472b6)" },
+  { initials: "RV", bg: "linear-gradient(135deg, #8b5cf6, #c4b5fd)" },
+]
+
 // --- Data ---
 const steps = [
   {
@@ -370,13 +511,6 @@ const testimonials = [
   },
 ]
 
-const stats = [
-  { value: "50,000+", label: "Resumes Analyzed" },
-  { value: "87%", label: "Avg ATS Score Improvement" },
-  { value: "3×", label: "Faster Job Applications" },
-  { value: "200+", label: "Companies Hiring" },
-]
-
 // --- Main Page ---
 export default function MarketingPage() {
   return (
@@ -384,22 +518,30 @@ export default function MarketingPage() {
       {/* Keyframe animations */}
       <style>{`
         @keyframes orbFloat1 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(40px, -30px) scale(1.08); }
-          66% { transform: translate(-20px, 20px) scale(0.95); }
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(40px, -30px) scale(1.08); }
         }
         @keyframes orbFloat2 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(-50px, 30px) scale(1.05); }
-          66% { transform: translate(30px, -40px) scale(1.1); }
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(-50px, 30px) scale(1.05); }
         }
         @keyframes orbFloat3 {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(20px, -50px) scale(1.06); }
+          0% { transform: translate(0, 0) scale(1); }
+          100% { transform: translate(20px, -50px) scale(1.06); }
         }
         @keyframes badgePulse {
           0%, 100% { box-shadow: 0 0 0 0 rgba(108,99,255,0.4); }
           50% { box-shadow: 0 0 0 6px rgba(108,99,255,0); }
+        }
+        @keyframes fadeUp {
+          from {
+            opacity: 0;
+            transform: translateY(18px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
         * { box-sizing: border-box; }
         html { scroll-behavior: smooth; }
@@ -539,7 +681,7 @@ export default function MarketingPage() {
                 borderRadius: "50%",
                 background:
                   "radial-gradient(circle, rgba(108,99,255,0.18) 0%, transparent 70%)",
-                animation: "orbFloat1 12s ease-in-out infinite",
+                animation: "orbFloat1 8s ease-in-out infinite alternate",
                 filter: "blur(40px)",
               }}
             />
@@ -553,7 +695,7 @@ export default function MarketingPage() {
                 borderRadius: "50%",
                 background:
                   "radial-gradient(circle, rgba(167,139,250,0.14) 0%, transparent 70%)",
-                animation: "orbFloat2 16s ease-in-out infinite",
+                animation: "orbFloat2 8s ease-in-out infinite alternate",
                 filter: "blur(50px)",
               }}
             />
@@ -567,7 +709,7 @@ export default function MarketingPage() {
                 borderRadius: "50%",
                 background:
                   "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)",
-                animation: "orbFloat3 10s ease-in-out infinite",
+                animation: "orbFloat3 8s ease-in-out infinite alternate",
                 filter: "blur(60px)",
               }}
             />
@@ -613,13 +755,13 @@ export default function MarketingPage() {
               </span>
             </div>
 
-            {/* H1 */}
+            {/* H1 — staggered fade-up lines */}
             <h1
               style={{
                 fontSize: "clamp(48px, 8vw, 88px)",
                 fontWeight: 900,
                 lineHeight: 1.05,
-                letterSpacing: "-0.03em",
+                letterSpacing: "-0.02em",
                 marginBottom: 28,
                 margin: "0 0 28px",
                 background: "linear-gradient(160deg, #ffffff 30%, #a78bfa 100%)",
@@ -628,9 +770,42 @@ export default function MarketingPage() {
                 backgroundClip: "text",
               }}
             >
-              Upload Once.
-              <br />
-              Apply Smarter.
+              <span
+                style={{
+                  display: "block",
+                  opacity: 0,
+                  animation: "fadeUp 0.55s ease-out 0.1s forwards",
+                }}
+              >
+                Upload once.
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  opacity: 0,
+                  animation: "fadeUp 0.55s ease-out 0.2s forwards",
+                }}
+              >
+                Match jobs.
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  opacity: 0,
+                  animation: "fadeUp 0.55s ease-out 0.3s forwards",
+                }}
+              >
+                Tailor to 85%+.
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  opacity: 0,
+                  animation: "fadeUp 0.55s ease-out 0.4s forwards",
+                }}
+              >
+                Track everything.
+              </span>
             </h1>
 
             {/* Sub */}
@@ -658,9 +833,54 @@ export default function MarketingPage() {
               }}
             >
               <MagneticButton href="/auth/signup" primary>
-                Start for Free →
+                Start for Free — No Credit Card
               </MagneticButton>
               <MagneticButton href="/auth/login">Sign In</MagneticButton>
+            </div>
+
+            {/* Social proof avatars */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                marginTop: 28,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center" }}>
+                {socialProofAvatars.map((a, i) => (
+                  <div
+                    key={a.initials}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: a.bg,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "#fff",
+                      border: "2px solid #0a0a14",
+                      marginLeft: i === 0 ? 0 : -10,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {a.initials}
+                  </div>
+                ))}
+              </div>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: "rgba(240,240,255,0.5)",
+                  fontWeight: 500,
+                }}
+              >
+                Join 2,800+ job seekers
+              </span>
             </div>
 
             {/* Social proof micro-text */}
@@ -668,7 +888,7 @@ export default function MarketingPage() {
               style={{
                 fontSize: 13,
                 color: "rgba(240,240,255,0.3)",
-                marginTop: 24,
+                marginTop: 16,
               }}
             >
               No credit card required · Free plan available · Setup in 60 seconds
@@ -677,54 +897,7 @@ export default function MarketingPage() {
         </section>
 
         {/* ── STATS BAR ── */}
-        <section
-          style={{
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-            background: "rgba(255,255,255,0.025)",
-            padding: "40px 24px",
-          }}
-        >
-          <div
-            style={{
-              maxWidth: 1100,
-              margin: "0 auto",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: 32,
-              textAlign: "center",
-            }}
-          >
-            {stats.map((s) => (
-              <div key={s.label}>
-                <div
-                  style={{
-                    fontSize: "clamp(28px, 4vw, 40px)",
-                    fontWeight: 800,
-                    letterSpacing: "-0.02em",
-                    background: "linear-gradient(135deg, #6c63ff, #a78bfa)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundClip: "text",
-                    marginBottom: 6,
-                  }}
-                >
-                  {s.value}
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "rgba(240,240,255,0.45)",
-                    fontWeight: 500,
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  {s.label}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <StatsBar />
 
         {/* ── HOW IT WORKS ── */}
         <section style={{ padding: "clamp(80px, 10vw, 120px) 24px" }}>
@@ -898,7 +1071,7 @@ export default function MarketingPage() {
               faster. Your next role is closer than you think.
             </p>
             <MagneticButton href="/auth/signup" primary>
-              Create Your Free Account →
+              Start for Free — No Credit Card
             </MagneticButton>
             <p
               style={{

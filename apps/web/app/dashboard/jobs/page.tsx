@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Fragment } from "react"
+import { useState, useRef, Fragment } from "react"
 import { useAllJobs, useCreateJob, useUpdateJob, useDeleteJob } from "@/lib/hooks/useJobs"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -93,6 +93,15 @@ const EMPTY_FORM: JobForm = {
   notes: "",
 }
 
+// ── Tiny date formatter: "Mar 15" ─────────────────────────────────────────────
+
+function shortDate(dateStr: string | undefined | null): string {
+  if (!dateStr) return ""
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return ""
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function JobsPage() {
@@ -108,6 +117,12 @@ export default function JobsPage() {
     | null
   >(null)
   const [form, setForm] = useState<JobForm>(EMPTY_FORM)
+
+  // Drag-and-drop state
+  const [draggingJobId, setDraggingJobId] = useState<string | null>(null)
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  // Ref used to avoid flickering when pointer moves over child elements
+  const dragEnterCounters = useRef<Record<string, number>>({})
 
   const openCreate = (defaultStatus: ApplicationStatus = "SAVED") => {
     setForm({ ...EMPTY_FORM, status: defaultStatus })
@@ -149,6 +164,53 @@ export default function JobsPage() {
       updateJob({ id: modal.job.id, data: payload }, { onSuccess: closeModal })
     }
   }
+
+  // ── Drag handlers ────────────────────────────────────────────────────────────
+
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, jobId: string) => {
+    e.dataTransfer.setData("jobId", jobId)
+    e.dataTransfer.effectAllowed = "move"
+    setDraggingJobId(jobId)
+  }
+
+  const handleDragEnd = () => {
+    setDraggingJobId(null)
+    setDragOverColumn(null)
+    dragEnterCounters.current = {}
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+  }
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, colId: string) => {
+    e.preventDefault()
+    dragEnterCounters.current[colId] = (dragEnterCounters.current[colId] ?? 0) + 1
+    setDragOverColumn(colId)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>, colId: string) => {
+    dragEnterCounters.current[colId] = (dragEnterCounters.current[colId] ?? 1) - 1
+    if (dragEnterCounters.current[colId] <= 0) {
+      dragEnterCounters.current[colId] = 0
+      setDragOverColumn((prev) => (prev === colId ? null : prev))
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, newStatus: ApplicationStatus) => {
+    e.preventDefault()
+    const jobId = e.dataTransfer.getData("jobId")
+    if (!jobId) return
+    const job = jobs.find((j) => j.id === jobId)
+    if (job && job.status !== newStatus) {
+      updateJob({ id: jobId, data: { status: newStatus } })
+    }
+    setDragOverColumn(null)
+    dragEnterCounters.current = {}
+  }
+
+  // ── Derived data ─────────────────────────────────────────────────────────────
 
   const visibleJobs = filterStatus === "ALL"
     ? jobs
@@ -242,6 +304,7 @@ export default function JobsPage() {
         <div className="flex gap-4 overflow-x-auto px-6 pb-6 flex-1 min-h-0">
           {COLUMNS.map((col) => {
             const colJobs = jobsByStatus[col.id] ?? []
+            const isOver = dragOverColumn === col.id
             return (
               <div key={col.id} className="w-72 shrink-0 flex flex-col min-h-0">
                 {/* Column header */}
@@ -258,8 +321,18 @@ export default function JobsPage() {
                   </button>
                 </div>
 
-                {/* Column body */}
-                <div className={`flex-1 rounded-xl p-2.5 space-y-2 overflow-y-auto ${col.colBg}`}>
+                {/* Column body — drop target */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragEnter={(e) => handleDragEnter(e, col.id)}
+                  onDragLeave={(e) => handleDragLeave(e, col.id)}
+                  onDrop={(e) => handleDrop(e, col.id)}
+                  className={[
+                    "flex-1 rounded-xl p-2.5 space-y-2 overflow-y-auto transition-colors duration-150",
+                    col.colBg,
+                    isOver ? "border-2 border-indigo-400 bg-indigo-50/30 dark:bg-indigo-900/20" : "border-2 border-transparent",
+                  ].join(" ")}
+                >
                   {colJobs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 gap-2">
                       <p className="text-xs text-muted-foreground text-center">No jobs here</p>
@@ -276,6 +349,9 @@ export default function JobsPage() {
                         key={job.id}
                         job={job}
                         columns={COLUMNS}
+                        isDragging={draggingJobId === job.id}
+                        onDragStart={(e) => handleDragStart(e, job.id)}
+                        onDragEnd={handleDragEnd}
                         onEdit={() => openEdit(job)}
                         onStatusChange={(status) => updateJob({ id: job.id, data: { status } })}
                         onDelete={() => deleteJob(job.id)}
@@ -309,20 +385,36 @@ export default function JobsPage() {
 function JobCard({
   job,
   columns,
+  isDragging,
+  onDragStart,
+  onDragEnd,
   onEdit,
   onStatusChange,
   onDelete,
 }: {
   job: JobApplication
   columns: typeof COLUMNS
+  isDragging: boolean
+  onDragStart: (e: React.DragEvent<HTMLDivElement>) => void
+  onDragEnd: () => void
   onEdit: () => void
   onStatusChange: (status: ApplicationStatus) => void
   onDelete: () => void
 }) {
   const [showMove, setShowMove] = useState(false)
 
+  const notesPreview = job.notes ? job.notes.slice(0, 60) + (job.notes.length > 60 ? "…" : "") : null
+
   return (
-    <div className="bg-card rounded-xl border border-border p-3 shadow-sm hover:shadow-md transition-shadow group">
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={[
+        "bg-card rounded-xl border border-border p-3 shadow-sm hover:shadow-md transition-all group",
+        isDragging ? "opacity-50 cursor-grabbing" : "cursor-grab",
+      ].join(" ")}
+    >
       {/* Top row: title + delete */}
       <div className="flex items-start justify-between gap-2">
         <button
@@ -342,11 +434,25 @@ function JobCard({
         </button>
       </div>
 
-      {/* Company */}
-      <div className="flex items-center gap-1 mt-1">
-        <Building2 className="w-3 h-3 text-muted-foreground shrink-0" />
-        <p className="text-xs text-muted-foreground truncate">{job.company}</p>
+      {/* Company + applied date */}
+      <div className="flex items-center justify-between gap-1 mt-1">
+        <div className="flex items-center gap-1 min-w-0">
+          <Building2 className="w-3 h-3 text-muted-foreground shrink-0" />
+          <p className="text-xs text-muted-foreground truncate">{job.company}</p>
+        </div>
+        {(job as any).createdAt && (
+          <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">
+            {shortDate((job as any).createdAt)}
+          </span>
+        )}
       </div>
+
+      {/* Quick notes preview */}
+      {notesPreview && (
+        <p className="text-[11px] text-muted-foreground mt-1.5 italic leading-snug">
+          {notesPreview}
+        </p>
+      )}
 
       {/* Location / salary snippets */}
       {((job as any).location || (job as any).salary) && (
@@ -366,13 +472,6 @@ function JobCard({
         </div>
       )}
 
-      {/* Notes preview */}
-      {job.notes && (
-        <p className="text-[11px] text-muted-foreground mt-1.5 line-clamp-2 italic">
-          {job.notes}
-        </p>
-      )}
-
       {/* Link */}
       {job.url && (
         <a
@@ -387,13 +486,8 @@ function JobCard({
         </a>
       )}
 
-      {/* Footer: date + status + move */}
-      <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-border/50">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Calendar className="w-2.5 h-2.5" />
-          {formatDate(job.createdAt)}
-        </span>
-
+      {/* Footer: status + move */}
+      <div className="mt-2.5 flex items-center justify-end gap-2 pt-2 border-t border-border/50">
         <div className="relative">
           <button
             onClick={() => setShowMove(!showMove)}

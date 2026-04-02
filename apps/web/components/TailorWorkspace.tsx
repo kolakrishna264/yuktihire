@@ -1,6 +1,6 @@
 "use client"
 import { useState, useCallback } from "react"
-import { useResumes } from "@/lib/hooks/useResumes"
+import { useResumes, useResume, useUpdateResume } from "@/lib/hooks/useResumes"
 import { useRunTailoring, useTailoringSession, useUpdateRecommendation, useApplyRecommendations } from "@/lib/hooks/useTailor"
 import { JDInputPanel } from "./JDInputPanel"
 import { ResumeSelectPanel } from "./ResumeSelectPanel"
@@ -9,7 +9,8 @@ import { SuggestionsList } from "./SuggestionsList"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Skeleton } from "@/components/ui/Skeleton"
-import { Wand2, ChevronRight, RotateCcw } from "lucide-react"
+import { cn } from "@/lib/utils/cn"
+import { Wand2, ChevronRight, RotateCcw, Sparkles, RefreshCw } from "lucide-react"
 import type { JDAnalysis, RecommendationStatus } from "@/types"
 import { toast } from "sonner"
 
@@ -22,8 +23,12 @@ export function TailorWorkspace() {
   const [jdAnalysis, setJdAnalysis] = useState<JDAnalysis | null>(null)
   const [saveLabel, setSaveLabel] = useState("")
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [insertedKeywords, setInsertedKeywords] = useState<string[]>([])
+  const [acceptingAll, setAcceptingAll] = useState(false)
 
   const { data: resumes = [] } = useResumes()
+  const { data: resumeData } = useResume(selectedResumeId)
+  const { mutateAsync: updateResumeAsync } = useUpdateResume()
   const { mutate: runTailoring, isPending: startingTailor } = useRunTailoring()
   const { data: sessionData, isPolling } = useTailoringSession(sessionId)
   const { mutate: updateRec } = useUpdateRecommendation(sessionId ?? "")
@@ -41,6 +46,8 @@ export function TailorWorkspace() {
       return
     }
     setStep("running")
+    // Clear inserted keywords banner when re-running
+    setInsertedKeywords([])
     runTailoring(
       { resumeId: selectedResumeId, jobDescriptionId: jdAnalysis.jobDescriptionId },
       {
@@ -57,6 +64,20 @@ export function TailorWorkspace() {
     updateRec({ recId, status })
   }
 
+  const handleAcceptAll = async () => {
+    const pending = sessionData?.recommendations?.filter((r) => r.status === "PENDING") ?? []
+    if (pending.length === 0) return
+    setAcceptingAll(true)
+    try {
+      for (const rec of pending) {
+        updateRec({ recId: rec.id, status: "ACCEPTED" })
+      }
+      toast.success(`Accepted all ${pending.length} suggestion${pending.length !== 1 ? "s" : ""}`)
+    } finally {
+      setAcceptingAll(false)
+    }
+  }
+
   const handleSaveVersion = () => {
     if (!sessionId) return
     applyRecs(saveLabel || undefined, {
@@ -69,10 +90,65 @@ export function TailorWorkspace() {
     setSessionId(null)
     setJdAnalysis(null)
     setSaveLabel("")
+    setInsertedKeywords([])
   }
+
+  const handleInsertKeyword = useCallback(
+    async (kw: string, target: "skills" | "summary") => {
+      if (!selectedResumeId || !resumeData) {
+        toast.error("Resume not loaded yet")
+        return
+      }
+
+      // resumeData may be the raw API response — content is the nested JSON blob
+      const resume = (resumeData as any)?.resume ?? resumeData
+      const content: Record<string, any> = { ...(resume?.content ?? {}) }
+
+      if (target === "skills") {
+        if (Array.isArray(content.skills)) {
+          // Determine if it's string[] or object[]
+          const firstItem = content.skills[0]
+          if (firstItem === undefined || typeof firstItem === "string") {
+            content.skills = [...content.skills, kw]
+          } else {
+            content.skills = [...content.skills, { name: kw }]
+          }
+        } else {
+          content.skills = [kw]
+        }
+      } else {
+        // target === 'summary'
+        if (typeof content.summary === "string" && content.summary.trim()) {
+          content.summary = `${content.summary}, ${kw}`
+        } else if (typeof content.objective === "string" && content.objective.trim()) {
+          content.objective = `${content.objective}, ${kw}`
+        } else {
+          content.summary = kw
+        }
+      }
+
+      try {
+        // Use mutateAsync directly — suppress the default success toast
+        // We do this by catching and re-ignoring the toast from the hook;
+        // the hook fires toast.success but that's acceptable here (it says "Resume saved")
+        // To keep it truly silent we override: call the raw api via mutateAsync
+        // and silence by wrapping in a custom call. We rely on mutateAsync + silence pattern.
+        await updateResumeAsync({ id: selectedResumeId, data: { content } })
+
+        setInsertedKeywords((prev) => (prev.includes(kw) ? prev : [...prev, kw]))
+      } catch {
+        toast.error(`Failed to insert "${kw}"`)
+      }
+    },
+    [selectedResumeId, resumeData, updateResumeAsync]
+  )
 
   const acceptedCount = sessionData?.recommendations?.filter(
     (r) => r.status === "ACCEPTED"
+  ).length ?? 0
+
+  const pendingCount = sessionData?.recommendations?.filter(
+    (r) => r.status === "PENDING"
   ).length ?? 0
 
   return (
@@ -106,6 +182,17 @@ export function TailorWorkspace() {
                 <RotateCcw className="w-3.5 h-3.5" />
                 New
               </Button>
+              {isComplete && pendingCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={acceptingAll}
+                  onClick={handleAcceptAll}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Accept All {pendingCount}
+                </Button>
+              )}
               {isComplete && acceptedCount > 0 && (
                 <Button
                   size="sm"
@@ -119,6 +206,34 @@ export function TailorWorkspace() {
           )}
         </div>
       </div>
+
+      {/* Keyword insertion banner */}
+      {step === "results" && insertedKeywords.length > 0 && (
+        <div
+          className={cn(
+            "shrink-0 flex items-center gap-3 px-6 py-2.5 border-b border-border",
+            "bg-violet-50 dark:bg-violet-900/10 animate-in slide-in-from-top-2 duration-300"
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+          <p className="text-xs font-medium text-violet-700 dark:text-violet-300 flex-1">
+            {insertedKeywords.length} keyword{insertedKeywords.length !== 1 ? "s" : ""} added to your resume —{" "}
+            <span className="font-semibold">
+              {insertedKeywords.slice(0, 3).join(", ")}
+              {insertedKeywords.length > 3 ? ` +${insertedKeywords.length - 3} more` : ""}
+            </span>
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 text-[11px] px-2 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/30"
+            onClick={handleStartTailoring}
+          >
+            <RefreshCw className="w-3 h-3" />
+            Re-score
+          </Button>
+        </div>
+      )}
 
       {/* Workspace */}
       {step === "setup" && (
@@ -183,7 +298,11 @@ export function TailorWorkspace() {
               <TailoringRunningState compact />
             ) : (
               sessionData.atsScore && (
-                <AtsScorePanel atsScore={sessionData.atsScore} jdAnalysis={jdAnalysis} />
+                <AtsScorePanel
+                  atsScore={sessionData.atsScore}
+                  jdAnalysis={jdAnalysis}
+                  onInsertKeyword={handleInsertKeyword}
+                />
               )
             )}
           </div>
@@ -192,7 +311,9 @@ export function TailorWorkspace() {
           <div className="lg:col-span-2 overflow-y-auto scrollbar-thin">
             {isPolling ? (
               <div className="p-5 space-y-3">
-                {[1,2,3,4].map(i => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-28 w-full rounded-xl" />
+                ))}
               </div>
             ) : (
               <SuggestionsList
@@ -264,9 +385,11 @@ function TailoringRunningState({ compact = false }: { compact?: boolean }) {
       <div className="space-y-3 text-left">
         {steps.map((s, i) => (
           <div key={i} className="flex items-center gap-3">
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-              s.done ? "bg-emerald-500" : "border-2 border-primary animate-pulse"
-            }`}>
+            <div
+              className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                s.done ? "bg-emerald-500" : "border-2 border-primary animate-pulse"
+              }`}
+            >
               {s.done && <span className="text-white text-xs">✓</span>}
             </div>
             <span className={`text-sm ${s.done ? "text-foreground" : "text-muted-foreground"}`}>

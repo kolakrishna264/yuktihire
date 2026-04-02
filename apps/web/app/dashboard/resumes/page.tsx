@@ -14,16 +14,186 @@ import { EmptyState } from "@/components/EmptyState"
 import {
   FileText, Plus, Trash2, Wand2, ArrowRight, X,
   Upload, CloudUpload, CheckCircle2, AlertCircle, Loader2,
+  User, Layers, Briefcase,
 } from "lucide-react"
 import { formatDate } from "@/lib/utils/format"
 import { toast } from "sonner"
 
-type UploadStep =
-  | { type: "idle" }
-  | { type: "uploading" }
-  | { type: "creating"; name: string }
-  | { type: "success" }
-  | { type: "error"; message: string }
+// ── Upload phase types ─────────────────────────────────────────────────────────
+
+type UploadPhase = "idle" | "parsing" | "extracting" | "done" | "error"
+
+type ParsedProfile = {
+  full_name?: string
+  fullName?: string
+  skills?: unknown[]
+  experiences?: unknown[]
+  [key: string]: unknown
+}
+
+// ── Step indicator ─────────────────────────────────────────────────────────────
+
+const UPLOAD_STEPS = [
+  { id: 1, label: "Parsing document" },
+  { id: 2, label: "Extracting profile data" },
+  { id: 3, label: "Profile built" },
+]
+
+function phaseToStep(phase: UploadPhase): number {
+  if (phase === "parsing") return 1
+  if (phase === "extracting") return 2
+  if (phase === "done") return 3
+  return 0
+}
+
+function StepIndicator({ phase }: { phase: UploadPhase }) {
+  const currentStep = phaseToStep(phase)
+
+  return (
+    <div className="flex items-center justify-center gap-0 w-full max-w-sm mx-auto mb-6">
+      {UPLOAD_STEPS.map((step, idx) => {
+        const isActive = currentStep === step.id
+        const isDone = currentStep > step.id
+        const isLast = idx === UPLOAD_STEPS.length - 1
+
+        return (
+          <div key={step.id} className="flex items-center flex-1 min-w-0">
+            {/* Circle */}
+            <div className="flex flex-col items-center shrink-0">
+              <div
+                className={[
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300",
+                  isDone
+                    ? "bg-emerald-500 text-white shadow-sm"
+                    : isActive
+                    ? "bg-indigo-600 text-white shadow-md ring-4 ring-indigo-200 dark:ring-indigo-900"
+                    : "bg-muted text-muted-foreground",
+                ].join(" ")}
+              >
+                {isDone ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : isActive ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  step.id
+                )}
+              </div>
+              <span
+                className={[
+                  "mt-1.5 text-[10px] font-medium text-center leading-tight whitespace-nowrap transition-colors duration-300",
+                  isDone
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : isActive
+                    ? "text-indigo-600 dark:text-indigo-400"
+                    : "text-muted-foreground",
+                ].join(" ")}
+              >
+                {step.label}
+              </span>
+            </div>
+
+            {/* Connector line */}
+            {!isLast && (
+              <div className="flex-1 h-0.5 mx-1 mb-5 rounded-full overflow-hidden bg-muted">
+                <div
+                  className={[
+                    "h-full rounded-full transition-all duration-500",
+                    isDone ? "w-full bg-emerald-400" : "w-0",
+                  ].join(" ")}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Success card ───────────────────────────────────────────────────────────────
+
+function SuccessCard({
+  parsedProfile,
+  onContinue,
+}: {
+  parsedProfile: ParsedProfile | null
+  onContinue: () => void
+}) {
+  const name = parsedProfile?.full_name ?? parsedProfile?.fullName ?? null
+  const skillsCount = Array.isArray(parsedProfile?.skills) ? parsedProfile!.skills!.length : null
+  const expCount = Array.isArray(parsedProfile?.experiences) ? parsedProfile!.experiences!.length : null
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-3 duration-400">
+      {/* Success header */}
+      <div className="flex flex-col items-center gap-2 mb-5">
+        <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+          <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+        </div>
+        <p className="text-base font-semibold text-emerald-700 dark:text-emerald-400">
+          Profile Built!
+        </p>
+        <p className="text-xs text-muted-foreground text-center">
+          We extracted the following details from your resume
+        </p>
+      </div>
+
+      {/* Extracted data preview */}
+      <div className="bg-muted/50 rounded-xl p-4 mb-5 space-y-2.5">
+        {name && (
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-background flex items-center justify-center border border-border">
+              <User className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Name</p>
+              <p className="text-sm font-semibold">{name}</p>
+            </div>
+          </div>
+        )}
+        {skillsCount !== null && (
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-background flex items-center justify-center border border-border">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Skills</p>
+              <p className="text-sm font-semibold">{skillsCount} skills extracted</p>
+            </div>
+          </div>
+        )}
+        {expCount !== null && (
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-background flex items-center justify-center border border-border">
+              <Briefcase className="w-3.5 h-3.5 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Experience</p>
+              <p className="text-sm font-semibold">{expCount} position{expCount !== 1 ? "s" : ""} found</p>
+            </div>
+          </div>
+        )}
+        {!name && skillsCount === null && expCount === null && (
+          <p className="text-xs text-muted-foreground text-center py-2">Profile data extracted successfully</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <Link href="/dashboard/profile" className="flex-1">
+          <Button variant="outline" className="w-full" size="sm">
+            View Profile
+          </Button>
+        </Link>
+        <Button onClick={onContinue} className="flex-1" size="sm">
+          Continue
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ResumesPage() {
   const { data: resumes = [], isLoading, refetch } = useResumes()
@@ -36,9 +206,13 @@ export default function ResumesPage() {
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false)
-  const [uploadStep, setUploadStep] = useState<UploadStep>({ type: "idle" })
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle")
+  const [parsedProfile, setParsedProfile] = useState<ParsedProfile | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Keep a ref to the file being processed so Continue can create the resume
+  const pendingFileRef = useRef<{ name: string; parsed: ParsedProfile } | null>(null)
 
   const handleCreate = () => {
     if (!name.trim()) return
@@ -51,41 +225,67 @@ export default function ResumesPage() {
   const handleFile = useCallback(async (file: File) => {
     const allowed = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
     if (!allowed.includes(file.type)) {
-      setUploadStep({ type: "error", message: "Only PDF and DOCX files are supported." })
+      setUploadPhase("error")
+      setUploadError("Only PDF and DOCX files are supported.")
       return
     }
 
-    setUploadStep({ type: "uploading" })
+    // Step 1 — parsing
+    setUploadPhase("parsing")
+    setParsedProfile(null)
+    setUploadError(null)
 
-    let parsed: any
+    // After 0.8s advance to step 2 (extracting) while the API call continues
+    const extractingTimer = setTimeout(() => {
+      setUploadPhase("extracting")
+    }, 800)
+
+    let parsed: ParsedProfile
     try {
       parsed = await profileApi.importResume(file)
     } catch (err: any) {
-      setUploadStep({ type: "error", message: err?.message ?? "Failed to analyze resume." })
+      clearTimeout(extractingTimer)
+      setUploadPhase("error")
+      setUploadError(err?.message ?? "Failed to analyze resume.")
       return
     }
 
-    // Derive a sensible resume name from parsed profile or filename
+    // Ensure we've been in "extracting" for at least a moment before showing done
+    clearTimeout(extractingTimer)
+    setUploadPhase("extracting")
+
     const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ")
     const resumeName =
-      parsed?.fullName
+      parsed?.full_name
+        ? `${parsed.full_name}'s Resume`
+        : parsed?.fullName
         ? `${parsed.fullName}'s Resume`
         : baseName || "Imported Resume"
 
-    setUploadStep({ type: "creating", name: resumeName })
+    pendingFileRef.current = { name: resumeName, parsed }
+    setParsedProfile(parsed)
+
+    // Brief pause so step 2 is visible before jumping to done
+    await new Promise((r) => setTimeout(r, 500))
+    setUploadPhase("done")
+  }, [])
+
+  const handleContinue = useCallback(async () => {
+    const pending = pendingFileRef.current
+    if (!pending) {
+      resetUpload()
+      return
+    }
 
     try {
-      await resumesApi.create({ name: resumeName })
-      setUploadStep({ type: "success" })
+      await resumesApi.create({ name: pending.name })
       refetch()
       toast.success("Resume created from uploaded file!")
-      setTimeout(() => {
-        setShowUpload(false)
-        setUploadStep({ type: "idle" })
-      }, 2000)
     } catch (err: any) {
-      setUploadStep({ type: "error", message: err?.message ?? "Failed to create resume." })
+      toast.error(err?.message ?? "Failed to create resume.")
     }
+
+    resetUpload()
   }, [refetch])
 
   const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,12 +315,14 @@ export default function ResumesPage() {
   }
 
   const resetUpload = () => {
-    setUploadStep({ type: "idle" })
+    setUploadPhase("idle")
     setShowUpload(false)
+    setParsedProfile(null)
+    setUploadError(null)
+    pendingFileRef.current = null
   }
 
-  const isUploadBusy =
-    uploadStep.type === "uploading" || uploadStep.type === "creating"
+  const isBusy = uploadPhase === "parsing" || uploadPhase === "extracting"
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -134,7 +336,7 @@ export default function ResumesPage() {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => { setShowUpload(true); setShowCreate(false); setUploadStep({ type: "idle" }) }}
+            onClick={() => { setShowUpload(true); setShowCreate(false); setUploadPhase("idle") }}
           >
             <Upload className="w-4 h-4" />
             Upload Resume
@@ -157,7 +359,7 @@ export default function ResumesPage() {
                   We'll parse your file and populate your profile automatically
                 </p>
               </div>
-              {!isUploadBusy && (
+              {!isBusy && (
                 <button onClick={resetUpload} className="text-muted-foreground hover:text-foreground transition-colors">
                   <X className="w-4 h-4" />
                 </button>
@@ -165,7 +367,7 @@ export default function ResumesPage() {
             </div>
 
             {/* Idle / drag zone */}
-            {uploadStep.type === "idle" && (
+            {uploadPhase === "idle" && (
               <div
                 onDrop={onDrop}
                 onDragOver={onDragOver}
@@ -203,57 +405,38 @@ export default function ResumesPage() {
               </div>
             )}
 
-            {/* Uploading */}
-            {uploadStep.type === "uploading" && (
-              <div className="border-2 border-dashed border-primary/40 rounded-xl p-10 flex flex-col items-center justify-center gap-3 bg-primary/5">
-                <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                <div className="text-center">
-                  <p className="font-semibold text-sm text-primary">Analyzing your resume...</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    This usually takes a few seconds
-                  </p>
-                </div>
+            {/* Parsing / Extracting — stepped progress */}
+            {(uploadPhase === "parsing" || uploadPhase === "extracting") && (
+              <div className="border-2 border-dashed border-indigo-300 dark:border-indigo-700 rounded-xl px-8 pt-8 pb-6 flex flex-col items-center bg-indigo-50/40 dark:bg-indigo-900/10 animate-in fade-in duration-300">
+                <StepIndicator phase={uploadPhase} />
+                <p className="text-xs text-muted-foreground text-center">
+                  {uploadPhase === "parsing"
+                    ? "Reading your document, this only takes a moment…"
+                    : "Pulling out your skills, experience and contact info…"}
+                </p>
               </div>
             )}
 
-            {/* Creating resume */}
-            {uploadStep.type === "creating" && (
-              <div className="border-2 border-dashed border-primary/40 rounded-xl p-10 flex flex-col items-center justify-center gap-3 bg-primary/5">
-                <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                <div className="text-center">
-                  <p className="font-semibold text-sm text-primary">Profile updated! Creating resume...</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Saving as "{uploadStep.name}"
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Success */}
-            {uploadStep.type === "success" && (
-              <div className="border-2 border-dashed border-emerald-400 rounded-xl p-10 flex flex-col items-center justify-center gap-3 bg-emerald-50 dark:bg-emerald-900/10">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-                <div className="text-center">
-                  <p className="font-semibold text-sm text-emerald-700 dark:text-emerald-400">Resume created successfully!</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Your profile has been updated and your resume is ready to tailor.
-                  </p>
-                </div>
+            {/* Done — success card */}
+            {uploadPhase === "done" && (
+              <div className="border-2 border-dashed border-emerald-300 dark:border-emerald-700 rounded-xl px-6 pt-6 pb-5 bg-emerald-50/40 dark:bg-emerald-900/10">
+                <StepIndicator phase="done" />
+                <SuccessCard parsedProfile={parsedProfile} onContinue={handleContinue} />
               </div>
             )}
 
             {/* Error */}
-            {uploadStep.type === "error" && (
+            {uploadPhase === "error" && (
               <div className="border-2 border-dashed border-red-400 rounded-xl p-8 flex flex-col items-center justify-center gap-3 bg-red-50 dark:bg-red-900/10">
                 <AlertCircle className="w-10 h-10 text-red-500" />
                 <div className="text-center">
                   <p className="font-semibold text-sm text-red-700 dark:text-red-400">Upload failed</p>
-                  <p className="text-xs text-muted-foreground mt-1">{uploadStep.message}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{uploadError}</p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setUploadStep({ type: "idle" })}
+                  onClick={() => setUploadPhase("idle")}
                   className="mt-1"
                 >
                   Try again
@@ -304,7 +487,7 @@ export default function ResumesPage() {
           title="No resumes yet"
           description="Upload an existing resume or create a blank one to start tailoring it to job descriptions"
           actionLabel="Upload Resume"
-          onAction={() => { setShowUpload(true); setUploadStep({ type: "idle" }) }}
+          onAction={() => { setShowUpload(true); setUploadPhase("idle") }}
         />
       ) : (
         <div className="space-y-3">

@@ -9,6 +9,7 @@ import { Lightbulb } from "lucide-react"
 interface AtsScorePanelProps {
   atsScore: AtsScore
   jdAnalysis: JDAnalysis | null
+  onInsertKeyword?: (kw: string, target: "skills" | "summary") => void
 }
 
 const SCORE_SECTIONS = [
@@ -19,7 +20,7 @@ const SCORE_SECTIONS = [
   { key: "formatScore", label: "Format" },
 ] as const
 
-export function AtsScorePanel({ atsScore, jdAnalysis }: AtsScorePanelProps) {
+export function AtsScorePanel({ atsScore, jdAnalysis, onInsertKeyword }: AtsScorePanelProps) {
   return (
     <div className="space-y-5">
       {/* Score ring */}
@@ -63,6 +64,8 @@ export function AtsScorePanel({ atsScore, jdAnalysis }: AtsScorePanelProps) {
           matched={atsScore.matchedKeywords}
           missing={atsScore.missingKeywords}
           maxShow={8}
+          onInsertToSkills={onInsertKeyword ? (kw) => onInsertKeyword(kw, "skills") : undefined}
+          onInsertToSummary={onInsertKeyword ? (kw) => onInsertKeyword(kw, "summary") : undefined}
         />
       </div>
 

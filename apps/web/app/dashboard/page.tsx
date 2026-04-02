@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import DashboardShell from "@/components/DashboardShell"
+import DashboardShellLazy from "@/components/DashboardShellLazy"
 
 export const metadata = { title: "Dashboard" }
 
@@ -9,5 +9,5 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  return <DashboardShell user={user} />
+  return <DashboardShellLazy user={user} />
 }
