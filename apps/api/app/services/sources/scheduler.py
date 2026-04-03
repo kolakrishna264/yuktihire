@@ -2,7 +2,7 @@
 import asyncio
 from datetime import datetime, timezone
 from sqlalchemy import select
-from app.core.database import SessionLocal
+from app.core.database import AsyncSessionLocal as SessionLocal
 from app.models.discover import JobSource
 from .remotive import RemotiveAdapter
 from .arbeitnow import ArbeitnowAdapter
