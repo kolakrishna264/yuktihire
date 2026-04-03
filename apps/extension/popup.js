@@ -167,8 +167,34 @@ function sendMessage(msg) {
 
 // Event listeners
 document.addEventListener("DOMContentLoaded", () => {
-  $("#login-btn").onclick = () => {
-    chrome.tabs.create({ url: `${APP_URL}/auth/extension-callback` })
+  $("#login-btn").onclick = async () => {
+    // Open login page. After login, user comes back and clicks extension again.
+    // The popup will then prompt for manual token entry.
+    chrome.tabs.create({ url: `${APP_URL}/auth/login` })
+  }
+
+  // Also add a manual token entry option for reliability
+  const loginState = $("#login-state")
+  if (loginState) {
+    const tokenDiv = document.createElement("div")
+    tokenDiv.style.cssText = "margin-top:12px;padding-top:12px;border-top:1px solid #f3f4f6"
+    tokenDiv.innerHTML = `
+      <p style="font-size:10px;color:#9ca3af;margin-bottom:6px">Or paste your access token:</p>
+      <input id="token-input" class="form-input" placeholder="Paste Supabase access token" style="font-size:11px" />
+      <button id="token-save-btn" class="btn btn-outline" style="margin-top:4px;font-size:11px;padding:6px">Connect</button>
+      <p style="font-size:9px;color:#9ca3af;margin-top:4px">Get token: Open yuktihire.com → F12 → Console → type: (await supabase.auth.getSession()).data.session.access_token</p>
+    `
+    loginState.appendChild(tokenDiv)
+
+    // Defer event listener to next tick
+    setTimeout(() => {
+      document.getElementById("token-save-btn")?.addEventListener("click", async () => {
+        const token = document.getElementById("token-input")?.value?.trim()
+        if (!token) return
+        await sendMessage({ type: "SET_TOKEN", token, refresh: "", expires: 0 })
+        init() // Re-check auth
+      })
+    }, 100)
   }
 
   // Manual save with editable fields
