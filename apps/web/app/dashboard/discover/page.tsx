@@ -166,15 +166,17 @@ export default function DiscoverPage() {
 
   // Client-side freshness filter
   const jobs = rawJobs.filter((job) => {
-    // Freshness filter
-    if (freshnessFilter !== "any" && job.postedAt) {
-      const postedDate = new Date(job.postedAt)
-      const now = new Date()
-      const diffMs = now.getTime() - postedDate.getTime()
-      const diffDays = diffMs / (1000 * 60 * 60 * 24)
-      if (freshnessFilter === "24h" && diffDays > 1) return false
-      if (freshnessFilter === "7d" && diffDays > 7) return false
-      if (freshnessFilter === "30d" && diffDays > 30) return false
+    // Freshness filter — use postedAt or createdAt (ingestion time) as fallback
+    if (freshnessFilter !== "any") {
+      const dateStr = job.postedAt || job.createdAt
+      if (dateStr) {
+        const jobDate = new Date(dateStr)
+        const now = new Date()
+        const diffDays = (now.getTime() - jobDate.getTime()) / (1000 * 60 * 60 * 24)
+        if (freshnessFilter === "24h" && diffDays > 1) return false
+        if (freshnessFilter === "7d" && diffDays > 7) return false
+        if (freshnessFilter === "30d" && diffDays > 30) return false
+      }
     }
     // Title filter (client-side)
     if (debouncedTitle) {

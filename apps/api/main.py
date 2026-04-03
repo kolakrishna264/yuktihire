@@ -145,8 +145,7 @@ async def health():
 
 @app.post("/sync-now")
 async def sync_now(background_tasks: BackgroundTasks):
-    """Public sync trigger — forces immediate job ingestion from all sources."""
-    from fastapi import BackgroundTasks as BT
+    """Public sync trigger — forces immediate job ingestion."""
     async def _run():
         try:
             from app.services.sources.scheduler import run_sync_cycle
@@ -156,7 +155,43 @@ async def sync_now(background_tasks: BackgroundTasks):
             import traceback
             traceback.print_exc()
     background_tasks.add_task(_run)
-    return {"status": "sync_started", "message": "Check /api/v1/discover/debug in 60 seconds"}
+    return {"status": "sync_started"}
+
+
+@app.get("/test-greenhouse")
+async def test_greenhouse():
+    """Test Greenhouse adapter directly and return result or error."""
+    try:
+        from app.services.sources.greenhouse import GreenhouseAdapter
+        adapter = GreenhouseAdapter()
+        jobs = await adapter.fetch_jobs()
+        us_jobs = [j for j in jobs if "remote" in (j.location or "").lower() or "us" in (j.location or "").lower()]
+        return {
+            "status": "ok",
+            "totalFetched": len(jobs),
+            "usJobs": len(us_jobs),
+            "sample": [{"title": j.title, "company": j.company, "location": j.location} for j in jobs[:5]],
+        }
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/test-lever")
+async def test_lever():
+    """Test Lever adapter directly."""
+    try:
+        from app.services.sources.lever import LeverAdapter
+        adapter = LeverAdapter()
+        jobs = await adapter.fetch_jobs()
+        return {
+            "status": "ok",
+            "totalFetched": len(jobs),
+            "sample": [{"title": j.title, "company": j.company, "location": j.location} for j in jobs[:5]],
+        }
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
 
 
 @app.get(API_PREFIX + "/usage")
