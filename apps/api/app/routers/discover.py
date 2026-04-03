@@ -166,8 +166,15 @@ async def search_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        # Fetch ALL jobs matching text/filter criteria via raw SQL
-        conditions = ["is_active = true"]
+        # Exclude German/non-US jobs at SQL level for performance
+        conditions = [
+            "is_active = true",
+            "title NOT LIKE '%%(m/w/d)%%'",
+            "title NOT LIKE '%%(w/m/d)%%'",
+            "title NOT LIKE '%%(all gender)%%'",
+            "company NOT LIKE '%%GmbH%%'",
+            "company NOT LIKE '%%gmbh%%'",
+        ]
         params = {}
 
         if q:
@@ -195,8 +202,8 @@ async def search_jobs(
         elif sort == "company":
             order = "company ASC"
 
-        # Fetch a larger batch so we can filter by country in Python
-        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT 500"
+        # Fetch large batch then filter by country in Python
+        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT 2000"
         result = await db.execute(text(sql), params)
         all_rows = result.mappings().all()
 
@@ -273,6 +280,53 @@ async def search_jobs(
     except Exception as e:
         print(f"[Discover] search error: {e}")
         return {"jobs": [], "total": 0, "page": 1, "perPage": per_page, "totalPages": 0}
+
+
+@router.get("/debug")
+async def debug_counts(db: AsyncSession = Depends(get_db)):
+    """Debug: show job counts by source and country for troubleshooting."""
+    try:
+        # Total jobs
+        total = (await db.execute(text("SELECT COUNT(*) FROM jobs"))).scalar() or 0
+
+        # By source
+        source_counts = []
+        try:
+            result = await db.execute(text("""
+                SELECT js.slug, js.name, COUNT(jsl.id) as cnt, js.last_sync_at
+                FROM job_sources js
+                LEFT JOIN job_source_links jsl ON js.id = jsl.source_id
+                GROUP BY js.id, js.slug, js.name, js.last_sync_at
+                ORDER BY cnt DESC
+            """))
+            for row in result.mappings().all():
+                source_counts.append({
+                    "slug": row["slug"],
+                    "name": row["name"],
+                    "count": row["cnt"],
+                    "lastSync": row["last_sync_at"].isoformat() if row["last_sync_at"] else None,
+                })
+        except Exception as e:
+            source_counts = [{"error": str(e)}]
+
+        # Non-GmbH jobs (US-eligible estimate)
+        us_est = (await db.execute(text("SELECT COUNT(*) FROM jobs WHERE company NOT LIKE '%%GmbH%%' AND company NOT LIKE '%%gmbh%%' AND title NOT LIKE '%%(m/w/d)%%'"))).scalar() or 0
+
+        # Recent jobs (last 24h)
+        recent = 0
+        try:
+            recent = (await db.execute(text("SELECT COUNT(*) FROM jobs WHERE created_at > NOW() - INTERVAL '24 hours'"))).scalar() or 0
+        except Exception:
+            pass
+
+        return {
+            "totalJobs": total,
+            "usEligibleEstimate": us_est,
+            "recentJobs24h": recent,
+            "bySources": source_counts,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @router.get("/sources")
