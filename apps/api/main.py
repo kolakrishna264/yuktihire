@@ -4,7 +4,7 @@ FastAPI application with all routers mounted.
 """
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -141,6 +141,22 @@ app.include_router(extension_router, prefix=API_PREFIX)
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0", "env": settings.app_env}
+
+
+@app.post("/sync-now")
+async def sync_now(background_tasks: BackgroundTasks):
+    """Public sync trigger — forces immediate job ingestion from all sources."""
+    from fastapi import BackgroundTasks as BT
+    async def _run():
+        try:
+            from app.services.sources.scheduler import run_sync_cycle
+            await run_sync_cycle()
+        except Exception as e:
+            print(f"[sync-now] Error: {e}")
+            import traceback
+            traceback.print_exc()
+    background_tasks.add_task(_run)
+    return {"status": "sync_started", "message": "Check /api/v1/discover/debug in 60 seconds"}
 
 
 @app.get(API_PREFIX + "/usage")
