@@ -1,6 +1,9 @@
 // ResumeAI — typed API client for FastAPI backend
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"
+const API_URL = process.env.NEXT_PUBLIC_API_URL
+  || (typeof window !== "undefined" && window.location.hostname !== "localhost"
+    ? "https://api.yuktihire.com/api/v1"
+    : "http://localhost:8000/api/v1")
 
 class ApiError extends Error {
   status: number
