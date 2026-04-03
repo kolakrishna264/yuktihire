@@ -58,7 +58,7 @@ class JobIngestor:
                 industry=job.industry,
                 posted_at=job.posted_at,
                 company_logo_url=job.company_logo_url,
-                metadata={"source_slug": source_slug},
+                extra_data={"source_slug": source_slug},
             )
             self.db.add(new_job)
             await self.db.flush()

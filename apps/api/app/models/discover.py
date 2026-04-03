@@ -26,7 +26,7 @@ class Job(Base):
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     company_logo_url: Mapped[str | None] = mapped_column(String(500))
-    metadata: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    extra_data: Mapped[dict | None] = mapped_column("extra_data", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

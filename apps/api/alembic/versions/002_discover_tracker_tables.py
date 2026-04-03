@@ -42,7 +42,7 @@ def upgrade() -> None:
             sa.Column("posted_at", sa.DateTime(timezone=True)),
             sa.Column("is_active", sa.Boolean(), default=True, index=True),
             sa.Column("company_logo_url", sa.String(500)),
-            sa.Column("metadata", sa.JSON(), default=dict),
+            sa.Column("extra_data", sa.JSON(), default=dict),
             sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
             sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         )
