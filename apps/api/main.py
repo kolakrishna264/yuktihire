@@ -72,7 +72,7 @@ app = FastAPI(
     redoc_url="/redoc" if not settings.is_production else None,
 )
 
-# CORS — allow frontend origins
+# CORS — allow all origins (auth via Bearer tokens, not cookies)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -80,6 +80,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global exception handler — ensures CORS headers on 500 errors
+from fastapi.responses import JSONResponse
+from starlette.requests import Request as StarletteRequest
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: StarletteRequest, exc: Exception):
+    print(f"[ERROR] {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
 
 # Mount all routers
 from app.routers.profiles import router as profiles_router
