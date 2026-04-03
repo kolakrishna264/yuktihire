@@ -57,50 +57,61 @@ _NON_US = {
 }
 
 
-def _detect_country(location: str) -> str:
-    """Detect country. Default is NON_US unless proven US/Remote."""
+def _is_us_job(location: str, company: str = "", title: str = "") -> bool:
+    """Return True only if job is clearly US-based or Remote. Everything else excluded."""
     if not location:
-        return "UNKNOWN"
+        return False
     loc = location.lower().strip()
     if not loc:
-        return "UNKNOWN"
-    # Check US explicitly
+        return False
+    cl = (company or "").lower()
+    tl = (title or "").lower()
+    # Reject German patterns instantly
+    if "gmbh" in cl or "(m/w/d)" in tl or "(w/m/d)" in tl or "(all gender)" in tl:
+        return False
+    # US markers
+    if any(m in loc for m in _US_MARKERS):
+        return True
+    # US states
+    for state in _US_STATES:
+        if state in loc:
+            return True
+    # US abbreviations
+    parts = [p.strip() for p in loc.replace(",", " ").split()]
+    for part in parts:
+        if part in _US_ABBREVS:
+            return True
+    # US cities
+    for city in _US_CITIES:
+        if city in loc:
+            return True
+    # Remote/worldwide = allowed
+    if "remote" in loc or "worldwide" in loc or "anywhere" in loc or "global" in loc:
+        return True
+    # Everything else = not US
+    return False
+
+
+def _detect_country(location: str) -> str:
+    """Simple country label for display badges."""
+    if not location:
+        return ""
+    loc = location.lower().strip()
     if any(m in loc for m in _US_MARKERS):
         return "US"
-    if "remote" in loc and any(m in loc for m in ["us", "usa", "united states", "north america"]):
-        return "REMOTE_US"
     for state in _US_STATES:
         if state in loc:
             return "US"
-    parts = [p.strip().lower() for p in loc.replace(",", " ").split()]
+    parts = [p.strip() for p in loc.replace(",", " ").split()]
     for part in parts:
         if part in _US_ABBREVS:
             return "US"
     for city in _US_CITIES:
         if city in loc:
             return "US"
-    # Check Remote (no specific country)
-    if "remote" in loc or "worldwide" in loc or "anywhere" in loc or "global" in loc:
-        return "REMOTE"
-    # Everything else is NON_US (not UNKNOWN)
-    # This ensures German/EU/unknown cities don't sneak through
-    return "NON_US"
-
-
-def _is_us_eligible(location: str, company: str = "", title: str = "") -> bool:
-    """Check if a job is US-eligible based on location, company, and title."""
-    c = _detect_country(location)
-    if c == "NON_US":
-        return False
-    cl = company.lower() if company else ""
-    tl = title.lower() if title else ""
-    # German company indicators
-    if "gmbh" in cl or "ag " in cl or " ag" in cl:
-        return False
-    # German job title pattern
-    if "(m/w/d)" in tl or "(w/m/d)" in tl or "(all gender)" in tl:
-        return False
-    return True
+    if "remote" in loc or "worldwide" in loc or "anywhere" in loc:
+        return "Remote"
+    return ""
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -136,7 +147,7 @@ def _serialize_row(r, skills=None, sources=None, match=None) -> dict:
         "employmentType": r.get("employment_type"),
         "experienceLevel": r.get("experience_level"),
         "industry": r.get("industry"),
-        "country": "NON_US" if (r.get("company") or "").lower().endswith("gmbh") else _detect_country(loc),
+        "country": _detect_country(loc),
         "postedAt": posted.isoformat() if posted else None,
         "isActive": r.get("is_active", True),
         "companyLogoUrl": r.get("company_logo_url"),
@@ -211,16 +222,8 @@ async def search_jobs(
         result = await db.execute(text(sql), params)
         all_rows = result.mappings().all()
 
-        # Filter by country IN PYTHON (no DB column needed)
-        if country and country != "":
-            if country == "us_eligible":
-                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "", r.get("company") or "", r.get("title") or "")]
-            elif country == "US":
-                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "US"]
-            elif country == "REMOTE_US":
-                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "REMOTE_US"]
-            elif country == "REMOTE":
-                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") in ("REMOTE", "REMOTE_US")]
+        # Always filter to US + Remote jobs only (core product rule)
+        all_rows = [r for r in all_rows if _is_us_job(r.get("location") or "", r.get("company") or "", r.get("title") or "")]
 
         total = len(all_rows)
 

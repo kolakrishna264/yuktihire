@@ -126,7 +126,7 @@ export default function DiscoverPage() {
   const [experienceFilter, setExperienceFilter] = useState("All")
   const [industryFilter, setIndustryFilter] = useState("All")
   const [sourceFilter, setSourceFilter] = useState("All")
-  const [countryFilter, setCountryFilter] = useState("us_eligible")
+  const [countryFilter, setCountryFilter] = useState("")  // No longer needed — backend always US-only
   const [freshnessFilter, setFreshnessFilter] = useState("any")
   const [sortBy, setSortBy] = useState("best_match")
   const [page, setPage] = useState(1)
@@ -352,18 +352,7 @@ export default function DiscoverPage() {
           options={SOURCES as unknown as string[]}
           className="hidden sm:block"
         />
-        <select
-          value={countryFilter}
-          onChange={(e) => { setCountryFilter(e.target.value); setPage(1) }}
-          className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
-          aria-label="Country"
-        >
-          <option value="">All Countries</option>
-          <option value="us_eligible">US & Remote</option>
-          <option value="US">United States Only</option>
-          <option value="REMOTE_US">Remote (US)</option>
-          <option value="REMOTE">Remote (Worldwide)</option>
-        </select>
+        {/* US jobs only — no country toggle needed */}
         <select
           value={freshnessFilter}
           onChange={(e) => setFreshnessFilter(e.target.value)}
