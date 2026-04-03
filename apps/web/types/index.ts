@@ -186,3 +186,100 @@ export interface UsageData {
   resumesMax: number
   periodEnd?: string
 }
+
+// ── Platform: Discover ───────────────────────────────────────────────────
+
+export interface DiscoverJob {
+  id: string
+  title: string
+  company: string
+  location?: string
+  url?: string
+  descriptionText?: string
+  salaryMin?: number
+  salaryMax?: number
+  salaryRaw?: string
+  workType?: string
+  employmentType?: string
+  experienceLevel?: string
+  industry?: string
+  postedAt?: string
+  isActive: boolean
+  companyLogoUrl?: string
+  skills: { name: string; canonical: string; isRequired: boolean }[]
+  sources: { slug: string; name: string; externalId: string; sourceUrl?: string }[]
+  createdAt?: string
+}
+
+export interface DiscoverResponse {
+  jobs: DiscoverJob[]
+  total: number
+  page: number
+  perPage: number
+  totalPages: number
+}
+
+export interface JobSourceInfo {
+  id: string
+  slug: string
+  name: string
+  isActive: boolean
+  lastSyncAt?: string
+}
+
+// ── Platform: Tracker ────────────────────────────────────────────────────
+
+export type PipelineStage =
+  | "INTERESTED"
+  | "SHORTLISTED"
+  | "RESUME_TAILORED"
+  | "READY_TO_APPLY"
+  | "APPLIED"
+  | "PHONE_SCREEN"
+  | "INTERVIEWING"
+  | "OFFER"
+  | "REJECTED"
+  | "WITHDRAWN"
+  | "ARCHIVED"
+
+export interface TrackedJob {
+  id: string
+  jobId?: string
+  title: string
+  company: string
+  url?: string
+  location?: string
+  salary?: string
+  notes?: string
+  source?: string
+  workType?: string
+  experienceLevel?: string
+  industry?: string
+  skills: string[]
+  description?: string
+  pipelineStage: PipelineStage
+  priority: number
+  resumeUsed?: string
+  resumeVersionId?: string
+  nextActionDate?: string
+  archived: boolean
+  appliedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface KanbanData {
+  stages: Record<PipelineStage, { count: number; jobs: TrackedJob[] }>
+}
+
+export interface ApplicationEvent {
+  id: string
+  eventType: string
+  oldValue?: string
+  newValue?: string
+  title?: string
+  description?: string
+  metadata: Record<string, unknown>
+  eventDate?: string
+  createdAt: string
+}

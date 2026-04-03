@@ -7,8 +7,10 @@ import { cn } from "@/lib/utils/cn"
 import {
   LayoutDashboard,
   Search,
-  PlusCircle,
-  CheckCircle2,
+  Kanban,
+  FileText,
+  Wand2,
+  BarChart3,
   User,
   Settings,
   Zap,
@@ -19,10 +21,12 @@ import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/dashboard/job-board", label: "Job Board", icon: Search },
-  { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
-  { href: "/dashboard/applied", label: "Applied", icon: CheckCircle2 },
-  { href: "/dashboard/resumes", label: "Profile & Resume", icon: User },
+  { href: "/dashboard/discover", label: "Discover", icon: Search },
+  { href: "/dashboard/tracker", label: "Tracker", icon: Kanban },
+  { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
+  { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
+  { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
+  { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]
 

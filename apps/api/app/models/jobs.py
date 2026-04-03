@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, Enum as SAEnum, func
+from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, Enum as SAEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -14,6 +14,20 @@ class ApplicationStatus(str, enum.Enum):
     OFFER = "OFFER"
     REJECTED = "REJECTED"
     WITHDRAWN = "WITHDRAWN"
+
+
+class PipelineStage(str, enum.Enum):
+    INTERESTED = "INTERESTED"
+    SHORTLISTED = "SHORTLISTED"
+    RESUME_TAILORED = "RESUME_TAILORED"
+    READY_TO_APPLY = "READY_TO_APPLY"
+    APPLIED = "APPLIED"
+    PHONE_SCREEN = "PHONE_SCREEN"
+    INTERVIEWING = "INTERVIEWING"
+    OFFER = "OFFER"
+    REJECTED = "REJECTED"
+    WITHDRAWN = "WITHDRAWN"
+    ARCHIVED = "ARCHIVED"
 
 
 class JobApplication(Base):
@@ -43,6 +57,14 @@ class JobApplication(Base):
     description: Mapped[str | None] = mapped_column(Text)              # Job description snippet
     external_job_id: Mapped[str | None] = mapped_column(String(100))   # e.g. "rem-12345"
     posted_at: Mapped[str | None] = mapped_column(String(50))          # "Apr 2, 2026" as stored
+
+    # Platform columns
+    job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), index=True)
+    pipeline_stage: Mapped[PipelineStage | None] = mapped_column(SAEnum(PipelineStage), default=PipelineStage.INTERESTED, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    resume_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("resume_versions.id"))
+    next_action_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship("User", back_populates="job_applications")
     job_description: Mapped["JobDescription"] = relationship("JobDescription", back_populates="applications")

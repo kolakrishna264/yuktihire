@@ -2,6 +2,7 @@
 YuktiHire API — Main Entry Point
 FastAPI application with all routers mounted.
 """
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,7 @@ from app.core.database import engine, get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.models.billing import UsageLimit
-from app.models import user, profile, resume, tailoring, billing, jobs  # register models
+from app.models import user, profile, resume, tailoring, billing, jobs, discover, tracker  # register models
 
 settings = get_settings()
 
@@ -25,6 +26,28 @@ async def lifespan(app: FastAPI):
     from app.core.database import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Schedule initial job sync (non-blocking)
+    async def _initial_sync():
+        try:
+            await asyncio.sleep(2)  # Let app fully start
+            from app.core.database import SessionLocal
+            from app.services.sources.remotive import RemotiveAdapter
+            from app.services.sources.arbeitnow import ArbeitnowAdapter
+            from app.services.sources.ingestor import JobIngestor
+            async with SessionLocal() as session:
+                ingestor = JobIngestor(session)
+                for adapter in [RemotiveAdapter(), ArbeitnowAdapter()]:
+                    try:
+                        jobs = await adapter.fetch_jobs()
+                        new, updated = await ingestor.ingest_batch(jobs, adapter.slug)
+                        print(f"[Startup] {adapter.name}: {new} new, {updated} updated")
+                    except Exception as e:
+                        print(f"[Startup] {adapter.name} sync failed: {e}")
+        except Exception as e:
+            print(f"[Startup] Initial sync failed: {e}")
+
+    asyncio.create_task(_initial_sync())
+
     yield
     await engine.dispose()
 
@@ -60,6 +83,8 @@ from app.routers.tailor import router as tailor_router
 from app.routers.exports import router as exports_router
 from app.routers.billing import router as billing_router
 from app.routers.job_board import router as job_board_router
+from app.routers.discover import router as discover_router
+from app.routers.tracker import router as tracker_router
 
 API_PREFIX = "/api/v1"
 
@@ -71,6 +96,8 @@ app.include_router(tailor_router, prefix=API_PREFIX)
 app.include_router(exports_router, prefix=API_PREFIX)
 app.include_router(billing_router, prefix=API_PREFIX)
 app.include_router(job_board_router, prefix=API_PREFIX)
+app.include_router(discover_router, prefix=API_PREFIX)
+app.include_router(tracker_router, prefix=API_PREFIX)
 
 
 @app.get("/health")
