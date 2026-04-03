@@ -1,6 +1,6 @@
 // YuktiHire Extension — Background Service Worker
-const API_BASE = "http://localhost:8000/api/v1"
-const APP_URL = "http://localhost:3000"
+const API_BASE = "https://api.yuktihire.com/api/v1"
+const APP_URL = "https://yuktihire.com"
 
 // ── Token Management ──────────────────────────────────────────────────────
 

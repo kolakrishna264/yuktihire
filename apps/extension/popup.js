@@ -1,6 +1,6 @@
 // YuktiHire Extension Popup
 
-const APP_URL = "http://localhost:3000"  // Change to https://yuktihire.com for release
+const APP_URL = "https://yuktihire.com"
 
 const $ = (sel) => document.querySelector(sel)
 
