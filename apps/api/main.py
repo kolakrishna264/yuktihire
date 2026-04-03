@@ -143,6 +143,20 @@ async def health():
     return {"status": "ok", "version": "1.0.0", "env": settings.app_env}
 
 
+@app.get("/debug-jobs")
+async def debug_jobs(db: AsyncSession = Depends(get_db)):
+    """Debug: count user jobs in job_applications table."""
+    from sqlalchemy import text
+    try:
+        result = await db.execute(text("SELECT COUNT(*) FROM job_applications"))
+        total = result.scalar() or 0
+        result2 = await db.execute(text("SELECT id, role, company, status, source, created_at FROM job_applications ORDER BY created_at DESC LIMIT 5"))
+        rows = [dict(r) for r in result2.mappings().all()]
+        return {"totalApplications": total, "recent": rows}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/sync-now")
 async def sync_now(background_tasks: BackgroundTasks):
     """Public sync trigger — forces immediate job ingestion."""
