@@ -52,13 +52,17 @@ async def run_bulk_sync():
         total_updated = 0
         for adapter in ADAPTERS:
             try:
+                print(f"[Bulk] Starting {adapter.name}...")
                 jobs = await adapter.fetch_jobs()
+                print(f"[Bulk] {adapter.name} fetched {len(jobs)} jobs, ingesting...")
                 new, updated = await ingestor.ingest_batch(jobs, adapter.slug)
                 total_new += new
                 total_updated += updated
                 print(f"[Bulk] {adapter.name}: {new} new, {updated} updated ({len(jobs)} fetched)")
             except Exception as e:
-                print(f"[Bulk] {adapter.name} failed: {e}")
+                import traceback
+                print(f"[Bulk] {adapter.name} FAILED: {e}")
+                traceback.print_exc()
         print(f"[Bulk] Complete: {total_new} new, {total_updated} updated")
         return total_new, total_updated
 

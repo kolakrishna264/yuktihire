@@ -79,8 +79,8 @@ class GreenhouseAdapter(BaseSourceAdapter):
             except Exception:
                 return []
 
-        # Fetch boards in parallel batches of 10
-        async with httpx.AsyncClient(timeout=15) as client:
+        # Fetch boards in parallel batches of 10 (30s timeout for slow networks)
+        async with httpx.AsyncClient(timeout=30) as client:
             for i in range(0, len(GREENHOUSE_BOARDS), 10):
                 batch = GREENHOUSE_BOARDS[i:i+10]
                 results = await asyncio.gather(

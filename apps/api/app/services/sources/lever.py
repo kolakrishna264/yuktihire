@@ -71,7 +71,7 @@ class LeverAdapter(BaseSourceAdapter):
                 return []
 
         # Fetch in parallel batches of 10
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             for i in range(0, len(LEVER_COMPANIES), 10):
                 batch = LEVER_COMPANIES[i:i+10]
                 results = await asyncio.gather(
