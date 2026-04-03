@@ -140,12 +140,12 @@ def _parse_json_array(val: str | None) -> list[str]:
 
 
 def score_job_dict(job_data: dict, prefs) -> dict:
-    """Score a job dict (from raw SQL) against preferences. Returns dict with score/badges/reasons."""
+    """Score a job dict against preferences. Weights: title=40, skills=30, location=10, work_type=10, freshness=10."""
     if not prefs:
-        return {"score": 50, "badges": [], "reasons": ["Set preferences for matches"]}
+        return {"score": 0, "badges": [], "reasons": ["Set preferences for matches"]}
 
     score = 0
-    max_score = 0
+    max_score = 100  # Always out of 100
     reasons = []
     badges = []
 
@@ -158,19 +158,36 @@ def score_job_dict(job_data: dict, prefs) -> dict:
     title = (job_data.get("title") or "").lower()
     loc = (job_data.get("location") or "").lower()
     wt = (job_data.get("workType") or job_data.get("work_type") or "").lower()
-    ind = (job_data.get("industry") or "").lower()
 
+    # 1. TITLE MATCH (40 points) — most important
     if pref_titles:
-        max_score += 30
+        best_title_score = 0
         for pt in pref_titles:
-            if pt.lower() in title:
-                score += 30
+            pt_lower = pt.lower()
+            if pt_lower == title or title.startswith(pt_lower) or title.endswith(pt_lower):
+                best_title_score = 40  # Exact match
+                reasons.append(f"Exact title: {pt}")
+                badges.append("Best Match")
+                break
+            elif pt_lower in title:
+                best_title_score = max(best_title_score, 35)  # Contains match
                 reasons.append(f"Title: {pt}")
                 badges.append("Title Match")
-                break
+            else:
+                # Partial word overlap (e.g., "ML Engineer" matches "Senior ML Engineer")
+                pt_words = set(pt_lower.split())
+                title_words = set(title.split())
+                overlap = pt_words & title_words
+                if len(overlap) >= 2 or (len(overlap) == 1 and len(pt_words) == 1):
+                    word_score = int(30 * len(overlap) / len(pt_words))
+                    if word_score > best_title_score:
+                        best_title_score = word_score
+                        reasons.append(f"Similar: {pt}")
+                        badges.append("Title Match")
+        score += best_title_score
 
+    # 2. SKILLS MATCH (30 points)
     if pref_skills:
-        max_score += 25
         skills = job_data.get("skills", [])
         skill_names = set()
         for s in skills:
@@ -178,41 +195,64 @@ def score_job_dict(job_data: dict, prefs) -> dict:
                 skill_names.add((s.get("canonical") or s.get("name") or "").lower())
             elif isinstance(s, str):
                 skill_names.add(s.lower())
-        overlap = skill_names & {s.lower() for s in pref_skills}
-        if len(overlap) >= 3:
-            score += 25
-            badges.append("Strong Skills")
-            reasons.append(f"{len(overlap)} skills match")
-        elif overlap:
-            score += int(25 * len(overlap) / len(pref_skills))
-            badges.append("Skill Match")
+        pref_set = {s.lower() for s in pref_skills}
+        overlap = skill_names & pref_set
+        if overlap:
+            skill_score = min(30, int(30 * len(overlap) / max(3, len(pref_set))))
+            score += skill_score
+            if len(overlap) >= 3:
+                badges.append("Strong Skills")
+                reasons.append(f"{len(overlap)} skills match")
+            else:
+                badges.append("Skill Match")
+                reasons.append(f"Skills: {', '.join(list(overlap)[:3])}")
 
+    # 3. WORK TYPE (10 points)
     if pref_work_types:
-        max_score += 15
-        if wt in [w.lower() for w in pref_work_types]:
-            score += 15
+        if wt and wt in [w.lower() for w in pref_work_types]:
+            score += 10
             badges.append(job_data.get("workType") or "Remote")
 
+    # 4. LOCATION (10 points)
     if pref_locations:
-        max_score += 15
         for pl in pref_locations:
-            if pl.lower() in loc or ("remote" in pl.lower() and "remote" in loc):
-                score += 15
+            pl_lower = pl.lower()
+            if pl_lower in loc or ("remote" in pl_lower and "remote" in loc):
+                score += 10
                 badges.append("Location")
                 break
+            if any(us in pl_lower for us in ["us", "united states"]) and any(us in loc for us in ["us", "usa", "united states"]):
+                score += 10
+                badges.append("US")
+                break
 
-    if pref_industries:
-        max_score += 10
-        if ind and ind in [i.lower() for i in pref_industries]:
-            score += 10
-            badges.append("Industry")
+    # 5. FRESHNESS (10 points) — newer jobs score higher
+    posted = job_data.get("postedAt")
+    if posted:
+        try:
+            from datetime import datetime, timezone
+            if isinstance(posted, str):
+                posted_dt = datetime.fromisoformat(posted.replace("Z", "+00:00"))
+            else:
+                posted_dt = posted
+            days_old = (datetime.now(timezone.utc) - posted_dt).days
+            if days_old <= 1:
+                score += 10
+            elif days_old <= 3:
+                score += 8
+            elif days_old <= 7:
+                score += 5
+            elif days_old <= 14:
+                score += 3
+        except Exception:
+            pass
 
-    if max_score == 0:
-        return {"score": 50, "badges": [], "reasons": ["Set more preferences"]}
+    # Cap at 100
+    final = min(100, max(0, score))
 
-    final = min(100, max(0, int(score / max_score * 100)))
     if not reasons:
-        reasons = ["No strong matches"]
+        reasons = ["Low match — update preferences for better results"]
+
     return {"score": final, "badges": badges, "reasons": reasons}
 
 

@@ -9,18 +9,19 @@ from .arbeitnow import ArbeitnowAdapter
 from .remoteok import RemoteOKAdapter
 from .jobicy import JobicyAdapter
 from .greenhouse import GreenhouseAdapter
+from .lever import LeverAdapter
 from .themuse import TheMuseAdapter
 from .ingestor import JobIngestor
 from .title_strategy import run_targeted_ingestion
 
-# All source adapters — Greenhouse and The Muse are the most valuable for US jobs
+# All source adapters — ordered by US job volume
 ADAPTERS = [
-    GreenhouseAdapter(),   # 50 top tech company boards — most US jobs
+    GreenhouseAdapter(),   # 50 top tech company boards — 2000+ US jobs
+    LeverAdapter(),        # 30 tech companies — 500+ US jobs
     TheMuseAdapter(),      # US-focused with category filter
     RemotiveAdapter(),     # Remote-first, many US-eligible
     RemoteOKAdapter(),     # Remote tech jobs
     JobicyAdapter(),       # Remote jobs with salary data
-    # ArbeitnowAdapter(), — mostly German jobs, disabled for US-first platform
 ]
 
 BULK_INTERVAL = 900  # 15 minutes
