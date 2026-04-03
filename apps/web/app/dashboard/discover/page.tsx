@@ -126,6 +126,7 @@ export default function DiscoverPage() {
   const [experienceFilter, setExperienceFilter] = useState("All")
   const [industryFilter, setIndustryFilter] = useState("All")
   const [sourceFilter, setSourceFilter] = useState("All")
+  const [countryFilter, setCountryFilter] = useState("us_eligible")
   const [freshnessFilter, setFreshnessFilter] = useState("any")
   const [sortBy, setSortBy] = useState("best_match")
   const [page, setPage] = useState(1)
@@ -147,7 +148,7 @@ export default function DiscoverPage() {
   // Reset page on filter/sort change
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, debouncedTitle, workTypeFilter, experienceFilter, industryFilter, sourceFilter, freshnessFilter, sortBy])
+  }, [debouncedSearch, debouncedTitle, workTypeFilter, experienceFilter, industryFilter, sourceFilter, countryFilter, freshnessFilter, sortBy])
 
   const { data, isLoading, error, refetch } = useDiscover({
     q: debouncedSearch || undefined,
@@ -155,6 +156,7 @@ export default function DiscoverPage() {
     experienceLevel: experienceFilter !== "All" ? experienceFilter : undefined,
     industry: industryFilter !== "All" ? industryFilter : undefined,
     source: sourceFilter !== "All" ? sourceFilter : undefined,
+    country: countryFilter || undefined,
     sort: sortBy,
     page,
     perPage: 20,
@@ -351,6 +353,18 @@ export default function DiscoverPage() {
           className="hidden sm:block"
         />
         <select
+          value={countryFilter}
+          onChange={(e) => { setCountryFilter(e.target.value); setPage(1) }}
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
+          aria-label="Country"
+        >
+          <option value="">All Countries</option>
+          <option value="us_eligible">US & Remote</option>
+          <option value="US">United States Only</option>
+          <option value="REMOTE_US">Remote (US)</option>
+          <option value="REMOTE">Remote (Worldwide)</option>
+        </select>
+        <select
           value={freshnessFilter}
           onChange={(e) => setFreshnessFilter(e.target.value)}
           className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
@@ -504,6 +518,18 @@ export default function DiscoverPage() {
                           >
                             {sourceName}
                           </span>
+                        )}
+                        {job.country === "US" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">US</span>
+                        )}
+                        {job.country === "REMOTE_US" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Remote US</span>
+                        )}
+                        {job.country === "REMOTE" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">Remote</span>
+                        )}
+                        {job.country === "NON_US" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">International</span>
                         )}
                       </div>
 

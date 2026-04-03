@@ -66,14 +66,36 @@ async def score_job(job: Job, job_skills: list[JobSkill], prefs: UserPreference 
             badges.append(job.work_type)
 
     if pref_locations:
-        max_score += 10
+        max_score += 15  # Increased weight for location relevance
         loc_lower = (job.location or "").lower()
+        from app.services.sources.location_normalizer import detect_country, is_us_eligible
+        job_country = job.country if hasattr(job, 'country') and job.country else detect_country(job.location or "")
+
         for pl in pref_locations:
-            if pl.lower() in loc_lower or ("remote" in pl.lower() and "remote" in loc_lower):
-                score += 10
+            pl_lower = pl.lower()
+            # Direct location match
+            if pl_lower in loc_lower:
+                score += 15
                 reasons.append(f"Location: {pl}")
                 badges.append("Location")
                 break
+            # "Remote" preference matches remote-eligible jobs
+            if "remote" in pl_lower and ("remote" in loc_lower or job_country in ("REMOTE", "REMOTE_US")):
+                score += 15
+                reasons.append("Remote eligible")
+                badges.append("Remote")
+                break
+            # US preference matches US jobs
+            if any(us in pl_lower for us in ["us", "united states", "america"]) and job_country in ("US", "REMOTE_US"):
+                score += 15
+                reasons.append("US-based")
+                badges.append("US")
+                break
+        else:
+            # Penalize non-US jobs when user prefers US
+            us_prefs = [p for p in pref_locations if any(us in p.lower() for us in ["us", "united states", "remote", "texas", "california", "new york"])]
+            if us_prefs and job_country == "NON_US":
+                score -= 5  # Negative penalty
 
     if pref_industries:
         max_score += 10

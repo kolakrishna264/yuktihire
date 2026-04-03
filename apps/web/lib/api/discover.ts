@@ -9,6 +9,7 @@ export const discoverApi = {
     industry?: string
     salary_min?: number
     source?: string
+    country?: string
     sort?: string
     page?: number
     per_page?: number
@@ -21,6 +22,7 @@ export const discoverApi = {
     if (params?.industry) sp.set("industry", params.industry)
     if (params?.salary_min) sp.set("salary_min", String(params.salary_min))
     if (params?.source) sp.set("source", params.source)
+    if (params?.country) sp.set("country", params.country)
     if (params?.sort) sp.set("sort", params.sort)
     if (params?.page) sp.set("page", String(params.page))
     if (params?.per_page) sp.set("per_page", String(params.per_page))

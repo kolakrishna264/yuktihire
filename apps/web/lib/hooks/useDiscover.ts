@@ -10,6 +10,7 @@ interface DiscoverParams {
   industry?: string
   salaryMin?: number
   source?: string
+  country?: string
   sort?: string
   page?: number
   perPage?: number
@@ -27,6 +28,7 @@ export function useDiscover(params?: DiscoverParams) {
         industry: params?.industry,
         salary_min: params?.salaryMin,
         source: params?.source,
+        country: params?.country,
         sort: params?.sort || "newest",
         page: params?.page || 1,
         per_page: params?.perPage || 20,

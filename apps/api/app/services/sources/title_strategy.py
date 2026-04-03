@@ -2,6 +2,7 @@
 import asyncio
 from .remotive import RemotiveAdapter, REMOTIVE_CATEGORIES
 from .remoteok import RemoteOKAdapter
+from .jobicy import JobicyAdapter
 from .ingestor import JobIngestor
 
 TARGET_TITLES = [
@@ -20,6 +21,13 @@ REMOTEOK_TAGS = [
     "engineer", "developer", "data", "devops", "python", "javascript",
     "react", "backend", "frontend", "machine-learning", "ai",
     "cloud", "security", "qa", "analyst", "sre",
+]
+
+# Key search tags for Jobicy (remote jobs with tag matching)
+JOBICY_TAGS = [
+    "software-engineer", "data-engineer", "data-scientist", "machine-learning",
+    "devops", "frontend", "backend", "full-stack", "cloud", "ai",
+    "python", "react", "security", "qa",
 ]
 
 
@@ -59,6 +67,22 @@ async def run_targeted_ingestion(ingestor: JobIngestor) -> dict:
             stats["errors"] += 1
             print(f"[Targeted] RemoteOK '{tag}' error: {e}")
 
-    stats["sources_processed"] = len(REMOTIVE_CATEGORIES) + len(REMOTEOK_TAGS)
+    # 3. Jobicy: fetch by tags
+    jobicy = JobicyAdapter()
+    for tag in JOBICY_TAGS:
+        try:
+            jobs = await jobicy.fetch_jobs(search=tag)
+            if jobs:
+                new, updated = await ingestor.ingest_batch(jobs, jobicy.slug)
+                stats["total_new"] += new
+                stats["total_updated"] += updated
+                if new > 0:
+                    print(f"[Targeted] Jobicy tag '{tag}': {new} new")
+            await asyncio.sleep(1)
+        except Exception as e:
+            stats["errors"] += 1
+            print(f"[Targeted] Jobicy '{tag}' error: {e}")
+
+    stats["sources_processed"] = len(REMOTIVE_CATEGORIES) + len(REMOTEOK_TAGS) + len(JOBICY_TAGS)
     print(f"[Targeted] Complete: {stats['total_new']} new, {stats['total_updated']} updated")
     return stats

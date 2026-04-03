@@ -14,6 +14,7 @@ class Job(Base):
     company: Mapped[str] = mapped_column(String(255), nullable=False)
     company_normalized: Mapped[str | None] = mapped_column(String(255), index=True)
     location: Mapped[str | None] = mapped_column(String(255))
+    country: Mapped[str | None] = mapped_column(String(20), index=True)  # US, REMOTE_US, REMOTE, NON_US, UNKNOWN
     url: Mapped[str | None] = mapped_column(String(1000))
     description_text: Mapped[str | None] = mapped_column(Text)
     salary_min: Mapped[int | None] = mapped_column(Integer)

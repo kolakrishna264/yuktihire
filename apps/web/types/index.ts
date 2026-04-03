@@ -209,6 +209,7 @@ export interface DiscoverJob {
   skills: { name: string; canonical: string; isRequired: boolean }[]
   sources: { slug: string; name: string; externalId: string; sourceUrl?: string }[]
   createdAt?: string
+  country?: string  // US, REMOTE_US, REMOTE, NON_US, UNKNOWN
   matchScore?: number
   matchBadges?: string[]
   matchReasons?: string[]

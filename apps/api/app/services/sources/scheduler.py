@@ -7,6 +7,7 @@ from app.models.discover import JobSource
 from .remotive import RemotiveAdapter
 from .arbeitnow import ArbeitnowAdapter
 from .remoteok import RemoteOKAdapter
+from .jobicy import JobicyAdapter
 from .ingestor import JobIngestor
 from .title_strategy import run_targeted_ingestion
 
@@ -14,6 +15,7 @@ ADAPTERS = [
     RemotiveAdapter(),
     ArbeitnowAdapter(),
     RemoteOKAdapter(),
+    JobicyAdapter(),
 ]
 
 BULK_INTERVAL = 900  # 15 minutes

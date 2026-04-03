@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.discover import Job, JobSource, JobSourceLink, JobSkill
 from .base import NormalizedJob, compute_fingerprint
 from .skill_extractor import extract_skills_from_tags
+from .location_normalizer import detect_country
 
 
 class JobIngestor:
@@ -59,6 +60,7 @@ class JobIngestor:
                 posted_at=job.posted_at,
                 company_logo_url=job.company_logo_url,
                 extra_data={"source_slug": source_slug},
+                country=detect_country(job.location),
             )
             self.db.add(new_job)
             await self.db.flush()
@@ -86,6 +88,8 @@ class JobIngestor:
             existing.work_type = new.work_type
         if not existing.experience_level and new.experience_level:
             existing.experience_level = new.experience_level
+        if not existing.country:
+            existing.country = detect_country(existing.location or "")
         existing.updated_at = datetime.now(timezone.utc)
 
     async def _ensure_source_link(self, job_id: str, source_id: str, job: NormalizedJob):
