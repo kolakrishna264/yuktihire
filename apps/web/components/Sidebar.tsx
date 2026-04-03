@@ -6,11 +6,10 @@ import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils/cn"
 import {
   LayoutDashboard,
-  Search,
-  Kanban,
+  Briefcase,
+  PlusCircle,
   FileText,
   Wand2,
-  BarChart3,
   Chrome,
   User,
   Settings,
@@ -22,12 +21,11 @@ import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
-  { href: "/dashboard/discover", label: "Discover Jobs", icon: Search },
-  { href: "/dashboard/tracker", label: "Pipeline", icon: Kanban },
-  { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
-  { href: "/dashboard/tailor", label: "Tailoring Studio", icon: Wand2, highlight: true },
-  { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
-  { href: "/dashboard/extension", label: "Browser Assist", icon: Chrome },
+  { href: "/dashboard/jobs", label: "My Jobs", icon: Briefcase },
+  { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
+  { href: "/dashboard/tailor", label: "Tailor Resume", icon: Wand2, highlight: true },
+  { href: "/dashboard/resumes", label: "My Resumes", icon: FileText },
+  { href: "/dashboard/extension", label: "Get Extension", icon: Chrome },
   { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]
