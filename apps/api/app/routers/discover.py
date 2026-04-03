@@ -1,4 +1,4 @@
-"""Discover Router — Job search and discovery using raw SQL for DB compatibility."""
+"""Discover Router — Job search and discovery using raw SQL."""
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException, Request
@@ -12,8 +12,79 @@ from app.models.discover import JobSource, JobSourceLink, JobSkill
 router = APIRouter(prefix="/discover", tags=["discover"])
 
 
+# ── Location helpers (inline to avoid import issues) ─────────────────────
+
+_US_MARKERS = {"united states", "usa", ", us", " us,", "(us)", "u.s."}
+_US_STATES = {
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+    "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana",
+    "maine", "maryland", "massachusetts", "michigan", "minnesota",
+    "mississippi", "missouri", "montana", "nebraska", "nevada",
+    "new hampshire", "new jersey", "new mexico", "new york",
+    "north carolina", "north dakota", "ohio", "oklahoma", "oregon",
+    "pennsylvania", "rhode island", "south carolina", "south dakota",
+    "tennessee", "texas", "utah", "vermont", "virginia", "washington",
+    "west virginia", "wisconsin", "wyoming",
+}
+_US_ABBREVS = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+    "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+    "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+    "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+    "wi", "wy", "dc",
+}
+_US_CITIES = {
+    "new york", "los angeles", "chicago", "houston", "phoenix", "san francisco",
+    "seattle", "denver", "boston", "atlanta", "miami", "austin", "dallas",
+    "san diego", "san jose", "portland", "nashville", "charlotte", "tampa",
+    "minneapolis", "raleigh", "salt lake city", "arlington", "columbus",
+}
+_NON_US = {
+    "united kingdom", "uk", "london", "manchester", "england", "scotland",
+    "germany", "berlin", "munich", "frankfurt", "hamburg",
+    "france", "paris", "netherlands", "amsterdam", "spain", "madrid",
+    "italy", "rome", "milan", "sweden", "stockholm",
+    "canada", "toronto", "vancouver", "montreal",
+    "australia", "sydney", "melbourne", "india", "bangalore", "mumbai",
+    "singapore", "japan", "tokyo", "brazil", "europe", "emea", "apac",
+}
+
+
+def _detect_country(location: str) -> str:
+    if not location:
+        return "UNKNOWN"
+    loc = location.lower().strip()
+    if any(m in loc for m in _US_MARKERS):
+        return "US"
+    if "remote" in loc and any(m in loc for m in ["us", "usa", "united states", "north america"]):
+        return "REMOTE_US"
+    for state in _US_STATES:
+        if state in loc:
+            return "US"
+    parts = [p.strip().lower() for p in loc.replace(",", " ").split()]
+    for part in parts:
+        if part in _US_ABBREVS:
+            return "US"
+    for city in _US_CITIES:
+        if city in loc:
+            return "US"
+    for marker in _NON_US:
+        if marker in loc:
+            return "NON_US"
+    if "remote" in loc or "worldwide" in loc or "anywhere" in loc:
+        return "REMOTE"
+    return "UNKNOWN"
+
+
+def _is_us_eligible(location: str) -> bool:
+    c = _detect_country(location)
+    return c in ("US", "REMOTE_US", "REMOTE", "UNKNOWN")
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────
+
 async def get_optional_user(request: Request):
-    """Try to resolve user from auth header. Returns None if unauthenticated."""
     try:
         auth = request.headers.get("authorization", "")
         if not auth.startswith("Bearer "):
@@ -27,14 +98,14 @@ async def get_optional_user(request: Request):
 
 
 def _serialize_row(r, skills=None, sources=None, match=None) -> dict:
-    """Serialize a raw SQL row mapping safely."""
     posted = r.get("posted_at")
     created = r.get("created_at")
+    loc = r.get("location") or ""
     data = {
         "id": r.get("id"),
         "title": r.get("title", ""),
         "company": r.get("company", ""),
-        "location": r.get("location"),
+        "location": loc,
         "url": r.get("url"),
         "descriptionText": (r.get("description_text") or "")[:500],
         "salaryMin": r.get("salary_min"),
@@ -44,7 +115,7 @@ def _serialize_row(r, skills=None, sources=None, match=None) -> dict:
         "employmentType": r.get("employment_type"),
         "experienceLevel": r.get("experience_level"),
         "industry": r.get("industry"),
-        "country": r.get("country"),
+        "country": _detect_country(loc),
         "postedAt": posted.isoformat() if posted else None,
         "isActive": r.get("is_active", True),
         "companyLogoUrl": r.get("company_logo_url"),
@@ -53,16 +124,18 @@ def _serialize_row(r, skills=None, sources=None, match=None) -> dict:
         "createdAt": created.isoformat() if created else None,
     }
     if match:
-        data["matchScore"] = match.score
-        data["matchBadges"] = match.badges
-        data["matchReasons"] = match.reasons[:2]
+        data["matchScore"] = match.get("score", 0)
+        data["matchBadges"] = match.get("badges", [])
+        data["matchReasons"] = match.get("reasons", [])[:2]
     return data
 
+
+# ── Endpoints ────────────────────────────────────────────────────────────
 
 @router.get("")
 async def search_jobs(
     request: Request,
-    q: Optional[str] = Query(None, description="Search query"),
+    q: Optional[str] = Query(None),
     work_type: Optional[str] = Query(None),
     location: Optional[str] = Query(None),
     experience_level: Optional[str] = Query(None),
@@ -75,112 +148,103 @@ async def search_jobs(
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search and filter jobs using raw SQL for maximum DB compatibility."""
     try:
-        # Build WHERE clauses dynamically
+        # Fetch ALL jobs matching text/filter criteria via raw SQL
         conditions = ["is_active = true"]
         params = {}
 
         if q:
             conditions.append("(lower(title) LIKE :q OR lower(company) LIKE :q OR lower(COALESCE(location,'')) LIKE :q)")
             params["q"] = f"%{q.lower()}%"
-
         if work_type and work_type != "All":
             conditions.append("lower(COALESCE(work_type,'')) = :wt")
             params["wt"] = work_type.lower()
-
         if location:
             conditions.append("lower(COALESCE(location,'')) LIKE :loc")
             params["loc"] = f"%{location.lower()}%"
-
         if experience_level and experience_level != "All":
             conditions.append("experience_level = :exp")
             params["exp"] = experience_level
-
         if industry and industry != "All":
             conditions.append("lower(COALESCE(industry,'')) LIKE :ind")
             params["ind"] = f"%{industry.lower()}%"
 
         where_clause = " AND ".join(conditions)
-
-        # Count
-        count_sql = f"SELECT COUNT(*) FROM jobs WHERE {where_clause}"
-        count_result = await db.execute(text(count_sql), params)
-        total = count_result.scalar() or 0
-
-        # Sort
         order = "posted_at DESC NULLS LAST, created_at DESC"
         if sort == "oldest":
             order = "posted_at ASC NULLS LAST"
         elif sort == "salary":
-            order = "salary_max DESC NULLS LAST, posted_at DESC NULLS LAST"
+            order = "salary_max DESC NULLS LAST"
         elif sort == "company":
             order = "company ASC"
 
-        # Paginate
-        offset = (page - 1) * per_page
-        params["limit"] = per_page
-        params["offset"] = offset
-
-        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT :limit OFFSET :offset"
+        # Fetch a larger batch so we can filter by country in Python
+        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT 500"
         result = await db.execute(text(sql), params)
-        rows = result.mappings().all()
+        all_rows = result.mappings().all()
 
-        # Batch-load skills
+        # Filter by country IN PYTHON (no DB column needed)
+        if country and country != "":
+            if country == "us_eligible":
+                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "")]
+            elif country == "US":
+                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "US"]
+            elif country == "REMOTE_US":
+                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "REMOTE_US"]
+            elif country == "REMOTE":
+                all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") in ("REMOTE", "REMOTE_US")]
+
+        total = len(all_rows)
+
+        # Paginate
+        start = (page - 1) * per_page
+        rows = all_rows[start:start + per_page]
+
+        # Load skills + sources for page
         job_ids = [r["id"] for r in rows]
         skills_by_job = {}
-        if job_ids:
-            skills_result = await db.execute(
-                select(JobSkill).where(JobSkill.job_id.in_(job_ids))
-            )
-            for s in skills_result.scalars().all():
-                skills_by_job.setdefault(s.job_id, []).append(s)
-
-        # Batch-load sources
         sources_by_job = {}
+
         if job_ids:
-            src_result = await db.execute(
-                select(JobSourceLink, JobSource)
-                .join(JobSource)
-                .where(JobSourceLink.job_id.in_(job_ids))
-            )
-            for link, src in src_result.all():
-                sources_by_job.setdefault(link.job_id, []).append({
-                    "slug": src.slug,
-                    "name": src.name,
-                    "externalId": link.external_id,
-                    "sourceUrl": link.source_url,
-                })
+            try:
+                skills_result = await db.execute(select(JobSkill).where(JobSkill.job_id.in_(job_ids)))
+                for s in skills_result.scalars().all():
+                    skills_by_job.setdefault(s.job_id, []).append(s)
+            except Exception:
+                pass
+            try:
+                src_result = await db.execute(
+                    select(JobSourceLink, JobSource).join(JobSource).where(JobSourceLink.job_id.in_(job_ids))
+                )
+                for link, src in src_result.all():
+                    sources_by_job.setdefault(link.job_id, []).append({
+                        "slug": src.slug, "name": src.name,
+                        "externalId": link.external_id, "sourceUrl": link.source_url,
+                    })
+            except Exception:
+                pass
 
         # Serialize
-        jobs_data = [
-            _serialize_row(r, skills_by_job.get(r["id"], []), sources_by_job.get(r["id"], []))
-            for r in rows
-        ]
+        jobs_data = [_serialize_row(r, skills_by_job.get(r["id"], []), sources_by_job.get(r["id"], [])) for r in rows]
 
-        # Best match re-sort
+        # Best match scoring
         if sort == "best_match":
             current_user = await get_optional_user(request)
             if current_user:
                 try:
                     from app.services.recommendations import score_job_dict
                     from app.models.v2 import UserPreference
-                    prefs_result = await db.execute(
-                        select(UserPreference).where(UserPreference.user_id == current_user.id)
-                    )
+                    prefs_result = await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
                     prefs = prefs_result.scalar_one_or_none()
                     if prefs:
-                        scored = []
                         for jd in jobs_data:
-                            match = score_job_dict(jd, prefs)
-                            jd["matchScore"] = match["score"]
-                            jd["matchBadges"] = match["badges"]
-                            jd["matchReasons"] = match["reasons"][:2]
-                            scored.append(jd)
-                        scored.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
-                        jobs_data = scored
+                            m = score_job_dict(jd, prefs)
+                            jd["matchScore"] = m["score"]
+                            jd["matchBadges"] = m["badges"]
+                            jd["matchReasons"] = m["reasons"][:2]
+                        jobs_data.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
                 except Exception as e:
-                    print(f"[Discover] best_match scoring error: {e}")
+                    print(f"[Discover] best_match error: {e}")
 
         return {
             "jobs": jobs_data,
@@ -190,26 +254,15 @@ async def search_jobs(
             "totalPages": (total + per_page - 1) // per_page if total > 0 else 0,
         }
     except Exception as e:
-        print(f"[Discover] search_jobs error: {e}")
+        print(f"[Discover] search error: {e}")
         return {"jobs": [], "total": 0, "page": 1, "perPage": per_page, "totalPages": 0}
 
 
 @router.get("/sources")
 async def list_sources(db: AsyncSession = Depends(get_db)):
-    """List all registered job sources."""
     try:
         result = await db.execute(select(JobSource).order_by(JobSource.name))
-        sources = result.scalars().all()
-        return [
-            {
-                "id": s.id,
-                "slug": s.slug,
-                "name": s.name,
-                "isActive": s.is_active,
-                "lastSyncAt": s.last_sync_at.isoformat() if s.last_sync_at else None,
-            }
-            for s in sources
-        ]
+        return [{"id": s.id, "slug": s.slug, "name": s.name, "isActive": s.is_active, "lastSyncAt": s.last_sync_at.isoformat() if s.last_sync_at else None} for s in result.scalars().all()]
     except Exception:
         return []
 
@@ -220,7 +273,6 @@ async def refresh_sources(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger an immediate source sync."""
     from app.services.sources.scheduler import run_sync_cycle
     background_tasks.add_task(run_sync_cycle)
     return {"status": "refresh_started"}
@@ -232,7 +284,6 @@ async def get_job_recommendations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get job recommendations based on user preferences."""
     try:
         from app.services.recommendations import get_recommendations
         results = await get_recommendations(db, current_user.id, limit)
@@ -243,40 +294,29 @@ async def get_job_recommendations(
 
 
 @router.get("/{job_id}")
-async def get_job_detail(
-    job_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get full job details."""
+async def get_job_detail(job_id: str, db: AsyncSession = Depends(get_db)):
     try:
         result = await db.execute(text("SELECT * FROM jobs WHERE id = :id"), {"id": job_id})
         row = result.mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Job not found")
-
-        # Skills
         skills = []
-        try:
-            skills_result = await db.execute(select(JobSkill).where(JobSkill.job_id == job_id))
-            skills = skills_result.scalars().all()
-        except Exception:
-            pass
-
-        # Sources
         sources = []
         try:
-            src_result = await db.execute(
-                select(JobSourceLink, JobSource).join(JobSource).where(JobSourceLink.job_id == job_id)
-            )
-            sources = [{"slug": src.slug, "name": src.name, "externalId": link.external_id, "sourceUrl": link.source_url} for link, src in src_result.all()]
+            sr = await db.execute(select(JobSkill).where(JobSkill.job_id == job_id))
+            skills = sr.scalars().all()
         except Exception:
             pass
-
+        try:
+            sr = await db.execute(select(JobSourceLink, JobSource).join(JobSource).where(JobSourceLink.job_id == job_id))
+            sources = [{"slug": s.slug, "name": s.name, "externalId": l.external_id, "sourceUrl": l.source_url} for l, s in sr.all()]
+        except Exception:
+            pass
         data = _serialize_row(row, skills, sources)
-        data["descriptionText"] = row.get("description_text")  # Full description
+        data["descriptionText"] = row.get("description_text")
         return data
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Discover] job_detail error: {e}")
+        print(f"[Discover] detail error: {e}")
         raise HTTPException(status_code=404, detail="Job not found")

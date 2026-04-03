@@ -74,14 +74,34 @@ async def get_applications(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(JobApplication)
-        .where(JobApplication.user_id == current_user.id)
-        .order_by(JobApplication.created_at.desc())
-    )
-    applications = result.scalars().all()
-
-    return [_serialize_application(a) for a in applications]
+    from sqlalchemy import text
+    try:
+        result = await db.execute(
+            text("SELECT * FROM job_applications WHERE user_id = :uid ORDER BY created_at DESC"),
+            {"uid": current_user.id},
+        )
+        rows = result.mappings().all()
+        return [
+            {
+                "id": r.get("id"),
+                "title": r.get("role", ""),
+                "company": r.get("company", ""),
+                "status": r.get("status") or r.get("pipeline_stage") or "SAVED",
+                "url": r.get("url"),
+                "location": r.get("location"),
+                "salary": r.get("salary"),
+                "notes": r.get("notes"),
+                "source": r.get("source"),
+                "resumeUsed": r.get("resume_used"),
+                "appliedAt": r["applied_at"].isoformat() if r.get("applied_at") else None,
+                "createdAt": r["created_at"].isoformat() if r.get("created_at") else None,
+                "updatedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"[Applications] GET / error: {e}")
+        return []
 
 
 @router.get("/saved-urls")
@@ -90,17 +110,17 @@ async def get_saved_urls(
     db: AsyncSession = Depends(get_db),
 ):
     """Return all saved job URLs for the current user (for dedup on job board)."""
-    result = await db.execute(
-        select(JobApplication.url, JobApplication.external_job_id)
-        .where(JobApplication.user_id == current_user.id)
-    )
-    rows = result.all()
-    urls = set()
-    ext_ids = set()
-    for row in rows:
-        if row[0]: urls.add(row[0])
-        if row[1]: ext_ids.add(row[1])
-    return {"urls": list(urls), "externalJobIds": list(ext_ids)}
+    from sqlalchemy import text
+    try:
+        result = await db.execute(
+            text("SELECT url FROM job_applications WHERE user_id = :uid AND url IS NOT NULL"),
+            {"uid": current_user.id},
+        )
+        urls = [row[0] for row in result.all() if row[0]]
+        return {"urls": urls, "externalJobIds": []}
+    except Exception as e:
+        print(f"[Applications] saved-urls error: {e}")
+        return {"urls": [], "externalJobIds": []}
 
 
 @router.post("/")
