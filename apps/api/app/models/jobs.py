@@ -35,6 +35,15 @@ class JobApplication(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Job board metadata
+    work_type: Mapped[str | None] = mapped_column(String(50))          # Remote, Hybrid, On-site
+    experience_level: Mapped[str | None] = mapped_column(String(50))   # 0-2 years, 3-5 years, etc.
+    industry: Mapped[str | None] = mapped_column(String(100))
+    skills_json: Mapped[str | None] = mapped_column(Text)              # JSON string of skills array
+    description: Mapped[str | None] = mapped_column(Text)              # Job description snippet
+    external_job_id: Mapped[str | None] = mapped_column(String(100))   # e.g. "rem-12345"
+    posted_at: Mapped[str | None] = mapped_column(String(50))          # "Apr 2, 2026" as stored
+
     user: Mapped["User"] = relationship("User", back_populates="job_applications")
     job_description: Mapped["JobDescription"] = relationship("JobDescription", back_populates="applications")
 

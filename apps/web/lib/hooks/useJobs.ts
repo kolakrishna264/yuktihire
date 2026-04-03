@@ -13,6 +13,14 @@ export function useAllJobs() {
   })
 }
 
+export function useSavedJobUrls() {
+  return useQuery({
+    queryKey: ["saved-job-urls"],
+    queryFn: () => jobsApi.getSavedUrls(),
+    staleTime: 30_000, // 30s cache
+  })
+}
+
 export function useCreateJob() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -25,29 +33,51 @@ export function useCreateJob() {
       salary?: string
       notes?: string
       source?: string
+      work_type?: string
+      experience_level?: string
+      industry?: string
+      skills?: string[]
+      description?: string
+      external_job_id?: string
+      posted_at?: string
     }) => jobsApi.create(data),
     onSuccess: () => {
-      toast.success("Job added")
+      toast.success("Job saved to tracker")
       queryClient.invalidateQueries({ queryKey: ["jobs"] })
+      queryClient.invalidateQueries({ queryKey: ["saved-job-urls"] })
     },
-    onError: (err: Error) => toast.error(err.message || "Failed to add job"),
+    onError: (err: Error) => {
+      if (err.message?.includes("409") || err.message?.includes("already")) {
+        toast.info("Job already tracked")
+      } else {
+        toast.error(err.message || "Failed to save job")
+      }
+    },
   })
 }
 
 export function useUpdateJob() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: string
-      data: Partial<JobApplication>
-    }) => jobsApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<JobApplication> }) =>
+      jobsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] })
     },
     onError: (err: Error) => toast.error(err.message || "Failed to update"),
+  })
+}
+
+export function useMarkApplied() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => jobsApi.markApplied(id),
+    onSuccess: () => {
+      toast.success("Marked as applied")
+      queryClient.invalidateQueries({ queryKey: ["jobs"] })
+      queryClient.invalidateQueries({ queryKey: ["saved-job-urls"] })
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to mark as applied"),
   })
 }
 
@@ -57,6 +87,7 @@ export function useDeleteJob() {
     mutationFn: (id: string) => jobsApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] })
+      queryClient.invalidateQueries({ queryKey: ["saved-job-urls"] })
     },
     onError: (err: Error) => toast.error(err.message || "Failed to delete"),
   })

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Input } from "@/components/ui/Input"
 import { Skeleton } from "@/components/ui/Skeleton"
-import { useCreateJob } from "@/lib/hooks/useJobs"
+import { useCreateJob, useSavedJobUrls } from "@/lib/hooks/useJobs"
 import { useJobBoard } from "@/lib/hooks/useJobBoard"
 import type { JobBoardItem } from "@/types"
 
@@ -40,6 +40,7 @@ export default function JobBoardPage() {
   const [industryFilter, setIndustryFilter] = useState("All")
   const [domainFilter, setDomainFilter] = useState("All")
   const [addedJobs, setAddedJobs] = useState<Set<string>>(new Set())
+  const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set())
 
   // Debounce search
   useEffect(() => {
@@ -57,6 +58,17 @@ export default function JobBoardPage() {
   const totalCount = data?.total ?? 0
 
   const { mutate: createJob, isPending: isCreating } = useCreateJob()
+
+  // Load saved job URLs to detect duplicates
+  const { data: savedData } = useSavedJobUrls()
+  const savedUrls = new Set(savedData?.urls ?? [])
+  const savedExtIds = new Set(savedData?.externalJobIds ?? [])
+
+  const isJobSaved = (job: JobBoardItem) => {
+    if (job.url && savedUrls.has(job.url)) return true
+    if (job.id && savedExtIds.has(job.id)) return true
+    return false
+  }
 
   // Derive dynamic filter options from loaded data
   const workTypeOptions = useMemo(() => {
@@ -90,20 +102,39 @@ export default function JobBoardPage() {
     return result
   }, [jobs, levelFilter, industryFilter])
 
+  function buildJobPayload(job: JobBoardItem, status: "SAVED" | "APPLIED") {
+    return {
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      location: job.location,
+      salary: job.salaryRange,
+      source: "Job Board",
+      work_type: job.workType,
+      experience_level: job.experienceLevel,
+      industry: job.industry,
+      skills: job.skills,
+      description: job.description,
+      external_job_id: job.id,
+      posted_at: job.postedDate,
+      status,
+    }
+  }
+
   function handleAddJob(job: JobBoardItem) {
-    createJob(
-      {
-        title: job.title,
-        company: job.company,
-        url: job.url,
-        status: "SAVED",
+    createJob(buildJobPayload(job, "SAVED"), {
+      onSuccess: () => {
+        setAddedJobs((prev) => new Set([...prev, job.id]))
       },
-      {
-        onSuccess: () => {
-          setAddedJobs((prev) => new Set(prev).add(job.id))
-        },
-      }
-    )
+    })
+  }
+
+  function handleMarkApplied(job: JobBoardItem) {
+    createJob(buildJobPayload(job, "APPLIED"), {
+      onSuccess: () => {
+        setAppliedJobs((prev) => new Set([...prev, job.id]))
+      },
+    })
   }
 
   return (
@@ -212,7 +243,8 @@ export default function JobBoardPage() {
 
         {!isLoading &&
           filteredJobs.map((job) => {
-            const isAdded = addedJobs.has(job.id)
+            const isSaved = isJobSaved(job) || addedJobs.has(job.id)
+            const isApplied = appliedJobs.has(job.id)
 
             return (
               <div
@@ -275,26 +307,50 @@ export default function JobBoardPage() {
                 </div>
 
                 {/* Right side — action buttons */}
-                <div className="flex flex-row sm:flex-col gap-2 shrink-0">
-                  <Button
-                    size="sm"
-                    disabled={isAdded || isCreating}
-                    onClick={() => handleAddJob(job)}
-                    className={
-                      isAdded
-                        ? "bg-emerald-600 hover:bg-emerald-600 text-white cursor-default"
-                        : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                    }
-                  >
-                    {isAdded ? "Added \u2713" : "Add Job"}
-                  </Button>
+                <div className="flex flex-row sm:flex-col gap-2 shrink-0 items-start">
+                  {/* Save / Add Job button */}
+                  {isSaved ? (
+                    <Button
+                      size="sm"
+                      disabled
+                      className="bg-emerald-600 hover:bg-emerald-600 text-white cursor-default"
+                    >
+                      {addedJobs.has(job.id) ? "Added \u2713" : "Saved \u2713"}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={isCreating}
+                      onClick={() => handleAddJob(job)}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      Add Job
+                    </Button>
+                  )}
+
+                  {/* Apply button */}
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => window.open(job.url, "_blank")}
+                    onClick={() => {
+                      if (job.url) window.open(job.url, "_blank")
+                    }}
                   >
                     Apply &#8599;
                   </Button>
+
+                  {/* Mark as Applied link */}
+                  {isApplied ? (
+                    <span className="text-xs text-emerald-600 font-medium">Applied &#10003;</span>
+                  ) : isSaved ? (
+                    <button
+                      onClick={() => handleMarkApplied(job)}
+                      disabled={isCreating}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 underline disabled:opacity-50"
+                    >
+                      Mark as Applied
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )

@@ -136,7 +136,7 @@ export interface SessionData {
 
 export interface JobApplication {
   id: string
-  title: string        // maps from 'role' in backend
+  title: string
   company: string
   status: ApplicationStatus
   url?: string
@@ -146,6 +146,13 @@ export interface JobApplication {
   source?: string
   resumeUsed?: string
   appliedAt?: string
+  workType?: string
+  experienceLevel?: string
+  industry?: string
+  skills?: string[]
+  description?: string
+  externalJobId?: string
+  postedAt?: string
   createdAt: string
   updatedAt: string
 }
