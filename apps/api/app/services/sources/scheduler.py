@@ -1,6 +1,6 @@
 """Background job ingestion scheduler — bulk every 15 min, targeted every hour."""
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from sqlalchemy import select
 from app.core.database import AsyncSessionLocal as SessionLocal
 from app.models.discover import JobSource
@@ -8,14 +8,19 @@ from .remotive import RemotiveAdapter
 from .arbeitnow import ArbeitnowAdapter
 from .remoteok import RemoteOKAdapter
 from .jobicy import JobicyAdapter
+from .greenhouse import GreenhouseAdapter
+from .themuse import TheMuseAdapter
 from .ingestor import JobIngestor
 from .title_strategy import run_targeted_ingestion
 
+# All source adapters — Greenhouse and The Muse are the most valuable for US jobs
 ADAPTERS = [
-    RemotiveAdapter(),
-    ArbeitnowAdapter(),
-    RemoteOKAdapter(),
-    JobicyAdapter(),
+    GreenhouseAdapter(),   # 50 top tech company boards — most US jobs
+    TheMuseAdapter(),      # US-focused with category filter
+    RemotiveAdapter(),     # Remote-first, many US-eligible
+    RemoteOKAdapter(),     # Remote tech jobs
+    JobicyAdapter(),       # Remote jobs with salary data
+    # ArbeitnowAdapter(), — mostly German jobs, disabled for US-first platform
 ]
 
 BULK_INTERVAL = 900  # 15 minutes
@@ -26,8 +31,9 @@ _last_targeted_at: datetime | None = None
 
 async def _ensure_sources():
     """Ensure all adapter sources exist in the DB."""
+    all_adapters = ADAPTERS + [ArbeitnowAdapter()]  # Include for DB seeding
     async with SessionLocal() as session:
-        for adapter in ADAPTERS:
+        for adapter in all_adapters:
             result = await session.execute(
                 select(JobSource).where(JobSource.slug == adapter.slug)
             )
@@ -71,7 +77,6 @@ async def run_sync_cycle():
     global _last_targeted_at
     await run_bulk_sync()
 
-    # Run targeted if never run or interval elapsed
     now = datetime.now(timezone.utc)
     if _last_targeted_at is None or (now - _last_targeted_at).total_seconds() >= TARGETED_INTERVAL:
         print("[Scheduler] Running targeted ingestion...")
