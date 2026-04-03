@@ -160,27 +160,9 @@ async def refresh_sources(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger async refresh of all active job sources."""
-    from app.services.sources.remotive import RemotiveAdapter
-    from app.services.sources.arbeitnow import ArbeitnowAdapter
-    from app.services.sources.ingestor import JobIngestor
-
-    async def _sync():
-        from app.core.database import SessionLocal
-        async with SessionLocal() as session:
-            ingestor = JobIngestor(session)
-            adapters = [RemotiveAdapter(), ArbeitnowAdapter()]
-            total_new = 0
-            total_updated = 0
-            for adapter in adapters:
-                jobs = await adapter.fetch_jobs()
-                new, updated = await ingestor.ingest_batch(jobs, adapter.slug)
-                total_new += new
-                total_updated += updated
-                print(f"[Refresh] {adapter.name}: {new} new, {updated} updated")
-            print(f"[Refresh] Total: {total_new} new, {total_updated} updated")
-
-    background_tasks.add_task(_sync)
+    """Trigger an immediate source sync (Remotive + Arbeitnow + RemoteOK)."""
+    from app.services.sources.scheduler import run_sync_cycle
+    background_tasks.add_task(run_sync_cycle)
     return {"status": "refresh_started"}
 
 

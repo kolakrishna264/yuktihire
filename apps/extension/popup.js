@@ -149,7 +149,8 @@ function sendMessage(msg) {
 // Login button
 document.addEventListener("DOMContentLoaded", () => {
   $("#login-btn").onclick = () => {
-    chrome.tabs.create({ url: `${APP_URL}/auth/login?ext=1` })
+    // Open the app's extension callback page — handles Supabase auth + sends token back
+    chrome.tabs.create({ url: `${APP_URL}/auth/extension-callback` })
   }
 
   $("#manual-save-btn")?.addEventListener("click", async () => {

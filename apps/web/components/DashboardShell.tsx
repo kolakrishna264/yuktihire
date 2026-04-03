@@ -30,6 +30,7 @@ import { useUpcomingReminders, useOverdueReminders } from "@/lib/hooks/useRemind
 import { useTrackerKanban } from "@/lib/hooks/useTracker"
 import type { User } from "@supabase/supabase-js"
 import type { TailoringSessionMeta, ApplicationStatus } from "@/types"
+import { OnboardingChecklist } from "@/components/OnboardingChecklist"
 
 interface DashboardShellProps {
   user: User | null
@@ -165,6 +166,9 @@ export default function DashboardShell({ user }: DashboardShellProps) {
           Here&apos;s an overview of your job search activity
         </p>
       </div>
+
+      {/* Onboarding Checklist */}
+      <OnboardingChecklist />
 
       {/* Overdue Reminders Alert */}
       {overdueReminders.length > 0 && (

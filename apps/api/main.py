@@ -26,27 +26,9 @@ async def lifespan(app: FastAPI):
     from app.core.database import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Schedule initial job sync (non-blocking)
-    async def _initial_sync():
-        try:
-            await asyncio.sleep(2)  # Let app fully start
-            from app.core.database import SessionLocal
-            from app.services.sources.remotive import RemotiveAdapter
-            from app.services.sources.arbeitnow import ArbeitnowAdapter
-            from app.services.sources.ingestor import JobIngestor
-            async with SessionLocal() as session:
-                ingestor = JobIngestor(session)
-                for adapter in [RemotiveAdapter(), ArbeitnowAdapter()]:
-                    try:
-                        jobs = await adapter.fetch_jobs()
-                        new, updated = await ingestor.ingest_batch(jobs, adapter.slug)
-                        print(f"[Startup] {adapter.name}: {new} new, {updated} updated")
-                    except Exception as e:
-                        print(f"[Startup] {adapter.name} sync failed: {e}")
-        except Exception as e:
-            print(f"[Startup] Initial sync failed: {e}")
-
-    asyncio.create_task(_initial_sync())
+    # Start background job ingestion scheduler (Remotive + Arbeitnow + RemoteOK, every 15 min)
+    from app.services.sources.scheduler import start_scheduler
+    asyncio.create_task(start_scheduler())
 
     yield
     await engine.dispose()

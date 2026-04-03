@@ -1,5 +1,35 @@
-// YuktiHire Content Script — Extracts job data from job sites
+// YuktiHire Content Script — Auth callback handler + Job data extraction
 
+// ── Auth callback: send token back to extension ───────────────────────────
+if (document.location.pathname === "/auth/extension-callback") {
+  window.addEventListener("yuktihire-auth", (e) => {
+    const detail = e.detail
+    if (detail && detail.access_token) {
+      chrome.runtime.sendMessage({
+        type: "SET_TOKEN",
+        token: detail.access_token,
+        refresh: detail.refresh_token || "",
+        expires: detail.expires_at || 0,
+      })
+    }
+  })
+  // Poll fallback in case event fires before listener attaches
+  const _authPoll = setInterval(() => {
+    const token = window.__YUKTIHIRE_TOKEN__
+    if (token) {
+      chrome.runtime.sendMessage({
+        type: "SET_TOKEN",
+        token: token,
+        refresh: window.__YUKTIHIRE_REFRESH__ || "",
+        expires: 0,
+      })
+      clearInterval(_authPoll)
+    }
+  }, 500)
+  setTimeout(() => clearInterval(_authPoll), 30000)
+}
+
+// ── Job extraction ────────────────────────────────────────────────────────
 (function() {
   "use strict"
 
