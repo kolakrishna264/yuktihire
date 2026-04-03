@@ -57,4 +57,8 @@ export const trackerApi = {
   async deleteEvent(trackerId: string, eventId: string) {
     return apiFetch(`/tracker/${trackerId}/events/${eventId}`, { method: "DELETE" })
   },
+
+  async getResumeIntel(id: string) {
+    return apiFetch(`/tracker/${id}/resume-intel`)
+  },
 }

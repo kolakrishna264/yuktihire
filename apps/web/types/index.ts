@@ -309,6 +309,9 @@ export interface Reminder {
   remindAt: string
   isCompleted: boolean
   completedAt?: string
+  reminderType?: string
+  snoozedUntil?: string
+  isOverdue?: boolean
   createdAt: string
 }
 
@@ -363,4 +366,63 @@ export interface IndustryCount {
 export interface LocationData {
   topLocations: { location: string; count: number }[]
   remoteRatio: number
+}
+
+// ── V3: Recommendations ──────────────────────────────────────────────────
+
+export interface JobRecommendation {
+  jobId: string
+  title: string
+  company: string
+  location?: string
+  url?: string
+  workType?: string
+  salaryRaw?: string
+  companyLogoUrl?: string
+  experienceLevel?: string
+  industry?: string
+  postedAt?: string
+  score: number
+  reasons: string[]
+  badges: string[]
+}
+
+// ── V3: Resume Intelligence ──────────────────────────────────────────────
+
+export interface ResumeIntel {
+  resumeUsed?: string
+  resumeVersionId?: string
+  tailoredResume?: { id: string; label?: string; createdAt?: string } | null
+  atsScore?: { overall: number; keywords: number; skills: number; experience: number } | null
+  missingSkills: string[]
+  lastTailoredAt?: string
+  tailoringStatus?: string
+}
+
+// ── V3: Extension ────────────────────────────────────────────────────────
+
+export interface ExtensionStatus {
+  authenticated: boolean
+  userId: string
+  email: string
+  plan: string
+}
+
+export interface ExtensionCheckResult {
+  tracked: boolean
+  trackerId?: string
+  stage?: string
+  company?: string
+  title?: string
+  jobExists?: boolean
+  jobId?: string
+}
+
+export interface ExtensionCaptureResult {
+  status: "saved" | "duplicate"
+  trackerId: string
+  title?: string
+  company?: string
+  message?: string
+  dashboardUrl?: string
 }

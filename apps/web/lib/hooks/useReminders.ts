@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { remindersApi } from "@/lib/api/reminders"
+import { apiFetch } from "@/lib/api/client"
 import { toast } from "sonner"
 import type { Reminder } from "@/types"
 
@@ -35,5 +36,27 @@ export function useDeleteReminder() {
     mutationFn: (id: string) => remindersApi.remove(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["reminders"] }); qc.invalidateQueries({ queryKey: ["reminders-upcoming"] }) },
     onError: (e: Error) => toast.error(e.message || "Failed to delete"),
+  })
+}
+
+export function useOverdueReminders() {
+  return useQuery<Reminder[]>({
+    queryKey: ["reminders-overdue"],
+    queryFn: async () => { const d = await remindersApi.list(); return (Array.isArray(d) ? d : []).filter((r: any) => r.isOverdue && !r.isCompleted) },
+  })
+}
+
+export function useSnoozeReminder() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, hours }: { id: string; hours: number }) =>
+      apiFetch(`/reminders/${id}/snooze?hours=${hours}`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Reminder snoozed")
+      qc.invalidateQueries({ queryKey: ["reminders"] })
+      qc.invalidateQueries({ queryKey: ["reminders-upcoming"] })
+      qc.invalidateQueries({ queryKey: ["reminders-overdue"] })
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to snooze"),
   })
 }

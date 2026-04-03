@@ -39,4 +39,8 @@ export const discoverApi = {
   async refreshSources() {
     return apiFetch("/discover/refresh", { method: "POST" })
   },
+
+  async getRecommendations(limit?: number) {
+    return apiFetch(`/discover/recommendations${limit ? `?limit=${limit}` : ""}`)
+  },
 }

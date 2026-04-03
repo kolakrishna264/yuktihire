@@ -10,8 +10,10 @@ import {
   useAddEvent,
   useDeleteEvent,
   useDeleteTracked,
+  useResumeIntel,
 } from "@/lib/hooks/useTracker"
 import { useApplicationContacts, useCreateContact, useDeleteContact } from "@/lib/hooks/useContacts"
+import { cn } from "@/lib/utils/cn"
 import { useReminders, useCreateReminder, useCompleteReminder, useDeleteReminder } from "@/lib/hooks/useReminders"
 import type { PipelineStage, ApplicationEvent, Contact, Reminder } from "@/types"
 import {
@@ -106,6 +108,7 @@ export default function TrackerDetailPage() {
   const id = params.id as string
 
   const { data: job, isLoading, error } = useTrackerDetail(id)
+  const { data: resumeIntel } = useResumeIntel(id)
   const updateMutation = useUpdateTracker()
   const changeStageMutation = useChangeStage()
   const addEventMutation = useAddEvent()
@@ -507,6 +510,62 @@ export default function TrackerDetailPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Resume Intelligence */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+            <h3 className="text-sm font-bold text-gray-800">Resume Intelligence</h3>
+
+            {resumeIntel?.atsScore ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold",
+                    resumeIntel.atsScore.overall >= 70 ? "bg-emerald-50 text-emerald-700" :
+                    resumeIntel.atsScore.overall >= 50 ? "bg-amber-50 text-amber-700" :
+                    "bg-red-50 text-red-700"
+                  )}>
+                    {resumeIntel.atsScore.overall}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">ATS Score</p>
+                    <p className="text-xs text-gray-400">
+                      Keywords {resumeIntel.atsScore.keywords}% · Skills {resumeIntel.atsScore.skills}%
+                    </p>
+                  </div>
+                </div>
+
+                {resumeIntel.missingSkills.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-red-500 mb-1">Missing Skills</p>
+                    <div className="flex flex-wrap gap-1">
+                      {resumeIntel.missingSkills.slice(0, 8).map(s => (
+                        <span key={s} className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-xs text-gray-400 mb-2">No tailoring data yet</p>
+                <Link href={`/dashboard/tailor?tracker=${id}`}>
+                  <button className="text-xs font-medium text-indigo-600 hover:text-indigo-800">Tailor Resume →</button>
+                </Link>
+              </div>
+            )}
+
+            {resumeIntel?.tailoredResume && (
+              <div className="pt-2 border-t border-gray-50">
+                <p className="text-xs text-gray-500">
+                  Tailored: {resumeIntel.tailoredResume.label || "Version"} · {resumeIntel.lastTailoredAt ? new Date(resumeIntel.lastTailoredAt).toLocaleDateString() : ""}
+                </p>
+              </div>
+            )}
+
+            {resumeIntel?.tailoringStatus && (
+              <p className="text-[10px] text-gray-400">Status: {resumeIntel.tailoringStatus}</p>
+            )}
           </div>
 
           {/* Contacts */}

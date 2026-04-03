@@ -210,6 +210,165 @@ async def add_to_tracker(
     return _serialize_tracked_job(app)
 
 
+class BulkStageChange(BaseModel):
+    ids: list[str]
+    stage: PipelineStage
+
+
+class BulkArchive(BaseModel):
+    ids: list[str]
+
+
+@router.post("/bulk/stage")
+async def bulk_change_stage(
+    data: BulkStageChange,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change stage for multiple tracked jobs at once."""
+    result = await db.execute(
+        select(JobApplication).where(
+            JobApplication.id.in_(data.ids),
+            JobApplication.user_id == current_user.id,
+        )
+    )
+    apps = result.scalars().all()
+    updated = 0
+    for app in apps:
+        old = app.pipeline_stage.value if app.pipeline_stage else "INTERESTED"
+        app.pipeline_stage = data.stage
+        if data.stage == PipelineStage.APPLIED and not app.applied_at:
+            app.applied_at = datetime.now(timezone.utc)
+        event = ApplicationEvent(
+            application_id=app.id,
+            event_type="status_change",
+            old_value=old,
+            new_value=data.stage.value,
+            title=f"Bulk moved to {data.stage.value.replace('_', ' ').title()}",
+            event_date=datetime.now(timezone.utc),
+        )
+        db.add(event)
+        updated += 1
+    await db.commit()
+    return {"updated": updated}
+
+
+@router.post("/bulk/archive")
+async def bulk_archive(
+    data: BulkArchive,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archive multiple tracked jobs at once."""
+    result = await db.execute(
+        select(JobApplication).where(
+            JobApplication.id.in_(data.ids),
+            JobApplication.user_id == current_user.id,
+        )
+    )
+    apps = result.scalars().all()
+    for app in apps:
+        app.archived = True
+        app.pipeline_stage = PipelineStage.ARCHIVED
+    await db.commit()
+    return {"archived": len(apps)}
+
+
+@router.post("/bulk/delete")
+async def bulk_delete(
+    data: BulkArchive,  # Reuse same schema
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete multiple tracked jobs at once."""
+    result = await db.execute(
+        select(JobApplication).where(
+            JobApplication.id.in_(data.ids),
+            JobApplication.user_id == current_user.id,
+        )
+    )
+    apps = result.scalars().all()
+    for app in apps:
+        await db.delete(app)
+    await db.commit()
+    return {"deleted": len(apps)}
+
+
+@router.get("/{tracker_id}/resume-intel")
+async def get_resume_intel(
+    tracker_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get resume and tailoring intelligence for a tracked job."""
+    from app.models.tailoring import TailoringSession, AtsScore
+    from app.models.resume import Resume, ResumeVersion
+
+    result = await db.execute(
+        select(JobApplication).where(
+            JobApplication.id == tracker_id,
+            JobApplication.user_id == current_user.id,
+        )
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    intel = {
+        "resumeUsed": app.resume_used,
+        "resumeVersionId": app.resume_version_id,
+        "tailoredResume": None,
+        "atsScore": None,
+        "missingSkills": [],
+        "lastTailoredAt": None,
+        "tailoringStatus": None,
+    }
+
+    # Find tailoring sessions for this job's description
+    if app.description or app.url:
+        # Look for tailoring sessions that match
+        sessions_query = select(TailoringSession).where(
+            TailoringSession.user_id == current_user.id,
+        ).order_by(TailoringSession.created_at.desc()).limit(5)
+
+        sessions_result = await db.execute(sessions_query)
+        sessions = sessions_result.scalars().all()
+
+        if sessions:
+            latest = sessions[0]
+            intel["lastTailoredAt"] = latest.created_at.isoformat() if latest.created_at else None
+            intel["tailoringStatus"] = latest.status.value if latest.status else None
+
+            # Get ATS score
+            ats_result = await db.execute(
+                select(AtsScore).where(AtsScore.session_id == latest.id)
+            )
+            ats = ats_result.scalar_one_or_none()
+            if ats:
+                intel["atsScore"] = {
+                    "overall": ats.overall_score,
+                    "keywords": ats.keyword_score,
+                    "skills": ats.skills_score,
+                    "experience": ats.experience_score,
+                }
+                intel["missingSkills"] = ats.missing_keywords or []
+
+    # Get resume version if linked
+    if app.resume_version_id:
+        rv_result = await db.execute(
+            select(ResumeVersion).where(ResumeVersion.id == app.resume_version_id)
+        )
+        rv = rv_result.scalar_one_or_none()
+        if rv:
+            intel["tailoredResume"] = {
+                "id": rv.id,
+                "label": rv.label,
+                "createdAt": rv.created_at.isoformat() if rv.created_at else None,
+            }
+
+    return intel
+
+
 @router.get("/{tracker_id}")
 async def get_tracked_job(
     tracker_id: str,

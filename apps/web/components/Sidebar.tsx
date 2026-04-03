@@ -11,6 +11,7 @@ import {
   FileText,
   Wand2,
   BarChart3,
+  Chrome,
   User,
   Settings,
   Zap,
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
   { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
   { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
+  { href: "/dashboard/extension", label: "Extension", icon: Chrome },
   { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]

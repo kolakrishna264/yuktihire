@@ -184,6 +184,18 @@ async def refresh_sources(
     return {"status": "refresh_started"}
 
 
+@router.get("/recommendations")
+async def get_job_recommendations(
+    limit: int = Query(20, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get AI-ranked job recommendations based on user preferences."""
+    from app.services.recommendations import get_recommendations
+    results = await get_recommendations(db, current_user.id, limit)
+    return {"recommendations": results}
+
+
 @router.get("/{job_id}")
 async def get_job_detail(
     job_id: str,

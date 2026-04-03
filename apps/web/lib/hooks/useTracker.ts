@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { trackerApi } from "@/lib/api/tracker"
+import { apiFetch } from "@/lib/api/client"
 import { toast } from "sonner"
-import type { TrackedJob, KanbanData, ApplicationEvent, PipelineStage } from "@/types"
+import type { TrackedJob, KanbanData, ApplicationEvent, PipelineStage, ResumeIntel } from "@/types"
 
 export function useTrackerList(stage?: string) {
   return useQuery<TrackedJob[]>({
@@ -150,5 +151,55 @@ export function useDeleteEvent() {
       queryClient.invalidateQueries({ queryKey: ["tracker-detail", trackerId] })
     },
     onError: (err: Error) => toast.error(err.message || "Failed to delete event"),
+  })
+}
+
+export function useResumeIntel(trackerId: string) {
+  return useQuery<ResumeIntel>({
+    queryKey: ["resume-intel", trackerId],
+    queryFn: () => trackerApi.getResumeIntel(trackerId),
+    enabled: !!trackerId,
+  })
+}
+
+export function useBulkStageChange() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { ids: string[]; stage: PipelineStage }) =>
+      apiFetch("/tracker/bulk/stage", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      toast.success("Jobs updated")
+      qc.invalidateQueries({ queryKey: ["tracker"] })
+      qc.invalidateQueries({ queryKey: ["tracker-kanban"] })
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed"),
+  })
+}
+
+export function useBulkArchive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch("/tracker/bulk/archive", { method: "POST", body: JSON.stringify({ ids }) }),
+    onSuccess: () => {
+      toast.success("Jobs archived")
+      qc.invalidateQueries({ queryKey: ["tracker"] })
+      qc.invalidateQueries({ queryKey: ["tracker-kanban"] })
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed"),
+  })
+}
+
+export function useBulkDelete() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch("/tracker/bulk/delete", { method: "POST", body: JSON.stringify({ ids }) }),
+    onSuccess: () => {
+      toast.success("Jobs deleted")
+      qc.invalidateQueries({ queryKey: ["tracker"] })
+      qc.invalidateQueries({ queryKey: ["tracker-kanban"] })
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed"),
   })
 }

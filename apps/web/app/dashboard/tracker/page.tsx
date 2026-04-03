@@ -9,6 +9,9 @@ import {
   useDeleteTracked,
   useArchiveTracked,
   useAddToTracker,
+  useBulkStageChange,
+  useBulkArchive,
+  useBulkDelete,
 } from "@/lib/hooks/useTracker"
 import type { TrackedJob, PipelineStage, KanbanData } from "@/types"
 import {
@@ -22,6 +25,7 @@ import {
   ExternalLink,
   Trash2,
   Archive,
+  Search,
 } from "lucide-react"
 
 const VISIBLE_STAGES: { key: PipelineStage; label: string; color: string }[] = [
@@ -158,9 +162,13 @@ function AddJobForm({ onClose }: { onClose: () => void }) {
 function JobCard({
   job,
   onStageChange,
+  selected,
+  onToggleSelect,
 }: {
   job: TrackedJob
   onStageChange: (id: string, stage: PipelineStage) => void
+  selected?: boolean
+  onToggleSelect?: () => void
 }) {
   const router = useRouter()
 
@@ -170,6 +178,15 @@ function JobCard({
       className="bg-white rounded-lg border border-gray-100 p-3 hover:shadow-sm cursor-pointer transition-all"
     >
       <div className="flex items-start gap-2.5">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            onClick={e => e.stopPropagation()}
+            className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 mt-1"
+          />
+        )}
         <div
           className={`w-8 h-8 rounded-full ${getCompanyColor(job.company)} flex items-center justify-center shrink-0`}
         >
@@ -245,12 +262,20 @@ function KanbanSkeleton() {
 function ListView({
   data,
   onStageChange,
+  selectedIds,
+  onToggleSelect,
+  searchFilter,
 }: {
   data: KanbanData
   onStageChange: (id: string, stage: PipelineStage) => void
+  selectedIds: Set<string>
+  onToggleSelect: (id: string) => void
+  searchFilter: string
 }) {
   const router = useRouter()
-  const allJobs = VISIBLE_STAGES.flatMap((s) => data.stages[s.key]?.jobs ?? [])
+  const allJobs = VISIBLE_STAGES.flatMap((s) => data.stages[s.key]?.jobs ?? []).filter(j =>
+    !searchFilter || j.title.toLowerCase().includes(searchFilter.toLowerCase()) || j.company.toLowerCase().includes(searchFilter.toLowerCase())
+  )
 
   if (allJobs.length === 0) return null
 
@@ -259,6 +284,7 @@ function ListView({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100 text-left">
+            <th className="px-4 py-3 w-8"></th>
             <th className="px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
             <th className="px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
             <th className="px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
@@ -275,6 +301,15 @@ function ListView({
                 onClick={() => router.push(`/dashboard/tracker/${job.id}`)}
                 className="hover:bg-gray-50 cursor-pointer transition-colors"
               >
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(job.id)}
+                    onChange={() => onToggleSelect(job.id)}
+                    onClick={e => e.stopPropagation()}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <div
@@ -327,9 +362,26 @@ function ListView({
 export default function TrackerPage() {
   const { data, isLoading } = useTrackerKanban()
   const changeStageMutation = useChangeStage()
+  const { mutate: bulkStageChange } = useBulkStageChange()
+  const { mutate: bulkArchive } = useBulkArchive()
+  const { mutate: bulkDelete } = useBulkDelete()
   const isMobile = useMediaQuery("(max-width: 767px)")
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban")
   const [showAddForm, setShowAddForm] = useState(false)
+  const [searchFilter, setSearchFilter] = useState("")
+
+  // Selection state for bulk ops
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const selectAll = (jobs: TrackedJob[]) => setSelectedIds(new Set(jobs.map(j => j.id)))
+  const clearSelection = () => setSelectedIds(new Set())
 
   // Auto-switch to list on mobile
   useEffect(() => {
@@ -392,6 +444,41 @@ export default function TrackerPage() {
       {/* Add job form */}
       {showAddForm && <AddJobForm onClose={() => setShowAddForm(false)} />}
 
+      {/* Search filter */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={searchFilter}
+          onChange={(e) => setSearchFilter(e.target.value)}
+          placeholder="Filter jobs by title or company..."
+          className="w-full h-10 rounded-xl border border-gray-200 bg-white pl-9 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors shadow-sm"
+        />
+      </div>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl mb-4">
+          <span className="text-sm font-medium text-indigo-700">{selectedIds.size} selected</span>
+          <select
+            onChange={e => {
+              if (e.target.value) {
+                bulkStageChange({ ids: Array.from(selectedIds), stage: e.target.value as PipelineStage })
+                clearSelection()
+              }
+            }}
+            className="text-xs border border-indigo-200 rounded-lg px-2 py-1"
+            defaultValue=""
+          >
+            <option value="" disabled>Move to...</option>
+            {VISIBLE_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+          <button onClick={() => { bulkArchive(Array.from(selectedIds)); clearSelection() }} className="text-xs text-amber-600 hover:text-amber-800 font-medium">Archive</button>
+          <button onClick={() => { bulkDelete(Array.from(selectedIds)); clearSelection() }} className="text-xs text-red-600 hover:text-red-800 font-medium">Delete</button>
+          <button onClick={clearSelection} className="ml-auto text-xs text-gray-500">Clear</button>
+        </div>
+      )}
+
       {/* Loading */}
       {isLoading && <KanbanSkeleton />}
 
@@ -419,8 +506,11 @@ export default function TrackerPage() {
         <div className="overflow-x-auto flex gap-4 pb-4">
           {VISIBLE_STAGES.map((stage) => {
             const stageData = data.stages[stage.key]
-            const jobs = stageData?.jobs ?? []
-            const count = stageData?.count ?? 0
+            const stageJobs = stageData?.jobs ?? []
+            const filteredJobs = stageJobs.filter(j =>
+              !searchFilter || j.title.toLowerCase().includes(searchFilter.toLowerCase()) || j.company.toLowerCase().includes(searchFilter.toLowerCase())
+            )
+            const count = filteredJobs.length
             return (
               <div
                 key={stage.key}
@@ -436,10 +526,16 @@ export default function TrackerPage() {
 
                 {/* Cards */}
                 <div className="flex-1 space-y-2 overflow-y-auto max-h-[calc(100vh-280px)]">
-                  {jobs.map((job) => (
-                    <JobCard key={job.id} job={job} onStageChange={handleStageChange} />
+                  {filteredJobs.map((job) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      onStageChange={handleStageChange}
+                      selected={selectedIds.has(job.id)}
+                      onToggleSelect={() => toggleSelect(job.id)}
+                    />
                   ))}
-                  {jobs.length === 0 && (
+                  {filteredJobs.length === 0 && (
                     <p className="text-xs text-gray-300 text-center py-6">No jobs</p>
                   )}
                 </div>
@@ -451,7 +547,7 @@ export default function TrackerPage() {
 
       {/* List view */}
       {!isLoading && data && !isEmpty && viewMode === "list" && (
-        <ListView data={data} onStageChange={handleStageChange} />
+        <ListView data={data} onStageChange={handleStageChange} selectedIds={selectedIds} onToggleSelect={toggleSelect} searchFilter={searchFilter} />
       )}
     </div>
   )

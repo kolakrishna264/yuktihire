@@ -69,6 +69,7 @@ app.add_middleware(
         "https://www.yuktihire.com",
         "http://localhost:3000",
         "http://localhost:3001",
+        "chrome-extension://*",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -89,6 +90,7 @@ from app.routers.contacts import router as contacts_router
 from app.routers.reminders import router as reminders_router
 from app.routers.preferences import router as preferences_router
 from app.routers.insights import router as insights_router
+from app.routers.extension import router as extension_router
 
 API_PREFIX = "/api/v1"
 
@@ -106,6 +108,7 @@ app.include_router(contacts_router, prefix=API_PREFIX)
 app.include_router(reminders_router, prefix=API_PREFIX)
 app.include_router(preferences_router, prefix=API_PREFIX)
 app.include_router(insights_router, prefix=API_PREFIX)
+app.include_router(extension_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

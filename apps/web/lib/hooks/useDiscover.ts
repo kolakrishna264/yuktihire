@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { discoverApi } from "@/lib/api/discover"
-import type { DiscoverResponse, JobSourceInfo } from "@/types"
+import type { DiscoverResponse, JobSourceInfo, JobRecommendation } from "@/types"
 
 interface DiscoverParams {
   q?: string
@@ -64,5 +64,13 @@ export function useRefreshSources() {
         queryClient.invalidateQueries({ queryKey: ["job-sources"] })
       }, 5000)
     },
+  })
+}
+
+export function useRecommendations(limit?: number) {
+  return useQuery<{ recommendations: JobRecommendation[] }>({
+    queryKey: ["recommendations", limit],
+    queryFn: () => discoverApi.getRecommendations(limit),
+    staleTime: 10 * 60 * 1000,
   })
 }

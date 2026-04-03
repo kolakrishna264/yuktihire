@@ -12,12 +12,13 @@ import {
   Check,
   RefreshCw,
   AlertCircle,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Input } from "@/components/ui/Input"
 import { Skeleton } from "@/components/ui/Skeleton"
-import { useDiscover, useRefreshSources } from "@/lib/hooks/useDiscover"
+import { useDiscover, useRefreshSources, useRecommendations } from "@/lib/hooks/useDiscover"
 import { useAddToTracker } from "@/lib/hooks/useTracker"
 import { cn } from "@/lib/utils/cn"
 
@@ -145,6 +146,9 @@ export default function DiscoverPage() {
   const totalCount = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
 
+  const { data: recsData } = useRecommendations(8)
+  const recommendations = recsData?.recommendations ?? []
+
   const { mutate: refreshSources, isPending: isRefreshing } = useRefreshSources()
   const { mutate: addToTracker, isPending: isSaving } = useAddToTracker()
 
@@ -200,6 +204,58 @@ export default function DiscoverPage() {
           Refresh Sources
         </Button>
       </div>
+
+      {/* -- Recommended for You --------------------------------------------- */}
+      {recommendations.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-4 h-4 text-indigo-500" />
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Recommended for You</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {recommendations.slice(0, 4).map(rec => (
+              <div key={rec.jobId} className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-md hover:border-indigo-200 transition-all">
+                <div className="flex items-start gap-3 mb-2">
+                  <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-sm font-bold text-gray-400">
+                    {rec.companyLogoUrl ? <img src={rec.companyLogoUrl} alt="" className="w-full h-full object-contain rounded-lg" /> : rec.company.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{rec.title}</p>
+                    <p className="text-xs text-gray-500 truncate">{rec.company}</p>
+                  </div>
+                </div>
+                {/* Score + badges */}
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className={cn(
+                    "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                    rec.score >= 70 ? "bg-emerald-100 text-emerald-700" :
+                    rec.score >= 40 ? "bg-amber-100 text-amber-700" :
+                    "bg-gray-100 text-gray-600"
+                  )}>
+                    {rec.score}% match
+                  </span>
+                  {rec.badges.slice(0, 2).map(b => (
+                    <span key={b} className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{b}</span>
+                  ))}
+                </div>
+                {/* Reasons */}
+                <p className="text-[11px] text-gray-400 line-clamp-2">{rec.reasons[0]}</p>
+                {/* Save button */}
+                <button
+                  onClick={() => addToTracker({
+                    job_id: rec.jobId, title: rec.title, company: rec.company,
+                    url: rec.url, location: rec.location, work_type: rec.workType,
+                    industry: rec.industry, source: "Recommendation",
+                  })}
+                  className="mt-2 w-full text-xs font-medium py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+                >
+                  Save to Tracker
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* -- Search Bar ----------------------------------------------------- */}
       <div className="relative">

@@ -31,8 +31,11 @@ class Reminder(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    reminder_type: Mapped[str | None] = mapped_column(String(50))  # follow_up, interview_prep, thank_you, check_status, recruiter
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_overdue: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

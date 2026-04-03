@@ -1,9 +1,9 @@
 """Reminders Router — Manage follow-up reminders for job applications."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
@@ -18,6 +18,7 @@ class ReminderCreate(BaseModel):
     title: str
     description: Optional[str] = None
     remind_at: str  # ISO datetime string
+    reminder_type: Optional[str] = None
 
 
 class ReminderUpdate(BaseModel):
@@ -27,6 +28,8 @@ class ReminderUpdate(BaseModel):
 
 
 def _serialize(r: Reminder) -> dict:
+    now = datetime.now(timezone.utc)
+    is_overdue = bool(r.remind_at and r.remind_at < now and not r.is_completed)
     return {
         "id": r.id,
         "applicationId": r.application_id,
@@ -35,6 +38,9 @@ def _serialize(r: Reminder) -> dict:
         "remindAt": r.remind_at.isoformat() if r.remind_at else None,
         "isCompleted": r.is_completed,
         "completedAt": r.completed_at.isoformat() if r.completed_at else None,
+        "reminderType": r.reminder_type,
+        "snoozedUntil": r.snoozed_until.isoformat() if r.snoozed_until else None,
+        "isOverdue": is_overdue,
         "createdAt": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -68,6 +74,7 @@ async def upcoming_reminders(
             Reminder.user_id == current_user.id,
             Reminder.is_completed == False,
             Reminder.remind_at > now,
+            or_(Reminder.snoozed_until == None, Reminder.snoozed_until < now),
         ).order_by(Reminder.remind_at.asc())
     )
     reminders = result.scalars().all()
@@ -92,8 +99,50 @@ async def create_reminder(
         title=data.title,
         description=data.description,
         remind_at=remind_at,
+        reminder_type=data.reminder_type,
     )
     db.add(reminder)
+    await db.flush()
+    await db.commit()
+    await db.refresh(reminder)
+    return _serialize(reminder)
+
+
+@router.get("/overdue")
+async def get_overdue_reminders(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get overdue reminders (past due + not completed)."""
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Reminder).where(
+            Reminder.user_id == current_user.id,
+            Reminder.is_completed == False,
+            Reminder.remind_at < now,
+            or_(Reminder.snoozed_until == None, Reminder.snoozed_until < now),
+        ).order_by(Reminder.remind_at.asc())
+    )
+    reminders = result.scalars().all()
+    return [_serialize(r) for r in reminders]
+
+
+@router.post("/{reminder_id}/snooze")
+async def snooze_reminder(
+    reminder_id: str,
+    hours: int = Query(24, ge=1, le=168),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Snooze a reminder by N hours."""
+    result = await db.execute(
+        select(Reminder).where(Reminder.id == reminder_id, Reminder.user_id == current_user.id)
+    )
+    reminder = result.scalar_one_or_none()
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    reminder.snoozed_until = datetime.now(timezone.utc) + timedelta(hours=hours)
     await db.flush()
     await db.commit()
     await db.refresh(reminder)
