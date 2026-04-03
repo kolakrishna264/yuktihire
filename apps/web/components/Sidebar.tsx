@@ -21,13 +21,13 @@ import {
 import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/dashboard/discover", label: "Discover", icon: Search },
-  { href: "/dashboard/tracker", label: "Tracker", icon: Kanban },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
+  { href: "/dashboard/discover", label: "Discover Jobs", icon: Search },
+  { href: "/dashboard/tracker", label: "Pipeline", icon: Kanban },
   { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
-  { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
+  { href: "/dashboard/tailor", label: "Tailoring Studio", icon: Wand2, highlight: true },
   { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
-  { href: "/dashboard/extension", label: "Extension", icon: Chrome },
+  { href: "/dashboard/extension", label: "Browser Assist", icon: Chrome },
   { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]

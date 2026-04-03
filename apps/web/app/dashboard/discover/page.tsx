@@ -230,13 +230,13 @@ export default function DiscoverPage() {
       {/* -- Header --------------------------------------------------------- */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Discover</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Discover Jobs</h1>
           <p className="text-sm text-gray-500">
-            Find your next opportunity across{" "}
+            Browse{" "}
             <span className="font-medium text-indigo-600">
               {totalCount.toLocaleString()}
             </span>{" "}
-            jobs
+            opportunities from top companies — save, tailor, and apply
           </p>
         </div>
         <Button
@@ -295,7 +295,7 @@ export default function DiscoverPage() {
                   })}
                   className="mt-2 w-full text-xs font-medium py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
                 >
-                  Save to Tracker
+                  Save & Tailor
                 </button>
               </div>
             ))}
@@ -610,7 +610,7 @@ export default function DiscoverPage() {
 
                   {/* Right side -- action buttons */}
                   <div className="flex flex-row sm:flex-col gap-2 shrink-0 items-start">
-                    {/* Save to Tracker */}
+                    {/* Save & Tailor */}
                     {isSaved ? (
                       <Button
                         size="sm"
@@ -628,21 +628,22 @@ export default function DiscoverPage() {
                         className="bg-indigo-600 hover:bg-indigo-700 text-white"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        Save to Tracker
+                        Save & Tailor
                       </Button>
                     )}
 
-                    {/* Apply */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (job.url) window.open(job.url, "_blank")
-                      }}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Apply
-                    </Button>
+                    {/* Apply on original site */}
+                    {job.url && (
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Apply on Site
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -743,7 +744,7 @@ export default function DiscoverPage() {
                     onClick={() => { addToTracker({ job_id: selectedJob.id, title: selectedJob.title, company: selectedJob.company, url: selectedJob.url, location: selectedJob.location, source: selectedJob.sources?.[0]?.name || "Discover" }); setSelectedJobId(null) }}
                     className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
                   >
-                    Save to Tracker
+                    Save & Tailor
                   </button>
                   {selectedJob.url && (
                     <a href={selectedJob.url} target="_blank" rel="noopener" className="flex-1 py-2.5 rounded-xl border border-gray-200 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50">

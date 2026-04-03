@@ -58,9 +58,13 @@ _NON_US = {
 
 
 def _detect_country(location: str) -> str:
+    """Detect country. Default is NON_US unless proven US/Remote."""
     if not location:
         return "UNKNOWN"
     loc = location.lower().strip()
+    if not loc:
+        return "UNKNOWN"
+    # Check US explicitly
     if any(m in loc for m in _US_MARKERS):
         return "US"
     if "remote" in loc and any(m in loc for m in ["us", "usa", "united states", "north america"]):
@@ -75,12 +79,12 @@ def _detect_country(location: str) -> str:
     for city in _US_CITIES:
         if city in loc:
             return "US"
-    for marker in _NON_US:
-        if marker in loc:
-            return "NON_US"
-    if "remote" in loc or "worldwide" in loc or "anywhere" in loc:
+    # Check Remote (no specific country)
+    if "remote" in loc or "worldwide" in loc or "anywhere" in loc or "global" in loc:
         return "REMOTE"
-    return "UNKNOWN"
+    # Everything else is NON_US (not UNKNOWN)
+    # This ensures German/EU/unknown cities don't sneak through
+    return "NON_US"
 
 
 def _is_us_eligible(location: str, company: str = "", title: str = "") -> bool:
