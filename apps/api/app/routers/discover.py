@@ -181,14 +181,68 @@ async def search_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        # Exclude German/non-US jobs at SQL level for performance
+        # US-only at SQL level: require location to contain US markers OR Remote/Worldwide
+        # This is the core filter — only US + Remote jobs pass
+        us_location_sql = """(
+            lower(COALESCE(location,'')) LIKE '%%remote%%'
+            OR lower(COALESCE(location,'')) LIKE '%%worldwide%%'
+            OR lower(COALESCE(location,'')) LIKE '%%anywhere%%'
+            OR lower(COALESCE(location,'')) LIKE '%%united states%%'
+            OR lower(COALESCE(location,'')) LIKE '%%usa%%'
+            OR lower(COALESCE(location,'')) LIKE '%%u.s.%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, us%%'
+            OR lower(COALESCE(location,'')) LIKE '%%new york%%'
+            OR lower(COALESCE(location,'')) LIKE '%%san francisco%%'
+            OR lower(COALESCE(location,'')) LIKE '%%los angeles%%'
+            OR lower(COALESCE(location,'')) LIKE '%%seattle%%'
+            OR lower(COALESCE(location,'')) LIKE '%%austin%%'
+            OR lower(COALESCE(location,'')) LIKE '%%chicago%%'
+            OR lower(COALESCE(location,'')) LIKE '%%boston%%'
+            OR lower(COALESCE(location,'')) LIKE '%%denver%%'
+            OR lower(COALESCE(location,'')) LIKE '%%atlanta%%'
+            OR lower(COALESCE(location,'')) LIKE '%%miami%%'
+            OR lower(COALESCE(location,'')) LIKE '%%dallas%%'
+            OR lower(COALESCE(location,'')) LIKE '%%houston%%'
+            OR lower(COALESCE(location,'')) LIKE '%%phoenix%%'
+            OR lower(COALESCE(location,'')) LIKE '%%portland%%'
+            OR lower(COALESCE(location,'')) LIKE '%%san diego%%'
+            OR lower(COALESCE(location,'')) LIKE '%%san jose%%'
+            OR lower(COALESCE(location,'')) LIKE '%%washington%%'
+            OR lower(COALESCE(location,'')) LIKE '%%virginia%%'
+            OR lower(COALESCE(location,'')) LIKE '%%maryland%%'
+            OR lower(COALESCE(location,'')) LIKE '%%california%%'
+            OR lower(COALESCE(location,'')) LIKE '%%texas%%'
+            OR lower(COALESCE(location,'')) LIKE '%%colorado%%'
+            OR lower(COALESCE(location,'')) LIKE '%%oregon%%'
+            OR lower(COALESCE(location,'')) LIKE '%%ohio%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, ca%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, ny%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, tx%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, wa%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, co%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, il%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, ma%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, ga%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, pa%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, nc%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, fl%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, az%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, mn%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, tn%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, ut%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, dc%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, md%%'
+            OR lower(COALESCE(location,'')) LIKE '%%, va%%'
+            OR lower(COALESCE(location,'')) LIKE '%%north america%%'
+        )"""
+
         conditions = [
             "is_active = true",
+            us_location_sql,
             "title NOT LIKE '%%(m/w/d)%%'",
             "title NOT LIKE '%%(w/m/d)%%'",
             "title NOT LIKE '%%(all gender)%%'",
             "company NOT LIKE '%%GmbH%%'",
-            "company NOT LIKE '%%gmbh%%'",
         ]
         params = {}
 
@@ -222,8 +276,7 @@ async def search_jobs(
         result = await db.execute(text(sql), params)
         all_rows = result.mappings().all()
 
-        # Always filter to US + Remote jobs only (core product rule)
-        all_rows = [r for r in all_rows if _is_us_job(r.get("location") or "", r.get("company") or "", r.get("title") or "")]
+        # US filtering done in SQL — no Python filter needed
 
         total = len(all_rows)
 
