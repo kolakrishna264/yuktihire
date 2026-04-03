@@ -1,23 +1,17 @@
-// YuktiHire Extension Popup
+// YuktiHire Extension Popup — Universal job detection
 
 const APP_URL = "https://yuktihire.com"
-
 const $ = (sel) => document.querySelector(sel)
 
 function showState(stateId) {
   document.querySelectorAll(".state").forEach(el => el.classList.add("hidden"))
-  $(stateId).classList.remove("hidden")
+  $(stateId)?.classList.remove("hidden")
 }
 
 function setAuthBadge(ok) {
   const badge = $("#auth-status")
-  if (ok) {
-    badge.textContent = "Connected"
-    badge.className = "auth-badge ok"
-  } else {
-    badge.textContent = "Not signed in"
-    badge.className = "auth-badge err"
-  }
+  if (ok) { badge.textContent = "Connected"; badge.className = "auth-badge ok" }
+  else { badge.textContent = "Not signed in"; badge.className = "auth-badge err" }
 }
 
 async function init() {
@@ -25,21 +19,17 @@ async function init() {
 
   // 1. Check auth
   const authResult = await sendMessage({ type: "CHECK_AUTH" })
-  if (!authResult.ok) {
-    setAuthBadge(false)
-    showState("#login-state")
-    return
-  }
+  if (!authResult.ok) { setAuthBadge(false); showState("#login-state"); return }
   setAuthBadge(true)
 
   // 2. Get current tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (!tab?.id || !tab.url || tab.url.startsWith("chrome://")) {
-    showState("#no-job-state")
+  if (!tab?.id || !tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("about:")) {
+    showNoJob("This is a browser page, not a job site.")
     return
   }
 
-  // 3. Check if URL is already tracked
+  // 3. Check if already tracked
   const checkResult = await sendMessage({ type: "CHECK_URL", url: tab.url })
   if (checkResult.ok && checkResult.data?.tracked) {
     showAlreadySaved(checkResult.data)
@@ -49,42 +39,67 @@ async function init() {
   // 4. Extract job data from page
   try {
     const jobData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_JOB" })
-    if (jobData && jobData.title) {
+
+    if (jobData && jobData.title && jobData.confidence > 0) {
       showJobDetected(jobData, tab.url)
+    } else if (jobData && jobData.pageType === "job") {
+      // Page looks like a job but couldn't extract title — show manual with hints
+      showNoJob("This looks like a job page but we couldn't extract the title. Save it manually below.")
+      if (jobData.company) $("#manual-company").value = jobData.company
     } else {
-      showState("#no-job-state")
+      showNoJob("We couldn't detect a job on this page. You can save it manually.")
     }
   } catch {
-    // Content script might not be loaded on this page
-    showState("#no-job-state")
+    showNoJob("Unable to read this page. Save manually below.")
   }
 }
 
+function showNoJob(reason) {
+  $("#no-job-reason").textContent = reason
+  showState("#no-job-state")
+}
+
 function showJobDetected(data, url) {
+  // Title & company
   $("#job-title").textContent = data.title || "Untitled"
-  $("#job-company").textContent = data.company || "Unknown company"
+  $("#job-company").textContent = data.company || "Unknown"
   $("#job-logo").textContent = (data.company || "?").charAt(0).toUpperCase()
 
   // Location
   const locEl = $("#job-location")
-  if (data.location) {
-    locEl.textContent = data.location
-    locEl.classList.remove("hidden")
+  if (data.location) { locEl.textContent = data.location; locEl.classList.remove("hidden") }
+  else { locEl.classList.add("hidden") }
+
+  // Source
+  const srcEl = $("#job-source")
+  srcEl.textContent = data.matched_extractor || data.source_domain || ""
+
+  // Detection info badge
+  const infoEl = $("#detection-info")
+  if (data.confidence >= 80) {
+    infoEl.textContent = "✓ High confidence detection"
+    infoEl.className = "detection-badge high"
+  } else if (data.confidence >= 40) {
+    infoEl.textContent = "~ Partial detection — review details"
+    infoEl.className = "detection-badge medium"
   } else {
-    locEl.classList.add("hidden")
+    infoEl.textContent = "? Low confidence — please verify"
+    infoEl.className = "detection-badge low"
   }
 
-  // Source domain
-  const srcEl = $("#job-source")
-  if (data.source_domain) {
-    srcEl.textContent = data.source_domain
+  // Description preview
+  const descEl = $("#job-desc-preview")
+  if (data.description && data.description.length > 20) {
+    descEl.textContent = data.description.slice(0, 150) + "..."
+    descEl.style.display = "block"
+  } else {
+    descEl.style.display = "none"
   }
 
   // Save button
   $("#save-btn").onclick = async () => {
     $("#save-btn").disabled = true
     $("#save-btn").textContent = "Saving..."
-
     const result = await sendMessage({
       type: "CAPTURE_JOB",
       data: {
@@ -96,25 +111,13 @@ function showJobDetected(data, url) {
         source_domain: data.source_domain,
       },
     })
-
-    if (result.ok) {
-      // Show match score if available
-      if (result.data?.matchScore) {
-        const matchEl = $("#job-match")
-        matchEl.textContent = `${result.data.matchScore}% match with your profile`
-        matchEl.classList.remove("hidden")
-        if (result.data.matchScore < 50) matchEl.classList.add("amber")
-      }
-      showSuccess(result.data)
-    } else {
-      showError(result.error)
-    }
+    if (result.ok) { showSuccess(result.data) }
+    else { showError(result.error) }
   }
 
-  // Apply button
+  // Apply button — save + open URL
   $("#apply-btn").onclick = async () => {
-    // Save then open the job URL
-    const result = await sendMessage({
+    await sendMessage({
       type: "CAPTURE_JOB",
       data: {
         url: url,
@@ -128,8 +131,8 @@ function showJobDetected(data, url) {
     window.open(url, "_blank")
   }
 
-  // Links (hidden until save, but we'll show them)
-  $("#dashboard-link").href = `${APP_URL}/dashboard/discover`
+  // Links
+  $("#dashboard-link").href = `${APP_URL}/dashboard/jobs`
   $("#tailor-link").href = `${APP_URL}/dashboard/tailor`
 
   showState("#job-detected-state")
@@ -138,20 +141,14 @@ function showJobDetected(data, url) {
 function showAlreadySaved(data) {
   $("#saved-title").textContent = data.title || "—"
   $("#saved-company").textContent = data.company || "—"
-  $("#saved-stage").textContent = `Stage: ${(data.stage || "INTERESTED").replace(/_/g, " ")}`
-
-  $("#saved-dashboard-link").href = `${APP_URL}/dashboard/tracker/${data.trackerId}`
-  $("#saved-tailor-link").href = `${APP_URL}/dashboard/tailor?tracker=${data.trackerId}`
-
+  $("#saved-stage").textContent = `Status: ${(data.stage || "Saved").replace(/_/g, " ")}`
+  $("#saved-dashboard-link").href = `${APP_URL}/dashboard/jobs`
+  $("#saved-tailor-link").href = `${APP_URL}/dashboard/tailor`
   showState("#already-saved-state")
 }
 
 function showSuccess(data) {
-  if (data?.dashboardUrl) {
-    $("#success-link").href = `${APP_URL}${data.dashboardUrl}`
-  } else {
-    $("#success-link").href = `${APP_URL}/dashboard/tracker`
-  }
+  $("#success-link").href = `${APP_URL}/dashboard/jobs`
   showState("#success-state")
 }
 
@@ -168,25 +165,41 @@ function sendMessage(msg) {
   })
 }
 
-// Login button
+// Event listeners
 document.addEventListener("DOMContentLoaded", () => {
   $("#login-btn").onclick = () => {
-    // Open the app's extension callback page — handles Supabase auth + sends token back
     chrome.tabs.create({ url: `${APP_URL}/auth/extension-callback` })
   }
 
+  // Manual save with editable fields
   $("#manual-save-btn")?.addEventListener("click", async () => {
+    const title = $("#manual-title")?.value?.trim()
+    const company = $("#manual-company")?.value?.trim()
+
+    if (!title) { alert("Please enter a job title"); return }
+
+    $("#manual-save-btn").disabled = true
+    $("#manual-save-btn").textContent = "Saving..."
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.url) return
     const result = await sendMessage({
       type: "CAPTURE_JOB",
-      data: { url: tab.url, page_title: tab.title, source_domain: new URL(tab.url).hostname },
+      data: {
+        url: tab?.url || "",
+        page_title: tab?.title || "",
+        extracted_title: title,
+        extracted_company: company || "Unknown",
+        source_domain: tab?.url ? new URL(tab.url).hostname : "",
+      },
     })
     if (result.ok) showSuccess(result.data)
-    else showError(result.error)
+    else {
+      showError(result.error)
+      $("#manual-save-btn").disabled = false
+      $("#manual-save-btn").textContent = "Save Job"
+    }
   })
 
   $("#retry-btn")?.addEventListener("click", init)
-
   init()
 })

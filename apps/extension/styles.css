@@ -273,5 +273,58 @@ body {
   margin: 0 auto 12px;
 }
 
+.detection-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.detection-badge.high {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.detection-badge.medium {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.detection-badge.low {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.job-desc-preview {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-top: 8px;
+  display: none;
+}
+
+.manual-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111827;
+  margin-bottom: 6px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-input:focus {
+  border-color: #6c63ff;
+}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
