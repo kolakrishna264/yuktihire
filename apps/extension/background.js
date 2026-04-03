@@ -67,9 +67,32 @@ async function apiCall(path, options = {}) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CHECK_AUTH") {
-    apiCall("/extension/status")
-      .then(data => sendResponse({ ok: true, data }))
-      .catch(err => sendResponse({ ok: false, error: err.message }))
+    // First try stored token
+    getToken().then(async (token) => {
+      if (token) {
+        apiCall("/extension/status")
+          .then(data => sendResponse({ ok: true, data }))
+          .catch(err => sendResponse({ ok: false, error: err.message }))
+      } else {
+        // Try to read token from yuktihire.com cookie
+        try {
+          const cookie = await chrome.cookies.get({ url: "https://yuktihire.com", name: "sb-yjkbvlyhapwxqjnhqncw-auth-token" })
+          if (cookie?.value) {
+            const decoded = JSON.parse(atob(cookie.value.replace("base64-", "")))
+            if (decoded.access_token) {
+              await storeTokens(decoded.access_token, decoded.refresh_token || "", decoded.expires_at || 0)
+              apiCall("/extension/status")
+                .then(data => sendResponse({ ok: true, data }))
+                .catch(err => sendResponse({ ok: false, error: err.message }))
+              return
+            }
+          }
+        } catch (e) {
+          console.log("[YuktiHire] Cookie read failed:", e)
+        }
+        sendResponse({ ok: false, error: "Not authenticated" })
+      }
+    })
     return true
   }
 

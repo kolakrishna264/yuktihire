@@ -3,7 +3,7 @@
   "name": "YuktiHire — AI Job Tracker",
   "description": "Save jobs from any website. Track, tailor, and apply smarter.",
   "version": "1.0.0",
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["activeTab", "storage", "tabs", "cookies"],
   "host_permissions": ["https://yuktihire.com/*", "https://api.yuktihire.com/*", "http://localhost:8000/*", "http://localhost:3000/*"],
   "action": {
     "default_popup": "popup.html",
