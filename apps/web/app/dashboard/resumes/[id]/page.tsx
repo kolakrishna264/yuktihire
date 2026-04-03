@@ -1,7 +1,7 @@
 "use client"
 
-import { use, useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { useResume, useUpdateResume, useResumeVersions } from "@/lib/hooks/useResumes"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -13,12 +13,9 @@ import { Textarea } from "@/components/ui/Textarea"
 import { ArrowLeft, Save, Wand2, Clock, Download } from "lucide-react"
 import { formatDate } from "@/lib/utils/format"
 
-export default function ResumeDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = use(params)
+export default function ResumeDetailPage() {
+  const params = useParams()
+  const id = params.id as string
   const router = useRouter()
   const { data: resume, isLoading } = useResume(id)
   const { data: versionsData } = useResumeVersions(id)
