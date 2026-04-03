@@ -171,3 +171,149 @@ async def test_update_application_not_found(client):
         "status": "APPLIED",
     })
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_extension_status(client):
+    """Test extension status endpoint."""
+    resp = await client.get("/api/v1/extension/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["authenticated"] == True
+    assert "userId" in data
+
+@pytest.mark.asyncio
+async def test_extension_check_url_not_tracked(client):
+    """Test extension URL check for untracked URL."""
+    resp = await client.get("/api/v1/extension/check-url?url=https://example.com/job/new")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tracked"] == False
+
+@pytest.mark.asyncio
+async def test_extension_capture(client):
+    """Test extension job capture."""
+    resp = await client.post("/api/v1/extension/capture", json={
+        "url": "https://linkedin.com/jobs/view/123",
+        "page_title": "Software Engineer at Google",
+        "extracted_title": "Software Engineer",
+        "extracted_company": "Google",
+        "source_domain": "linkedin.com",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] in ("saved", "duplicate")
+
+@pytest.mark.asyncio
+async def test_tracker_add(client):
+    """Test adding a job to tracker."""
+    resp = await client.post("/api/v1/tracker", json={
+        "title": "Data Scientist",
+        "company": "Netflix",
+        "url": "https://netflix.com/careers/123",
+        "pipeline_stage": "INTERESTED",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "Data Scientist"
+    assert data["pipelineStage"] == "INTERESTED"
+
+@pytest.mark.asyncio
+async def test_tracker_kanban(client):
+    """Test kanban endpoint."""
+    resp = await client.get("/api/v1/tracker/kanban")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "stages" in data
+
+@pytest.mark.asyncio
+async def test_insights_overview(client):
+    """Test insights overview endpoint."""
+    resp = await client.get("/api/v1/insights/overview")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "totalTracked" in data
+    assert "responseRate" in data
+
+@pytest.mark.asyncio
+async def test_insights_pipeline(client):
+    """Test pipeline counts."""
+    resp = await client.get("/api/v1/insights/pipeline")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+
+@pytest.mark.asyncio
+async def test_reminders_create(client):
+    """Test creating a reminder."""
+    resp = await client.post("/api/v1/reminders", json={
+        "title": "Follow up on application",
+        "remind_at": "2026-04-10T10:00:00Z",
+        "reminder_type": "follow_up",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["title"] == "Follow up on application"
+
+@pytest.mark.asyncio
+async def test_reminders_upcoming(client):
+    """Test upcoming reminders."""
+    resp = await client.get("/api/v1/reminders/upcoming")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+@pytest.mark.asyncio
+async def test_preferences_get(client):
+    """Test getting preferences (auto-creates if missing)."""
+    resp = await client.get("/api/v1/preferences")
+    assert resp.status_code == 200
+
+@pytest.mark.asyncio
+async def test_preferences_update(client):
+    """Test updating preferences."""
+    resp = await client.put("/api/v1/preferences", json={
+        "preferred_titles": ["Software Engineer", "Backend Developer"],
+        "preferred_work_types": ["Remote"],
+        "min_salary": 80000,
+    })
+    assert resp.status_code == 200
+
+@pytest.mark.asyncio
+async def test_contacts_crud(client):
+    """Test contact creation."""
+    resp = await client.post("/api/v1/contacts", json={
+        "name": "Jane Recruiter",
+        "role": "Recruiter",
+        "email": "jane@company.com",
+        "company": "BigCorp",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "Jane Recruiter"
+
+@pytest.mark.asyncio
+async def test_discover_search(client):
+    """Test discover search endpoint."""
+    resp = await client.get("/api/v1/discover?page=1&per_page=5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "jobs" in data
+    assert "total" in data
+    assert "totalPages" in data
+
+@pytest.mark.asyncio
+async def test_discover_sources(client):
+    """Test discover sources listing."""
+    resp = await client.get("/api/v1/discover/sources")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+@pytest.mark.asyncio
+async def test_bulk_stage_no_ids(client):
+    """Test bulk stage change with empty ids."""
+    resp = await client.post("/api/v1/tracker/bulk/stage", json={
+        "ids": [],
+        "stage": "APPLIED",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 0

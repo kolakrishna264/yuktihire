@@ -15,6 +15,8 @@ import {
 import { useApplicationContacts, useCreateContact, useDeleteContact } from "@/lib/hooks/useContacts"
 import { cn } from "@/lib/utils/cn"
 import { useReminders, useCreateReminder, useCompleteReminder, useDeleteReminder } from "@/lib/hooks/useReminders"
+import { useResumes } from "@/lib/hooks/useResumes"
+import { EventTimeline } from "@/components/EventTimeline"
 import type { PipelineStage, ApplicationEvent, Contact, Reminder } from "@/types"
 import {
   ArrowLeft,
@@ -127,6 +129,10 @@ export default function TrackerDetailPage() {
   const { mutate: deleteReminder } = useDeleteReminder()
 
   const reminders = allReminders.filter((r: Reminder) => r.applicationId === id)
+
+  // Resumes for resume selector
+  const { data: resumes } = useResumes()
+  const resumeList = resumes ?? []
 
   const [notes, setNotes] = useState<string | null>(null)
   const [notesDirty, setNotesDirty] = useState(false)
@@ -330,6 +336,21 @@ export default function TrackerDetailPage() {
                 </p>
               </div>
             )}
+
+            {/* Resume selector */}
+            <div className="pt-3 border-t border-gray-50">
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Resume for this job</label>
+              <select
+                value={job.resumeUsed || ""}
+                onChange={e => updateMutation.mutate({ id, data: { resume_used: e.target.value } })}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+              >
+                <option value="">No resume selected</option>
+                {resumeList.map((r: any) => (
+                  <option key={r.id} value={r.name || r.id}>{r.name || r.id}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Skills */}
@@ -413,103 +434,12 @@ export default function TrackerDetailPage() {
 
           {/* Timeline */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-800">Timeline</h2>
-              <button
-                onClick={() => setShowEventForm((v) => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add
-              </button>
-            </div>
-
-            {/* Add event form */}
-            {showEventForm && (
-              <form onSubmit={handleAddEvent} className="mb-4 p-3 bg-gray-50 rounded-lg space-y-2">
-                <select
-                  value={eventForm.type}
-                  onChange={(e) => setEventForm((f) => ({ ...f, type: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                >
-                  {EVENT_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  placeholder="Title *"
-                  value={eventForm.title}
-                  onChange={(e) => setEventForm((f) => ({ ...f, title: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  required
-                />
-                <textarea
-                  placeholder="Description (optional)"
-                  value={eventForm.description}
-                  onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))}
-                  rows={2}
-                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowEventForm(false)}
-                    className="px-2.5 py-1 text-xs text-gray-500 hover:text-gray-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={addEventMutation.isPending}
-                    className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {addEventMutation.isPending ? "Adding..." : "Add Event"}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Events list */}
-            {events.length === 0 && !showEventForm && (
-              <p className="text-xs text-gray-400 text-center py-4">No events yet</p>
-            )}
-            <div className="space-y-3">
-              {events.map((event) => (
-                <div key={event.id} className="flex gap-2.5 group">
-                  <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center shrink-0 text-gray-500">
-                    {getEventIcon(event.eventType)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    {event.title && (
-                      <p className="text-xs font-semibold text-gray-700">{event.title}</p>
-                    )}
-                    {event.description && (
-                      <p className="text-xs text-gray-500 mt-0.5">{event.description}</p>
-                    )}
-                    {!event.title && !event.description && event.newValue && (
-                      <p className="text-xs text-gray-500">
-                        Stage changed to <span className="font-medium">{event.newValue}</span>
-                      </p>
-                    )}
-                    <p className="text-[10px] text-gray-300 mt-1">
-                      {new Date(event.eventDate ?? event.createdAt).toLocaleDateString()} &middot;{" "}
-                      {event.eventType.replace(/_/g, " ")}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() =>
-                      deleteEventMutation.mutate({ trackerId: job.id, eventId: event.id })
-                    }
-                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all shrink-0"
-                    title="Delete event"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
+            <h2 className="text-sm font-semibold text-gray-800 mb-4">Timeline</h2>
+            <EventTimeline
+              events={events}
+              onDelete={(eventId) => deleteEventMutation.mutate({ trackerId: id, eventId })}
+              onAdd={(data) => addEventMutation.mutate({ trackerId: id, data })}
+            />
           </div>
 
           {/* Resume Intelligence */}

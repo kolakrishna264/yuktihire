@@ -119,6 +119,7 @@ export default function DiscoverPage() {
   const [sortBy, setSortBy] = useState("newest")
   const [page, setPage] = useState(1)
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
 
   // Debounce search
   useEffect(() => {
@@ -403,9 +404,12 @@ export default function DiscoverPage() {
                     <div className="flex-1 min-w-0 space-y-2.5">
                       {/* Title row */}
                       <div className="flex items-start gap-2 flex-wrap">
-                        <h3 className="text-base font-bold text-gray-900 leading-tight">
+                        <button
+                          onClick={() => setSelectedJobId(job.id)}
+                          className="text-base font-bold text-gray-900 leading-tight hover:text-indigo-600 transition-colors text-left"
+                        >
                           {job.title}
-                        </h3>
+                        </button>
                         {sourceName && (
                           <span
                             className={cn(
@@ -557,6 +561,90 @@ export default function DiscoverPage() {
           </button>
         </div>
       )}
+
+      {/* Job Detail Drawer */}
+      {(() => {
+        const selectedJob = jobs.find(j => j.id === selectedJobId)
+        if (!selectedJob) return null
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-black/20" onClick={() => setSelectedJobId(null)} />
+            <div className="relative w-full max-w-lg bg-white shadow-2xl overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-100 p-4 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-gray-900 truncate">{selectedJob.title}</h2>
+                <button onClick={() => setSelectedJobId(null)} className="text-gray-400 hover:text-gray-600">&times;</button>
+              </div>
+              <div className="p-5 space-y-4">
+                {/* Company + Location */}
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-lg font-bold text-gray-400">
+                    {selectedJob.companyLogoUrl ? <img src={selectedJob.companyLogoUrl} alt="" className="w-full h-full object-contain rounded-xl" /> : selectedJob.company.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{selectedJob.company}</p>
+                    <p className="text-xs text-gray-500">{selectedJob.location}</p>
+                  </div>
+                </div>
+
+                {/* Badges */}
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedJob.workType && <Badge>{selectedJob.workType}</Badge>}
+                  {selectedJob.experienceLevel && <Badge variant="secondary">{selectedJob.experienceLevel}</Badge>}
+                  {selectedJob.industry && <Badge variant="secondary">{selectedJob.industry}</Badge>}
+                  {selectedJob.salaryRaw && <Badge variant="secondary" className="text-emerald-700 bg-emerald-50">{selectedJob.salaryRaw}</Badge>}
+                </div>
+
+                {/* Skills */}
+                {selectedJob.skills?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Skills</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedJob.skills.map(s => (
+                        <span key={s.name} className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">{s.canonical || s.name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sources */}
+                {selectedJob.sources?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Sources</p>
+                    <div className="flex gap-2">
+                      {selectedJob.sources.map(s => (
+                        <a key={s.slug} href={s.sourceUrl} target="_blank" rel="noopener" className="text-xs text-indigo-600 hover:underline">{s.name}</a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Description */}
+                {selectedJob.descriptionText && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description</p>
+                    <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{selectedJob.descriptionText}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => { addToTracker({ job_id: selectedJob.id, title: selectedJob.title, company: selectedJob.company, url: selectedJob.url, location: selectedJob.location, source: selectedJob.sources?.[0]?.name || "Discover" }); setSelectedJobId(null) }}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                  >
+                    Save to Tracker
+                  </button>
+                  {selectedJob.url && (
+                    <a href={selectedJob.url} target="_blank" rel="noopener" className="flex-1 py-2.5 rounded-xl border border-gray-200 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                      Apply &nearr;
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

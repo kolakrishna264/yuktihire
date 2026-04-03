@@ -1,93 +1,70 @@
-// JobGenie Background Service Worker
+const API_BASE = "http://localhost:8000/api/v1"  // Change to production URL for release
+const APP_URL = "http://localhost:3000"  // Change to https://yuktihire.com for release
 
-chrome.runtime.onInstalled.addListener(function() {
-  console.log('JobGenie installed');
-});
+// Get stored auth token
+async function getToken() {
+  const result = await chrome.storage.local.get(["yuktihire_token"])
+  return result.yuktihire_token || null
+}
 
-chrome.runtime.onStartup.addListener(function() {
-  console.log('JobGenie started');
-});
+// API call helper
+async function apiCall(path, options = {}) {
+  const token = await getToken()
+  if (!token) throw new Error("Not authenticated")
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  })
 
-  if (request.action === 'PING') {
-    sendResponse({ success: true });
-    return true;
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}))
+    throw new Error(data.detail || `HTTP ${resp.status}`)
   }
 
-  if (request.action === 'EXTRACT_PROFILE') {
-    // Decode base64 string back to binary
-    try {
-      var b64 = request.fileBase64;
-      var binary = atob(b64);
-      var bytes = new Uint8Array(binary.length);
-      for (var i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      var blob = new Blob([bytes], { type: request.fileType });
-      var formData = new FormData();
-      formData.append('file', blob, request.fileName);
+  if (resp.status === 204) return null
+  return resp.json()
+}
 
-      fetch('http://127.0.0.1:5000/extract-profile', {
-        method: 'POST',
-        body: formData
-      })
-      .then(function(r) {
-        if (!r.ok) throw new Error('Server error ' + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        sendResponse({ success: true, data: d });
-      })
-      .catch(function(e) {
-        console.error('Extract failed:', e.message);
-        sendResponse({ success: false, error: e.message });
-      });
-    } catch(e) {
-      console.error('Background error:', e.message);
-      sendResponse({ success: false, error: e.message });
-    }
-    return true;
+// Message handler
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "CHECK_AUTH") {
+    apiCall("/extension/status")
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true  // async response
   }
 
-  if (request.action === 'TAILOR_RESUME') {
-    fetch('http://127.0.0.1:5000/tailor-resume', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request.payload)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { sendResponse({ success: true, data: d }); })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
+  if (msg.type === "CHECK_URL") {
+    apiCall(`/extension/check-url?url=${encodeURIComponent(msg.url)}`)
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
   }
 
-  if (request.action === 'GENERATE_PDF') {
-    fetch('http://127.0.0.1:5000/generate-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request.payload)
+  if (msg.type === "CAPTURE_JOB") {
+    apiCall("/extension/capture", {
+      method: "POST",
+      body: JSON.stringify(msg.data),
     })
-    .then(function(r) {
-      if (!r.ok) throw new Error('PDF error ' + r.status);
-      return r.arrayBuffer();
-    })
-    .then(function(buf) {
-      // Convert to base64 for safe message passing
-      var bytes = new Uint8Array(buf);
-      var binary = '';
-      for (var i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      sendResponse({
-        success: true,
-        dataBase64: btoa(binary),
-        filename: request.payload.filename
-      });
-    })
-    .catch(function(e) { sendResponse({ success: false, error: e.message }); });
-    return true;
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
   }
 
-  return true;
-});
+  if (msg.type === "SET_TOKEN") {
+    chrome.storage.local.set({ yuktihire_token: msg.token })
+    sendResponse({ ok: true })
+    return false
+  }
+
+  if (msg.type === "LOGOUT") {
+    chrome.storage.local.remove(["yuktihire_token"])
+    sendResponse({ ok: true })
+    return false
+  }
+})

@@ -26,7 +26,8 @@ import { useResumes } from "@/lib/hooks/useResumes"
 import { useAllJobs } from "@/lib/hooks/useJobs"
 import { useTailor } from "@/lib/hooks/useTailor"
 import { useUsage } from "@/lib/hooks/useBilling"
-import { useUpcomingReminders } from "@/lib/hooks/useReminders"
+import { useUpcomingReminders, useOverdueReminders } from "@/lib/hooks/useReminders"
+import { useTrackerKanban } from "@/lib/hooks/useTracker"
 import type { User } from "@supabase/supabase-js"
 import type { TailoringSessionMeta, ApplicationStatus } from "@/types"
 
@@ -94,6 +95,15 @@ export default function DashboardShell({ user }: DashboardShellProps) {
   useUsage()
   const { data: tailoringSessions = [] } = useTailor()
   const { data: upcomingReminders = [] } = useUpcomingReminders()
+  const { data: overdueReminders = [] } = useOverdueReminders()
+  const { data: kanbanData } = useTrackerKanban()
+
+  const stages = (kanbanData as any)?.stages || {}
+  const totalTracked = Object.values(stages).reduce((sum: number, s: any) => sum + (s?.count || 0), 0)
+  const totalApplied = (stages.APPLIED?.count || 0) + (stages.PHONE_SCREEN?.count || 0) + (stages.INTERVIEWING?.count || 0) + (stages.OFFER?.count || 0)
+  const totalInterviewing = (stages.PHONE_SCREEN?.count || 0) + (stages.INTERVIEWING?.count || 0)
+  const totalOffers = stages.OFFER?.count || 0
+  const followUpsDue = overdueReminders.length
 
   const name = user?.email?.split("@")[0] ?? "there"
   const resumeList = resumes ?? []
@@ -155,6 +165,40 @@ export default function DashboardShell({ user }: DashboardShellProps) {
           Here&apos;s an overview of your job search activity
         </p>
       </div>
+
+      {/* Overdue Reminders Alert */}
+      {overdueReminders.length > 0 && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+          <Bell className="w-4 h-4 text-amber-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">{overdueReminders.length} overdue reminder{overdueReminders.length !== 1 ? "s" : ""}</p>
+            <p className="text-xs text-amber-600">Follow up on your applications</p>
+          </div>
+          <Link href="/dashboard/tracker" className="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900">View &rarr;</Link>
+        </div>
+      )}
+
+      {/* Tracker Metrics */}
+      {totalTracked > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <div className="bg-white rounded-xl border border-gray-100 p-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Tracked</p>
+            <p className="text-lg font-bold text-gray-900 tabular-nums">{totalTracked}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 p-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Applied</p>
+            <p className="text-lg font-bold text-indigo-600 tabular-nums">{totalApplied}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 p-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Interviewing</p>
+            <p className="text-lg font-bold text-amber-600 tabular-nums">{totalInterviewing}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 p-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Offers</p>
+            <p className="text-lg font-bold text-emerald-600 tabular-nums">{totalOffers}</p>
+          </div>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
