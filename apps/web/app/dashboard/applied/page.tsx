@@ -20,7 +20,7 @@ import Link from "next/link"
 import type { JobApplication, ApplicationStatus } from "@/types"
 import { toast } from "sonner"
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// -- Constants ----------------------------------------------------------------
 
 const STATUS_TABS: { value: "ALL" | ApplicationStatus; label: string }[] = [
   { value: "ALL", label: "All" },
@@ -54,16 +54,16 @@ const STATUS_OPTIONS: { value: ApplicationStatus; label: string }[] = [
   { value: "WITHDRAWN", label: "Withdrawn" },
 ]
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
 
 function formatShortDate(dateStr?: string | null): string {
-  if (!dateStr) return "—"
+  if (!dateStr) return "\u2014"
   try {
     const d = new Date(dateStr)
-    if (isNaN(d.getTime())) return "—"
+    if (isNaN(d.getTime())) return "\u2014"
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   } catch {
-    return "—"
+    return "\u2014"
   }
 }
 
@@ -80,7 +80,11 @@ function statusLabel(status: ApplicationStatus): string {
   return map[status] ?? status
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: ApplicationStatus }) {
+  return <Badge variant={STATUS_BADGE[status]}>{statusLabel(status)}</Badge>
+}
+
+// -- Page ---------------------------------------------------------------------
 
 export default function AppliedPage() {
   const { data: jobs = [], isLoading } = useAllJobs()
@@ -92,8 +96,10 @@ export default function AppliedPage() {
   const [dateTo, setDateTo] = useState("")
   const [activeTab, setActiveTab] = useState<"ALL" | ApplicationStatus>("ALL")
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editingNotes, setEditingNotes] = useState<string | null>(null)
+  const [notesValue, setNotesValue] = useState("")
 
-  // ── Counts per status (for pill badges) ────────────────────────────────────
+  // -- Counts per status (for pill badges) ------------------------------------
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { ALL: jobs.length }
     for (const j of jobs) {
@@ -102,7 +108,7 @@ export default function AppliedPage() {
     return counts
   }, [jobs])
 
-  // ── Filtered jobs ──────────────────────────────────────────────────────────
+  // -- Filtered jobs ----------------------------------------------------------
   const filteredJobs = useMemo(() => {
     let filtered = [...jobs]
 
@@ -162,7 +168,7 @@ export default function AppliedPage() {
     })
   }
 
-  // ── Loading state ──────────────────────────────────────────────────────────
+  // -- Loading state ----------------------------------------------------------
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -190,7 +196,7 @@ export default function AppliedPage() {
     )
   }
 
-  // ── Empty state (no jobs at all) ───────────────────────────────────────────
+  // -- Empty state (no jobs at all) -------------------------------------------
   if (jobs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6">
@@ -210,9 +216,221 @@ export default function AppliedPage() {
     )
   }
 
+  // -- Expanded detail row content --------------------------------------------
+  const renderExpandedRow = (job: JobApplication) => (
+    <div className="px-6 py-5 bg-gray-50/30 border-b border-gray-100 space-y-4">
+      {/* Description */}
+      {job.description && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            Description
+          </p>
+          <p className="text-sm text-gray-700">
+            {job.description.length > 200
+              ? job.description.slice(0, 200) + "..."
+              : job.description}
+          </p>
+        </div>
+      )}
+
+      {/* Metadata grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-3">
+        {job.location && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Location
+            </p>
+            <p className="text-sm text-gray-700">{job.location}</p>
+          </div>
+        )}
+
+        {job.salary && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Salary
+            </p>
+            <p className="text-sm text-gray-700">{job.salary}</p>
+          </div>
+        )}
+
+        {job.workType && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Work Type
+            </p>
+            <p className="text-sm text-gray-700">{job.workType}</p>
+          </div>
+        )}
+
+        {job.experienceLevel && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Experience
+            </p>
+            <p className="text-sm text-gray-700">{job.experienceLevel}</p>
+          </div>
+        )}
+
+        {job.industry && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Industry
+            </p>
+            <p className="text-sm text-gray-700">{job.industry}</p>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            Source
+          </p>
+          <p className="text-sm text-gray-700">{job.source || "Direct"}</p>
+        </div>
+
+        {job.postedAt && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Posted
+            </p>
+            <p className="text-sm text-gray-700">{formatShortDate(job.postedAt)}</p>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            Resume Used
+          </p>
+          <p className="text-sm text-gray-700">
+            {job.resumeUsed || "No resume attached"}
+          </p>
+        </div>
+      </div>
+
+      {/* Skills */}
+      {job.skills && job.skills.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+            Skills
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {job.skills.map((skill) => (
+              <span
+                key={skill}
+                className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Editable Notes */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+          Notes
+        </p>
+        {editingNotes === job.id ? (
+          <div className="flex gap-2 mt-1">
+            <textarea
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              className="flex-1 text-sm border border-gray-200 rounded-lg p-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              rows={2}
+              placeholder="Add notes about this application..."
+            />
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => {
+                  updateJob.mutate(
+                    { id: job.id, data: { notes: notesValue } as Partial<JobApplication> },
+                    { onSuccess: () => toast.success("Notes saved") }
+                  )
+                  setEditingNotes(null)
+                }}
+                className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setEditingNotes(null)}
+                className="text-xs px-2 py-1 border border-gray-200 rounded text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={() => {
+              setEditingNotes(job.id)
+              setNotesValue(job.notes || "")
+            }}
+            className="text-sm text-gray-600 mt-1 cursor-pointer hover:text-indigo-600 transition-colors"
+          >
+            {job.notes || (
+              <span className="text-gray-400 italic">Click to add notes...</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Job URL */}
+      {job.url && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+            Job URL
+          </p>
+          <a
+            href={job.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-600 hover:text-blue-800 underline inline-flex items-center gap-1"
+          >
+            {job.url}
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100">
+        {/* Status update dropdown */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-gray-500">
+            Update Status
+          </label>
+          <select
+            value={job.status}
+            onChange={(e) =>
+              handleStatusChange(job, e.target.value as ApplicationStatus)
+            }
+            className="h-8 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+          >
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Delete button */}
+        <button
+          onClick={() => handleDelete(job)}
+          disabled={deleteJob.isPending}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="p-6 space-y-6">
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* -- Header --------------------------------------------------------- */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Applied</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -220,7 +438,7 @@ export default function AppliedPage() {
         </p>
       </div>
 
-      {/* ── Status filter pills ─────────────────────────────────────────────── */}
+      {/* -- Status filter pills --------------------------------------------- */}
       <div className="flex flex-wrap gap-2">
         {STATUS_TABS.map((tab) => {
           const count = statusCounts[tab.value] ?? 0
@@ -242,7 +460,7 @@ export default function AppliedPage() {
         })}
       </div>
 
-      {/* ── Search & date filters ───────────────────────────────────────────── */}
+      {/* -- Search & date filters ------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -276,323 +494,195 @@ export default function AppliedPage() {
         </div>
       </div>
 
-      {/* ── Table ─────────────────────────────────────────────────────────────── */}
+      {/* -- Table (desktop) / Cards (mobile) -------------------------------- */}
       {filteredJobs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2">
           <Search className="w-8 h-8 text-gray-300" />
           <p className="text-sm text-gray-500">No jobs match your filters</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
-          {/* Header row */}
-          <div className="grid grid-cols-[40px_1.2fr_1.5fr_100px_90px_100px_80px] gap-2 px-4 py-3 bg-indigo-50 rounded-t-xl text-xs font-bold text-gray-600 uppercase tracking-wide">
-            <span />
-            <span>Company</span>
-            <span>Job Title</span>
-            <span>Status</span>
-            <span>Applied</span>
-            <span>Resume</span>
-            <span>Link</span>
-          </div>
+        <>
+          {/* Desktop: table layout */}
+          <div className="hidden md:block">
+            <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+              {/* Header row */}
+              <div className="grid grid-cols-[40px_1.2fr_1.5fr_100px_90px_100px_80px] gap-2 px-4 py-3 bg-indigo-50 rounded-t-xl text-xs font-bold text-gray-600 uppercase tracking-wide">
+                <span />
+                <span>Company</span>
+                <span>Job Title</span>
+                <span>Status</span>
+                <span>Applied</span>
+                <span>Resume</span>
+                <span>Link</span>
+              </div>
 
-          {/* Rows */}
-          {filteredJobs.map((job) => {
-            const isExpanded = expandedId === job.id
-            return (
-              <div key={job.id}>
-                {/* Main row */}
-                <button
-                  onClick={() => toggleExpand(job.id)}
-                  className={cn(
-                    "w-full grid grid-cols-[40px_1.2fr_1.5fr_100px_90px_100px_80px] gap-2 px-4 py-3 items-center text-left border-b border-gray-50 transition-colors cursor-pointer",
-                    "hover:bg-gray-50/50",
-                    isExpanded && "bg-gray-50/30"
-                  )}
-                >
-                  {/* Chevron */}
-                  <span className="flex items-center justify-center">
-                    <ChevronRight
+              {/* Rows */}
+              {filteredJobs.map((job) => {
+                const isExpanded = expandedId === job.id
+                return (
+                  <div key={job.id}>
+                    {/* Main row */}
+                    <button
+                      onClick={() => toggleExpand(job.id)}
                       className={cn(
-                        "w-4 h-4 text-gray-400 transition-transform duration-200",
-                        isExpanded && "rotate-90"
+                        "w-full grid grid-cols-[40px_1.2fr_1.5fr_100px_90px_100px_80px] gap-2 px-4 py-3 items-center text-left border-b border-gray-50 transition-colors cursor-pointer",
+                        "hover:bg-gray-50/50",
+                        isExpanded && "bg-gray-50/30"
                       )}
-                    />
-                  </span>
+                    >
+                      {/* Chevron */}
+                      <span className="flex items-center justify-center">
+                        <ChevronRight
+                          className={cn(
+                            "w-4 h-4 text-gray-400 transition-transform duration-200",
+                            isExpanded && "rotate-90"
+                          )}
+                        />
+                      </span>
 
-                  {/* Company */}
-                  <span className="text-sm font-semibold text-gray-900 truncate">
-                    {job.company}
-                  </span>
+                      {/* Company */}
+                      <span className="text-sm font-semibold text-gray-900 truncate">
+                        {job.company}
+                      </span>
 
-                  {/* Title */}
-                  <span className="text-sm text-gray-600 truncate">
-                    {job.title}
-                  </span>
+                      {/* Title */}
+                      <span className="text-sm text-gray-600 truncate">
+                        {job.title}
+                      </span>
 
-                  {/* Status badge */}
-                  <span onClick={(e) => e.stopPropagation()}>
-                    <Badge variant={STATUS_BADGE[job.status]}>
-                      {statusLabel(job.status)}
-                    </Badge>
-                  </span>
+                      {/* Status badge */}
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <StatusBadge status={job.status} />
+                      </span>
 
-                  {/* Applied date */}
-                  <span className="text-sm text-gray-500">
-                    {formatShortDate(job.appliedAt ?? job.createdAt)}
-                  </span>
+                      {/* Applied date */}
+                      <span className="text-sm text-gray-500">
+                        {formatShortDate(job.appliedAt ?? job.createdAt)}
+                      </span>
 
-                  {/* Resume */}
-                  <span
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex"
-                  >
-                    {job.resumeUsed ? (
+                      {/* Resume */}
                       <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toast.info("Resume download coming soon")
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            toast.info("Resume download coming soon")
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-1.5 text-sm font-semibold cursor-pointer inline-flex items-center gap-1.5 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex"
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        Download
+                        {job.resumeUsed ? (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toast.info("Resume download coming soon")
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter")
+                                toast.info("Resume download coming soon")
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-1.5 text-sm font-semibold cursor-pointer inline-flex items-center gap-1.5 transition-colors"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Download
+                          </span>
+                        ) : (
+                          <span className="bg-gray-200 text-gray-400 rounded-lg px-4 py-1.5 text-sm font-semibold inline-flex items-center gap-1.5 cursor-default">
+                            <Download className="w-3.5 h-3.5" />
+                            N/A
+                          </span>
+                        )}
                       </span>
-                    ) : (
-                      <span className="bg-gray-200 text-gray-400 rounded-lg px-4 py-1.5 text-sm font-semibold inline-flex items-center gap-1.5 cursor-default">
-                        <Download className="w-3.5 h-3.5" />
-                        N/A
+
+                      {/* Link */}
+                      <span
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex"
+                      >
+                        {job.url ? (
+                          <a
+                            href={job.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium inline-flex items-center gap-1"
+                          >
+                            View
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        ) : (
+                          <span className="text-gray-300 text-sm">{"\u2014"}</span>
+                        )}
                       </span>
-                    )}
-                  </span>
+                    </button>
 
-                  {/* Link */}
-                  <span
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex"
-                  >
-                    {job.url ? (
-                      <a
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium inline-flex items-center gap-1"
-                      >
-                        View
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    ) : (
-                      <span className="text-gray-300 text-sm">—</span>
-                    )}
-                  </span>
-                </button>
-
-                {/* Expanded detail row */}
-                <div
-                  className={cn(
-                    "overflow-hidden transition-all duration-200",
-                    isExpanded
-                      ? "max-h-[600px] opacity-100"
-                      : "max-h-0 opacity-0"
-                  )}
-                >
-                  <div className="px-6 py-5 bg-gray-50/30 border-b border-gray-100 space-y-4">
-                    {/* Description */}
-                    {job.description && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                          Description
-                        </p>
-                        <p className="text-sm text-gray-700">
-                          {job.description.length > 200
-                            ? job.description.slice(0, 200) + "..."
-                            : job.description}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Metadata grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-3">
-                      {job.location && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Location
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {job.location}
-                          </p>
-                        </div>
+                    {/* Expanded detail row */}
+                    <div
+                      className={cn(
+                        "overflow-hidden transition-all duration-200",
+                        isExpanded
+                          ? "max-h-[800px] opacity-100"
+                          : "max-h-0 opacity-0"
                       )}
-
-                      {job.salary && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Salary
-                          </p>
-                          <p className="text-sm text-gray-700">{job.salary}</p>
-                        </div>
-                      )}
-
-                      {job.workType && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Work Type
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {job.workType}
-                          </p>
-                        </div>
-                      )}
-
-                      {job.experienceLevel && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Experience
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {job.experienceLevel}
-                          </p>
-                        </div>
-                      )}
-
-                      {job.industry && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Industry
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {job.industry}
-                          </p>
-                        </div>
-                      )}
-
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                          Source
-                        </p>
-                        <p className="text-sm text-gray-700">
-                          {job.source || "Direct"}
-                        </p>
-                      </div>
-
-                      {job.postedAt && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Posted
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {formatShortDate(job.postedAt)}
-                          </p>
-                        </div>
-                      )}
-
-                      {job.resumeUsed && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Resume Used
-                          </p>
-                          <p className="text-sm text-gray-700">
-                            {job.resumeUsed}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Skills */}
-                    {job.skills && job.skills.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                          Skills
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {job.skills.map((skill) => (
-                            <span
-                              key={skill}
-                              className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700"
-                            >
-                              {skill}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Notes */}
-                    {job.notes && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                          Notes
-                        </p>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                          {job.notes}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Job URL */}
-                    {job.url && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                          Job URL
-                        </p>
-                        <a
-                          href={job.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-blue-600 hover:text-blue-800 underline inline-flex items-center gap-1"
-                        >
-                          {job.url}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                    )}
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-                      {/* Status update dropdown */}
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-medium text-gray-500">
-                          Update Status
-                        </label>
-                        <select
-                          value={job.status}
-                          onChange={(e) =>
-                            handleStatusChange(
-                              job,
-                              e.target.value as ApplicationStatus
-                            )
-                          }
-                          className="h-8 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                        >
-                          {STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Delete button */}
-                      <button
-                        onClick={() => handleDelete(job)}
-                        disabled={deleteJob.isPending}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Delete
-                      </button>
+                    >
+                      {renderExpandedRow(job)}
                     </div>
                   </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Mobile: card layout */}
+          <div className="md:hidden space-y-3">
+            {filteredJobs.map((job) => {
+              const isExpanded = expandedId === job.id
+              return (
+                <div key={job.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div
+                    className="p-4 cursor-pointer"
+                    onClick={() => toggleExpand(job.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          {job.company}
+                        </p>
+                        <p className="text-sm text-gray-600 truncate">{job.title}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <p className="text-xs text-gray-400">
+                            {formatShortDate(job.appliedAt ?? job.createdAt)}
+                          </p>
+                          {job.resumeUsed && (
+                            <span className="text-xs text-blue-600 font-medium">
+                              Resume attached
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <StatusBadge status={job.status} />
+                        <ChevronRight
+                          className={cn(
+                            "w-4 h-4 text-gray-400 transition-transform duration-200",
+                            isExpanded && "rotate-90"
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded details */}
+                  <div
+                    className={cn(
+                      "overflow-hidden transition-all duration-200",
+                      isExpanded
+                        ? "max-h-[800px] opacity-100"
+                        : "max-h-0 opacity-0"
+                    )}
+                  >
+                    {renderExpandedRow(job)}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )

@@ -30,6 +30,8 @@ class JobBoardItem(BaseModel):
     skills: list[str] = []
     url: Optional[str] = None
     description: Optional[str] = None
+    source: str = "Unknown"  # Remotive, Arbeitnow
+    companyLogo: Optional[str] = None  # URL to company logo
 
 
 def _guess_level(title: str) -> str:
@@ -82,6 +84,8 @@ async def fetch_remotive_jobs() -> list[dict]:
                     "skills": tags[:8],
                     "url": j.get("url", ""),
                     "description": (j.get("description", "") or "")[:500],
+                    "source": "Remotive",
+                    "companyLogo": j.get("company_logo") or j.get("company_logo_url") or None,
                 })
             return jobs
     except Exception as e:
@@ -128,6 +132,8 @@ async def fetch_arbeitnow_jobs() -> list[dict]:
                     "skills": tags[:8],
                     "url": j.get("url", ""),
                     "description": (j.get("description", "") or "")[:500],
+                    "source": "Arbeitnow",
+                    "companyLogo": None,
                 })
             return jobs
     except Exception as e:
@@ -157,17 +163,48 @@ async def _get_jobs() -> list[dict]:
 async def list_jobs(
     search: Optional[str] = Query(None),
     work_type: Optional[str] = Query(None),
-    limit: int = Query(50, le=100),
+    sort: str = Query("newest", description="newest, oldest, salary, company"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
 ):
     """Browse job listings from aggregated sources"""
-    jobs = await _get_jobs()
+    try:
+        jobs = await _get_jobs()
+    except Exception as e:
+        print(f"[job_board] Error fetching jobs: {e}")
+        return {"jobs": [], "total": 0, "page": 1, "perPage": per_page, "totalPages": 0, "error": str(e)}
 
     # Apply filters
+    filtered = list(jobs)
     if search:
         q = search.lower()
-        jobs = [j for j in jobs if q in j["title"].lower() or q in j["company"].lower()]
+        filtered = [j for j in filtered if q in j["title"].lower() or q in j["company"].lower()]
 
     if work_type and work_type != "All":
-        jobs = [j for j in jobs if j["workType"].lower() == work_type.lower()]
+        filtered = [j for j in filtered if j["workType"].lower() == work_type.lower()]
 
-    return {"jobs": jobs[:limit], "total": len(jobs)}
+    # Sort
+    if sort == "newest":
+        # Keep current order (already newest first from APIs)
+        pass
+    elif sort == "oldest":
+        filtered.reverse()
+    elif sort == "salary":
+        # Put jobs with salary first, then others
+        filtered.sort(key=lambda j: (j.get("salaryRange") is None, j.get("salaryRange", "")))
+    elif sort == "company":
+        filtered.sort(key=lambda j: j.get("company", "").lower())
+
+    # Paginate
+    total = len(filtered)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_jobs = filtered[start:end]
+
+    return {
+        "jobs": page_jobs,
+        "total": total,
+        "page": page,
+        "perPage": per_page,
+        "totalPages": (total + per_page - 1) // per_page,
+    }

@@ -109,6 +109,16 @@ async def create_application(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Validate title and company length
+    if len(data.title.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Title too short")
+    if len(data.company.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Company name too short")
+
+    # Strip whitespace
+    data.title = data.title.strip()
+    data.company = data.company.strip()
+
     # Check for duplicate: same user + (same URL or same company+role)
     existing_query = select(JobApplication).where(
         JobApplication.user_id == current_user.id,

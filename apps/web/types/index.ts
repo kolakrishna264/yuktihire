@@ -172,6 +172,8 @@ export interface JobBoardItem {
   url?: string
   description?: string
   certifications?: string[]
+  source: string
+  companyLogo?: string
 }
 
 // ── Billing ───────────────────────────────────────────────────────────────

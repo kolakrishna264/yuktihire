@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/Input"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { useCreateJob, useSavedJobUrls } from "@/lib/hooks/useJobs"
 import { useJobBoard } from "@/lib/hooks/useJobBoard"
+import { cn } from "@/lib/utils/cn"
 import type { JobBoardItem } from "@/types"
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
 
 const TIME_FILTERS = ["Last 24 Hours", "Last 3 Days", "Last 7 Days", "Last 30 Days"] as const
 
@@ -29,7 +30,7 @@ function workTypeBadgeClass(type: string) {
   }
 }
 
-// ── Page Component ───────────────────────────────────────────────────────────
+// -- Page Component -----------------------------------------------------------
 
 export default function JobBoardPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -39,6 +40,8 @@ export default function JobBoardPage() {
   const [levelFilter, setLevelFilter] = useState("All")
   const [industryFilter, setIndustryFilter] = useState("All")
   const [domainFilter, setDomainFilter] = useState("All")
+  const [sortBy, setSortBy] = useState("newest")
+  const [page, setPage] = useState(1)
   const [addedJobs, setAddedJobs] = useState<Set<string>>(new Set())
   const [appliedJobs, setAppliedJobs] = useState<Set<string>>(new Set())
 
@@ -48,14 +51,22 @@ export default function JobBoardPage() {
     return () => clearTimeout(t)
   }, [searchQuery])
 
-  const { data, isLoading } = useJobBoard({
+  // Reset page on filter/sort change
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedSearch, workTypeFilter, levelFilter, industryFilter, sortBy])
+
+  const { data, isLoading, error, refetch } = useJobBoard({
     search: debouncedSearch || undefined,
     workType: workTypeFilter !== "All" ? workTypeFilter : undefined,
-    limit: 50,
+    sort: sortBy,
+    page,
+    perPage: 20,
   })
 
   const jobs = data?.jobs ?? []
   const totalCount = data?.total ?? 0
+  const totalPages = data?.totalPages ?? 0
 
   const { mutate: createJob, isPending: isCreating } = useCreateJob()
 
@@ -109,7 +120,7 @@ export default function JobBoardPage() {
       url: job.url,
       location: job.location,
       salary: job.salaryRange,
-      source: "Job Board",
+      source: job.source || "Job Board",
       work_type: job.workType,
       experience_level: job.experienceLevel,
       industry: job.industry,
@@ -139,14 +150,14 @@ export default function JobBoardPage() {
 
   return (
     <div className="space-y-6">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
+      {/* -- Header --------------------------------------------------------- */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Job Board</h1>
           <p className="text-sm text-gray-500">
             Browse jobs and add them to your resume queue.{" "}
             <span className="font-medium text-gray-700">
-              Showing {filteredJobs.length} jobs
+              Showing {filteredJobs.length} of {totalCount} jobs
             </span>
           </p>
         </div>
@@ -155,7 +166,7 @@ export default function JobBoardPage() {
         </p>
       </div>
 
-      {/* ── Time Filter Pills ──────────────────────────────────────────── */}
+      {/* -- Time Filter Pills ---------------------------------------------- */}
       <div className="flex flex-wrap gap-2">
         {TIME_FILTERS.map((t) => (
           <button
@@ -172,21 +183,40 @@ export default function JobBoardPage() {
         ))}
       </div>
 
-      {/* ── Search + Dropdown Filters ──────────────────────────────────── */}
+      {/* -- Search + Sort + Dropdown Filters ------------------------------- */}
       <div className="space-y-3">
-        <Input
-          placeholder="Search title or company..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="max-w-md"
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            placeholder="Search title or company..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 min-w-[200px] max-w-md"
+          />
 
-        <div className="flex flex-wrap gap-3">
+          {/* Sort dropdown */}
+          <select
+            value={sortBy}
+            onChange={(e) => {
+              setSortBy(e.target.value)
+              setPage(1)
+            }}
+            className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
+            aria-label="Sort"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="salary">Salary (highest)</option>
+            <option value="company">Company A-Z</option>
+          </select>
+        </div>
+
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <FilterSelect
             label="Domain"
             value={domainFilter}
             onChange={setDomainFilter}
             options={DOMAINS as unknown as string[]}
+            className="hidden sm:block"
           />
           <FilterSelect
             label="Work Type"
@@ -199,23 +229,37 @@ export default function JobBoardPage() {
             value={levelFilter}
             onChange={setLevelFilter}
             options={levelOptions}
+            className="hidden sm:block"
           />
           <FilterSelect
             label="Industry"
             value={industryFilter}
             onChange={setIndustryFilter}
             options={industryOptions}
+            className="hidden sm:block"
           />
           <FilterSelect
             label="Certification"
             value="All"
             onChange={() => {}}
             options={["All"]}
+            className="hidden sm:block"
           />
         </div>
       </div>
 
-      {/* ── Job Cards ──────────────────────────────────────────────────── */}
+      {/* -- Error State ----------------------------------------------------- */}
+      {error && (
+        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-center">
+          <p className="text-sm font-medium text-red-700 mb-1">Failed to load jobs</p>
+          <p className="text-xs text-red-500">{(error as Error).message}</p>
+          <button onClick={() => refetch()} className="mt-3 text-sm text-red-600 underline">
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* -- Job Cards ------------------------------------------------------- */}
       <div className="space-y-4">
         {isLoading && (
           <div className="space-y-4">
@@ -233,7 +277,7 @@ export default function JobBoardPage() {
           </div>
         )}
 
-        {!isLoading && filteredJobs.length === 0 && (
+        {!isLoading && !error && filteredJobs.length === 0 && (
           <div className="text-center py-16">
             <Search className="w-10 h-10 text-gray-300 mx-auto mb-3" />
             <p className="text-sm font-semibold text-gray-600 mb-1">No jobs found</p>
@@ -249,135 +293,193 @@ export default function JobBoardPage() {
             return (
               <div
                 key={job.id}
-                className="rounded-xl border border-gray-100 bg-white p-5 hover:shadow-md hover:border-indigo-200 transition-all flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
+                className="rounded-xl border border-gray-100 bg-white p-5 hover:shadow-md hover:border-indigo-200 transition-all"
               >
-                {/* Left side */}
-                <div className="flex-1 min-w-0 space-y-2.5">
-                  <h3 className="text-base font-bold text-gray-900 leading-tight">
-                    {job.title}
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    {job.company} &middot; {job.location} &middot; {job.postedDate}
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  {/* Left side */}
+                  <div className="flex gap-3 flex-1 min-w-0">
+                    {/* Company logo */}
+                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                      {job.companyLogo ? (
+                        <img src={job.companyLogo} alt="" className="w-full h-full object-contain" />
+                      ) : (
+                        <span className="text-sm font-bold text-gray-400">
+                          {job.company.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
 
-                  {/* Tags row */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {/* Work type */}
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${workTypeBadgeClass(job.workType)}`}
-                    >
-                      {job.workType}
-                    </span>
+                    <div className="flex-1 min-w-0 space-y-2.5">
+                      <h3 className="text-base font-bold text-gray-900 leading-tight">
+                        {job.title}
+                      </h3>
+                      <p className="text-sm text-gray-500 flex flex-wrap items-center gap-1">
+                        {job.company}
+                        {/* Source badge */}
+                        <span
+                          className={cn(
+                            "text-[10px] font-semibold px-1.5 py-0.5 rounded",
+                            job.source === "Remotive"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-orange-100 text-orange-700"
+                          )}
+                        >
+                          {job.source}
+                        </span>
+                        <span>&middot;</span>
+                        <span>{job.location}</span>
+                        <span>&middot;</span>
+                        <span>{job.postedDate}</span>
+                      </p>
 
-                    {/* Experience level */}
-                    <Badge variant="secondary">{job.experienceLevel}</Badge>
+                      {/* Tags row */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* Work type */}
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${workTypeBadgeClass(job.workType)}`}
+                        >
+                          {job.workType}
+                        </span>
 
-                    {/* Salary */}
-                    {job.salaryRange && (
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-                        {job.salaryRange}
-                      </span>
-                    )}
+                        {/* Experience level */}
+                        <Badge variant="secondary">{job.experienceLevel}</Badge>
 
-                    {/* Employment type */}
-                    {job.employmentType && (
-                      <Badge variant="outline">{job.employmentType}</Badge>
-                    )}
+                        {/* Salary */}
+                        {job.salaryRange && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            {job.salaryRange}
+                          </span>
+                        )}
 
-                    {/* Industry */}
-                    {job.industry && (
-                      <Badge variant="default">{job.industry}</Badge>
-                    )}
+                        {/* Employment type */}
+                        {job.employmentType && (
+                          <Badge variant="outline">{job.employmentType}</Badge>
+                        )}
 
-                    {/* Skills */}
-                    {job.skills.slice(0, 4).map((skill) => (
-                      <span
-                        key={skill}
-                        className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-gray-600"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                    {job.skills.length > 4 && (
-                      <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-gray-400">
-                        +{job.skills.length - 4} more
-                      </span>
-                    )}
+                        {/* Industry */}
+                        {job.industry && (
+                          <Badge variant="default">{job.industry}</Badge>
+                        )}
+
+                        {/* Skills */}
+                        {job.skills.slice(0, 4).map((skill) => (
+                          <span
+                            key={skill}
+                            className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-gray-600"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                        {job.skills.length > 4 && (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-gray-400">
+                            +{job.skills.length - 4} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                {/* Right side — action buttons */}
-                <div className="flex flex-row sm:flex-col gap-2 shrink-0 items-start">
-                  {/* Save / Add Job button */}
-                  {isSaved ? (
+                  {/* Right side -- action buttons */}
+                  <div className="flex flex-row sm:flex-col gap-2 shrink-0 items-start">
+                    {/* Save / Add Job button */}
+                    {isSaved ? (
+                      <Button
+                        size="sm"
+                        disabled
+                        className="bg-emerald-600 hover:bg-emerald-600 text-white cursor-default"
+                      >
+                        {addedJobs.has(job.id) ? "Added \u2713" : "Saved \u2713"}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={isCreating}
+                        onClick={() => handleAddJob(job)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                      >
+                        Add Job
+                      </Button>
+                    )}
+
+                    {/* Apply button */}
                     <Button
                       size="sm"
-                      disabled
-                      className="bg-emerald-600 hover:bg-emerald-600 text-white cursor-default"
+                      variant="outline"
+                      onClick={() => {
+                        if (job.url) window.open(job.url, "_blank")
+                      }}
                     >
-                      {addedJobs.has(job.id) ? "Added \u2713" : "Saved \u2713"}
+                      Apply &#8599;
                     </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      disabled={isCreating}
-                      onClick={() => handleAddJob(job)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                    >
-                      Add Job
-                    </Button>
-                  )}
 
-                  {/* Apply button */}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (job.url) window.open(job.url, "_blank")
-                    }}
-                  >
-                    Apply &#8599;
-                  </Button>
-
-                  {/* Mark as Applied link */}
-                  {isApplied ? (
-                    <span className="text-xs text-emerald-600 font-medium">Applied &#10003;</span>
-                  ) : isSaved ? (
-                    <button
-                      onClick={() => handleMarkApplied(job)}
-                      disabled={isCreating}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 underline disabled:opacity-50"
-                    >
-                      Mark as Applied
-                    </button>
-                  ) : null}
+                    {/* Mark as Applied link */}
+                    {isApplied ? (
+                      <span className="text-xs text-emerald-600 font-medium">Applied &#10003;</span>
+                    ) : isSaved ? (
+                      <button
+                        onClick={() => handleMarkApplied(job)}
+                        disabled={isCreating}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 underline disabled:opacity-50"
+                      >
+                        Mark as Applied
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             )
           })}
       </div>
+
+      {/* -- Pagination ------------------------------------------------------ */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-6 pb-4">
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            &larr; Previous
+          </button>
+          <span className="text-sm text-gray-500">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Next &rarr;
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-// ── FilterSelect ─────────────────────────────────────────────────────────────
+// -- FilterSelect -------------------------------------------------------------
 
 function FilterSelect({
   label,
   value,
   onChange,
   options,
+  className,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   options: string[]
+  className?: string
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
+      className={cn(
+        "h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer",
+        className
+      )}
       aria-label={label}
     >
       {options.map((opt) => (
