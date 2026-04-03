@@ -32,20 +32,19 @@ async def score_job(job: Job, job_skills: list[JobSkill], prefs: UserPreference 
     pref_industries = _parse_json_array(prefs.preferred_industries)
     pref_skills = _parse_json_array(prefs.preferred_skills)
 
-    # 1. Title match (weight: 25)
-    max_score += 25
-    if pref_titles and job.title:
-        title_lower = job.title.lower()
+    # Only score dimensions the user has actually set
+    if pref_titles:
+        max_score += 30
+        title_lower = job.title.lower() if job.title else ""
         for pt in pref_titles:
             if pt.lower() in title_lower:
-                score += 25
+                score += 30
                 reasons.append(f"Title matches '{pt}'")
                 badges.append("Title Match")
                 break
 
-    # 2. Skills overlap (weight: 25)
-    max_score += 25
-    if pref_skills and job_skills:
+    if pref_skills:
+        max_score += 25
         job_skill_names = {s.skill_canonical.lower() for s in job_skills if s.skill_canonical}
         pref_skill_set = {s.lower() for s in pref_skills}
         overlap = job_skill_names & pref_skill_set
@@ -53,58 +52,57 @@ async def score_job(job: Job, job_skills: list[JobSkill], prefs: UserPreference 
             skill_score = min(25, int(25 * len(overlap) / max(len(pref_skill_set), 1)))
             score += skill_score
             if len(overlap) >= 3:
-                reasons.append(f"{len(overlap)} skill matches: {', '.join(list(overlap)[:3])}")
+                reasons.append(f"{len(overlap)} skill matches")
                 badges.append("Strong Skills")
-            elif len(overlap) >= 1:
-                reasons.append(f"Skill match: {', '.join(overlap)}")
+            elif overlap:
+                reasons.append(f"Skills: {', '.join(list(overlap)[:3])}")
                 badges.append("Skill Match")
 
-    # 3. Work type match (weight: 15)
-    max_score += 15
-    if pref_work_types and job.work_type:
-        if job.work_type.lower() in [w.lower() for w in pref_work_types]:
+    if pref_work_types:
+        max_score += 15
+        if job.work_type and job.work_type.lower() in [w.lower() for w in pref_work_types]:
             score += 15
-            reasons.append(f"Matches {job.work_type} preference")
+            reasons.append(f"{job.work_type} preference")
             badges.append(job.work_type)
 
-    # 4. Location match (weight: 10)
-    max_score += 10
-    if pref_locations and job.location:
-        loc_lower = job.location.lower()
+    if pref_locations:
+        max_score += 10
+        loc_lower = (job.location or "").lower()
         for pl in pref_locations:
-            if pl.lower() in loc_lower:
+            if pl.lower() in loc_lower or ("remote" in pl.lower() and "remote" in loc_lower):
                 score += 10
-                reasons.append(f"Location matches '{pl}'")
-                badges.append("Location Match")
+                reasons.append(f"Location: {pl}")
+                badges.append("Location")
                 break
 
-    # 5. Industry match (weight: 10)
-    max_score += 10
-    if pref_industries and job.industry:
-        if job.industry.lower() in [i.lower() for i in pref_industries]:
+    if pref_industries:
+        max_score += 10
+        if job.industry and job.industry.lower() in [i.lower() for i in pref_industries]:
             score += 10
             reasons.append(f"Industry: {job.industry}")
-            badges.append("Industry Match")
+            badges.append("Industry")
 
-    # 6. Salary match (weight: 15)
-    max_score += 15
     if prefs.min_salary and (job.salary_min or job.salary_max):
+        max_score += 10
         job_max = job.salary_max or job.salary_min or 0
         if job_max >= prefs.min_salary:
-            score += 15
-            reasons.append("Salary meets minimum requirement")
-            badges.append("Salary Aligned")
-        elif job_max >= prefs.min_salary * 0.85:
-            score += 8
-            reasons.append("Salary close to minimum requirement")
+            score += 10
+            reasons.append("Salary aligned")
+            badges.append("Salary")
 
-    # Normalize to 0-100
-    final_score = int((score / max_score * 100)) if max_score > 0 else 50
+    # Normalize
+    if max_score == 0:
+        return RecommendationResult(job_id=job.id, score=50, reasons=["Set more preferences for better matches"], badges=[])
+
+    final_score = int(score / max_score * 100)
+
+    if not reasons:
+        reasons = ["No strong matches — try updating preferences"]
 
     return RecommendationResult(
         job_id=job.id,
         score=final_score,
-        reasons=reasons if reasons else ["No strong matches found — try updating preferences"],
+        reasons=reasons,
         badges=badges,
     )
 
@@ -131,10 +129,24 @@ async def get_recommendations(db: AsyncSession, user_id: str, limit: int = 20) -
     result = await db.execute(
         select(Job).where(Job.is_active == True).order_by(Job.posted_at.desc().nullslast()).limit(200)
     )
-    jobs = result.scalars().all()
+    jobs = list(result.scalars().all())
 
     if not jobs:
         return []
+
+    # Pre-filter: if user has preferred titles, keep only jobs with title keyword overlap
+    pref_titles = _parse_json_array(prefs.preferred_titles) if prefs else []
+    if pref_titles:
+        title_keywords = set()
+        for t in pref_titles:
+            title_keywords.update(t.lower().split())
+        relevant_jobs = []
+        for job in jobs:
+            job_title_words = set((job.title or "").lower().split())
+            if title_keywords & job_title_words:
+                relevant_jobs.append(job)
+        if len(relevant_jobs) >= 10:
+            jobs = relevant_jobs  # Only use filtered if we have enough
 
     # Load all skills for these jobs
     job_ids = [j.id for j in jobs]
@@ -165,6 +177,7 @@ async def get_recommendations(db: AsyncSession, user_id: str, limit: int = 20) -
             "badges": result.badges,
         })
 
-    # Sort by score descending, take top N
+    # Sort by score descending, filter out very low matches, take top N
     scored.sort(key=lambda x: x["score"], reverse=True)
+    scored = [s for s in scored if s["score"] >= 15]
     return scored[:limit]

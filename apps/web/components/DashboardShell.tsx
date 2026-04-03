@@ -15,6 +15,7 @@ import {
   Target,
   Bell,
   Settings2,
+  CheckCircle2,
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -100,7 +101,12 @@ export default function DashboardShell({ user }: DashboardShellProps) {
   const { data: overdueReminders = [] } = useOverdueReminders()
   const { data: kanbanData } = useTrackerKanban()
   const { data: prefs } = usePreferences()
-  const prefsComplete = !!(prefs?.preferredTitles?.length || prefs?.preferredSkills?.length)
+  const prefsComplete = !!(
+    prefs?.preferredTitles?.length ||
+    prefs?.preferredSkills?.length ||
+    prefs?.preferredLocations?.length ||
+    prefs?.preferredWorkTypes?.length
+  )
 
   const stages = (kanbanData as any)?.stages || {}
   const totalTracked = Object.values(stages).reduce((sum: number, s: any) => sum + (s?.count || 0), 0)
@@ -186,7 +192,15 @@ export default function DashboardShell({ user }: DashboardShellProps) {
       )}
 
       {/* Preferences prompt */}
-      {!prefsComplete && (
+      {prefsComplete ? (
+        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">Preferences set &#10003;</p>
+            <p className="text-xs text-emerald-600">Your job recommendations are personalized</p>
+          </div>
+        </div>
+      ) : (
         <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3">
           <Settings2 className="w-4 h-4 text-indigo-600 shrink-0" />
           <div>

@@ -39,10 +39,12 @@ export function OnboardingChecklist() {
   const hasResume = (resumes?.length ?? 0) > 0
   const hasTailored = (tailorSessions?.length ?? 0) > 0
   const hasProfile = (profile?.completeness ?? 0) >= 30
-  const hasPreferences =
-    !!prefs?.preferredTitles?.length ||
-    !!prefs?.preferredSkills?.length ||
-    !!prefs?.preferredWorkTypes?.length
+  const hasPreferences = !!(
+    (prefs?.preferredTitles && prefs.preferredTitles.length > 0) ||
+    (prefs?.preferredSkills && prefs.preferredSkills.length > 0) ||
+    (prefs?.preferredLocations && prefs.preferredLocations.length > 0) ||
+    (prefs?.preferredWorkTypes && prefs.preferredWorkTypes.length > 0)
+  )
   const hasTracked =
     Object.values(kanban?.stages ?? {}).reduce(
       (sum: number, s: any) => sum + (s?.count || 0),
@@ -62,7 +64,7 @@ export function OnboardingChecklist() {
       {
         id: "preferences",
         label: "Set your preferences",
-        description: "Tell us what you're looking for",
+        description: hasPreferences ? "\u2713 Completed" : "Tell us what you're looking for",
         href: "/dashboard/preferences",
         icon: Settings2,
         check: () => hasPreferences,

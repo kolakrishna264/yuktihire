@@ -3,16 +3,31 @@ from datetime import datetime
 from urllib.parse import quote
 from .base import BaseSourceAdapter, NormalizedJob, _guess_level
 
+REMOTIVE_CATEGORIES = [
+    "software-dev",
+    "data",
+    "devops-sysadmin",
+    "qa",
+    "all-others",
+]
+
 
 class RemotiveAdapter(BaseSourceAdapter):
     slug = "remotive"
     name = "Remotive"
 
     async def fetch_jobs(self, search: str | None = None) -> list[NormalizedJob]:
+        url = "https://remotive.com/api/remote-jobs?limit=100"
+        if search:
+            url += f"&search={quote(search)}"
+        return await self._fetch_url(url)
+
+    async def fetch_by_category(self, category: str) -> list[NormalizedJob]:
+        url = f"https://remotive.com/api/remote-jobs?category={quote(category)}&limit=100"
+        return await self._fetch_url(url)
+
+    async def _fetch_url(self, url: str) -> list[NormalizedJob]:
         try:
-            url = "https://remotive.com/api/remote-jobs?limit=100"
-            if search:
-                url += f"&search={quote(search)}"
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()

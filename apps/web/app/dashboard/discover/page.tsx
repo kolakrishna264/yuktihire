@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Input } from "@/components/ui/Input"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { useDiscover, useRefreshSources, useRecommendations } from "@/lib/hooks/useDiscover"
-import { useAddToTracker } from "@/lib/hooks/useTracker"
+import { useAddToTracker, useTrackerList } from "@/lib/hooks/useTracker"
 import { cn } from "@/lib/utils/cn"
 
 // -- Constants ----------------------------------------------------------------
@@ -47,6 +47,13 @@ const INDUSTRIES = [
 ] as const
 
 const SOURCES = ["All", "Remotive", "Arbeitnow"] as const
+
+const FRESHNESS_OPTIONS = [
+  { label: "Any time", value: "any" },
+  { label: "Last 24h", value: "24h" },
+  { label: "Last 7 days", value: "7d" },
+  { label: "Last 30 days", value: "30d" },
+] as const
 
 const SORT_OPTIONS = [
   { label: "Best Match", value: "best_match" },
@@ -113,10 +120,13 @@ function timeAgo(dateStr: string | null | undefined) {
 export default function DiscoverPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [titleFilter, setTitleFilter] = useState("")
+  const [debouncedTitle, setDebouncedTitle] = useState("")
   const [workTypeFilter, setWorkTypeFilter] = useState("All")
   const [experienceFilter, setExperienceFilter] = useState("All")
   const [industryFilter, setIndustryFilter] = useState("All")
   const [sourceFilter, setSourceFilter] = useState("All")
+  const [freshnessFilter, setFreshnessFilter] = useState("any")
   const [sortBy, setSortBy] = useState("best_match")
   const [page, setPage] = useState(1)
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
@@ -128,13 +138,19 @@ export default function DiscoverPage() {
     return () => clearTimeout(t)
   }, [searchQuery])
 
+  // Debounce title filter
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedTitle(titleFilter), 300)
+    return () => clearTimeout(t)
+  }, [titleFilter])
+
   // Reset page on filter/sort change
   useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, workTypeFilter, experienceFilter, industryFilter, sourceFilter, sortBy])
+  }, [debouncedSearch, debouncedTitle, workTypeFilter, experienceFilter, industryFilter, sourceFilter, freshnessFilter, sortBy])
 
   const { data, isLoading, error, refetch } = useDiscover({
-    search: debouncedSearch || undefined,
+    q: debouncedSearch || undefined,
     workType: workTypeFilter !== "All" ? workTypeFilter : undefined,
     experienceLevel: experienceFilter !== "All" ? experienceFilter : undefined,
     industry: industryFilter !== "All" ? industryFilter : undefined,
@@ -144,12 +160,38 @@ export default function DiscoverPage() {
     perPage: 20,
   })
 
-  const jobs = data?.jobs ?? []
+  const rawJobs = data?.jobs ?? []
+
+  // Client-side freshness filter
+  const jobs = rawJobs.filter((job) => {
+    // Freshness filter
+    if (freshnessFilter !== "any" && job.postedAt) {
+      const postedDate = new Date(job.postedAt)
+      const now = new Date()
+      const diffMs = now.getTime() - postedDate.getTime()
+      const diffDays = diffMs / (1000 * 60 * 60 * 24)
+      if (freshnessFilter === "24h" && diffDays > 1) return false
+      if (freshnessFilter === "7d" && diffDays > 7) return false
+      if (freshnessFilter === "30d" && diffDays > 30) return false
+    }
+    // Title filter (client-side)
+    if (debouncedTitle) {
+      const titleLower = debouncedTitle.toLowerCase()
+      if (!job.title?.toLowerCase().includes(titleLower)) return false
+    }
+    return true
+  })
+
   const totalCount = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
 
   const { data: recsData } = useRecommendations(8)
   const recommendations = recsData?.recommendations ?? []
+
+  // Load tracked jobs for badges
+  const { data: trackedJobs = [] } = useTrackerList()
+  const trackedUrls = new Set((trackedJobs as any[]).map((j: any) => j.url).filter(Boolean))
+  const trackedMap = new Map((trackedJobs as any[]).filter((j: any) => j.url).map((j: any) => [j.url, j]))
 
   const { mutate: refreshSources, isPending: isRefreshing } = useRefreshSources()
   const { mutate: addToTracker, isPending: isSaving } = useAddToTracker()
@@ -273,6 +315,13 @@ export default function DiscoverPage() {
 
       {/* -- Filter Bar ----------------------------------------------------- */}
       <div className="flex flex-wrap gap-2 sm:gap-3">
+        <input
+          type="text"
+          value={titleFilter}
+          onChange={(e) => setTitleFilter(e.target.value)}
+          placeholder="Filter by title..."
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors w-40"
+        />
         <FilterSelect
           label="Work Type"
           value={workTypeFilter}
@@ -301,6 +350,18 @@ export default function DiscoverPage() {
           options={SOURCES as unknown as string[]}
           className="hidden sm:block"
         />
+        <select
+          value={freshnessFilter}
+          onChange={(e) => setFreshnessFilter(e.target.value)}
+          className="h-9 rounded-lg border border-gray-200 bg-white px-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors cursor-pointer"
+          aria-label="Freshness"
+        >
+          {FRESHNESS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
@@ -424,6 +485,16 @@ export default function DiscoverPage() {
                         {job.matchBadges?.slice(0, 2).map((b: string) => (
                           <span key={b} className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{b}</span>
                         ))}
+                        {trackedUrls.has(job.url) && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                            Tracked
+                          </span>
+                        )}
+                        {trackedMap.get(job.url)?.pipelineStage === "APPLIED" && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                            Applied
+                          </span>
+                        )}
                         {sourceName && (
                           <span
                             className={cn(
