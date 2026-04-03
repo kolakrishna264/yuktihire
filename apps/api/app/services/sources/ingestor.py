@@ -123,10 +123,11 @@ class JobIngestor:
             self.db.add(skill)
 
     async def ingest_batch(self, jobs: list[NormalizedJob], source_slug: str) -> tuple[int, int]:
-        """Ingest a batch. Returns (new_count, updated_count)."""
+        """Ingest a batch in chunks of 100. Returns (new_count, updated_count)."""
         new_count = 0
         updated_count = 0
-        for job in jobs:
+        CHUNK = 100
+        for i, job in enumerate(jobs):
             try:
                 _, is_new = await self.ingest(job, source_slug)
                 if is_new:
@@ -134,8 +135,20 @@ class JobIngestor:
                 else:
                     updated_count += 1
             except Exception as e:
-                print(f"[Ingestor] Error ingesting {job.title} @ {job.company}: {e}")
-        await self.db.commit()
+                print(f"[Ingestor] Error: {job.title} @ {job.company}: {e}")
+            # Commit every 100 jobs to avoid huge transactions
+            if (i + 1) % CHUNK == 0:
+                try:
+                    await self.db.commit()
+                except Exception as e:
+                    print(f"[Ingestor] Commit error at {i+1}: {e}")
+                    await self.db.rollback()
+        # Final commit for remaining
+        try:
+            await self.db.commit()
+        except Exception as e:
+            print(f"[Ingestor] Final commit error: {e}")
+            await self.db.rollback()
 
         # Update source last_sync_at
         source = await self.get_source(source_slug)
