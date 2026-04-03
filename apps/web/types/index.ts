@@ -283,3 +283,84 @@ export interface ApplicationEvent {
   eventDate?: string
   createdAt: string
 }
+
+// ── V2: Contacts ─────────────────────────────────────────────────────────
+
+export interface Contact {
+  id: string
+  applicationId?: string
+  name: string
+  role?: string
+  email?: string
+  phone?: string
+  linkedinUrl?: string
+  company?: string
+  notes?: string
+  createdAt: string
+}
+
+// ── V2: Reminders ────────────────────────────────────────────────────────
+
+export interface Reminder {
+  id: string
+  applicationId?: string
+  title: string
+  description?: string
+  remindAt: string
+  isCompleted: boolean
+  completedAt?: string
+  createdAt: string
+}
+
+// ── V2: Preferences ──────────────────────────────────────────────────────
+
+export interface UserPreferences {
+  preferredTitles: string[]
+  preferredLocations: string[]
+  preferredWorkTypes: string[]
+  preferredIndustries: string[]
+  preferredSkills: string[]
+  minSalary?: number
+  maxSalary?: number
+  experienceLevel?: string
+  visaSponsorship?: boolean
+}
+
+// ── V2: Insights ─────────────────────────────────────────────────────────
+
+export interface InsightsOverview {
+  totalTracked: number
+  totalApplied: number
+  totalInterviewing: number
+  totalOffers: number
+  totalRejected: number
+  responseRate: number
+  interviewRate: number
+  offerRate: number
+  upcomingReminders: number
+}
+
+export interface PipelineCount {
+  stage: string
+  count: number
+}
+
+export interface ActivityWeek {
+  week: string
+  count: number
+}
+
+export interface SkillCount {
+  skill: string
+  count: number
+}
+
+export interface IndustryCount {
+  industry: string
+  count: number
+}
+
+export interface LocationData {
+  topLocations: { location: string; count: number }[]
+  remoteRatio: number
+}

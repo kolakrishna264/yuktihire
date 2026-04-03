@@ -11,7 +11,9 @@ import {
   useDeleteEvent,
   useDeleteTracked,
 } from "@/lib/hooks/useTracker"
-import type { PipelineStage, ApplicationEvent } from "@/types"
+import { useApplicationContacts, useCreateContact, useDeleteContact } from "@/lib/hooks/useContacts"
+import { useReminders, useCreateReminder, useCompleteReminder, useDeleteReminder } from "@/lib/hooks/useReminders"
+import type { PipelineStage, ApplicationEvent, Contact, Reminder } from "@/types"
 import {
   ArrowLeft,
   Trash2,
@@ -30,6 +32,11 @@ import {
   Loader2,
   Star,
   Tag,
+  Wand2,
+  User,
+  Bell,
+  Check,
+  Link as LinkIcon,
 } from "lucide-react"
 
 const ALL_STAGES: { key: PipelineStage; label: string; color: string; activeColor: string }[] = [
@@ -105,10 +112,31 @@ export default function TrackerDetailPage() {
   const deleteEventMutation = useDeleteEvent()
   const deleteMutation = useDeleteTracked()
 
+  // Contacts
+  const { data: contacts = [] } = useApplicationContacts(id)
+  const { mutate: createContact } = useCreateContact()
+  const { mutate: deleteContact } = useDeleteContact()
+
+  // Reminders
+  const { data: allReminders = [] } = useReminders()
+  const { mutate: createReminder } = useCreateReminder()
+  const { mutate: completeReminder } = useCompleteReminder()
+  const { mutate: deleteReminder } = useDeleteReminder()
+
+  const reminders = allReminders.filter((r: Reminder) => r.applicationId === id)
+
   const [notes, setNotes] = useState<string | null>(null)
   const [notesDirty, setNotesDirty] = useState(false)
   const [eventForm, setEventForm] = useState({ type: "NOTE", title: "", description: "" })
   const [showEventForm, setShowEventForm] = useState(false)
+
+  // Contacts form state
+  const [showContactForm, setShowContactForm] = useState(false)
+  const [contactForm, setContactForm] = useState({ name: "", role: "", email: "", linkedin_url: "" })
+
+  // Reminders form state
+  const [showReminderForm, setShowReminderForm] = useState(false)
+  const [reminderForm, setReminderForm] = useState({ title: "", remind_at: "", description: "" })
 
   // Sync notes from server
   const currentNotes = notesDirty ? (notes ?? "") : (job?.notes ?? "")
@@ -187,14 +215,23 @@ export default function TrackerDetailPage() {
           <ArrowLeft className="w-4 h-4" />
           Back to Tracker
         </Link>
-        <button
-          onClick={handleDelete}
-          disabled={deleteMutation.isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/tailor?tracker=${id}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            Tailor Resume
+          </Link>
+          <button
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </button>
+        </div>
       </div>
 
       {/* Title */}
@@ -267,6 +304,18 @@ export default function TrackerDetailPage() {
                   <ExternalLink className="w-4 h-4" />
                   View Job Posting
                 </a>
+              )}
+              {job.resumeUsed && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <FileText className="w-4 h-4 text-gray-400" />
+                  Resume used: {job.resumeUsed}
+                </div>
+              )}
+              {(job as any).resumeVersionId && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Wand2 className="w-4 h-4 text-gray-400" />
+                  Last tailored: {(job as any).lastTailoredAt ? new Date((job as any).lastTailoredAt).toLocaleDateString() : "Yes"}
+                </div>
               )}
             </div>
             {job.description && (
@@ -452,6 +501,264 @@ export default function TrackerDetailPage() {
                     }
                     className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all shrink-0"
                     title="Delete event"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Contacts */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-800">Contacts</h2>
+              <button
+                onClick={() => setShowContactForm((v) => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add
+              </button>
+            </div>
+
+            {/* Add contact form */}
+            {showContactForm && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!contactForm.name.trim()) return
+                  createContact(
+                    {
+                      application_id: id,
+                      name: contactForm.name.trim(),
+                      role: contactForm.role.trim() || undefined,
+                      email: contactForm.email.trim() || undefined,
+                      linkedin_url: contactForm.linkedin_url.trim() || undefined,
+                    },
+                    {
+                      onSuccess: () => {
+                        setContactForm({ name: "", role: "", email: "", linkedin_url: "" })
+                        setShowContactForm(false)
+                      },
+                    }
+                  )
+                }}
+                className="mb-4 p-3 bg-gray-50 rounded-lg space-y-2"
+              >
+                <input
+                  placeholder="Name *"
+                  value={contactForm.name}
+                  onChange={(e) => setContactForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  required
+                />
+                <input
+                  placeholder="Role (e.g. Hiring Manager)"
+                  value={contactForm.role}
+                  onChange={(e) => setContactForm((f) => ({ ...f, role: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <input
+                  placeholder="Email"
+                  type="email"
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <input
+                  placeholder="LinkedIn URL"
+                  value={contactForm.linkedin_url}
+                  onChange={(e) => setContactForm((f) => ({ ...f, linkedin_url: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowContactForm(false)}
+                    className="px-2.5 py-1 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Contacts list */}
+            {contacts.length === 0 && !showContactForm && (
+              <p className="text-xs text-gray-400 text-center py-4">No contacts yet</p>
+            )}
+            <div className="space-y-3">
+              {contacts.map((contact: Contact) => (
+                <div key={contact.id} className="flex gap-2.5 group">
+                  <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center shrink-0 text-blue-500">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-700">{contact.name}</p>
+                    {contact.role && (
+                      <p className="text-xs text-gray-400">{contact.role}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      {contact.email && (
+                        <a
+                          href={`mailto:${contact.email}`}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-700"
+                        >
+                          {contact.email}
+                        </a>
+                      )}
+                      {contact.phone && (
+                        <span className="text-[10px] text-gray-400">{contact.phone}</span>
+                      )}
+                      {contact.linkedinUrl && (
+                        <a
+                          href={contact.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-indigo-600 hover:text-indigo-700 flex items-center gap-0.5"
+                        >
+                          <LinkIcon className="w-2.5 h-2.5" />
+                          LinkedIn
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteContact(contact.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all shrink-0"
+                    title="Delete contact"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Reminders */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-800">Reminders</h2>
+              <button
+                onClick={() => setShowReminderForm((v) => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add
+              </button>
+            </div>
+
+            {/* Add reminder form */}
+            {showReminderForm && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!reminderForm.title.trim() || !reminderForm.remind_at) return
+                  createReminder(
+                    {
+                      application_id: id,
+                      title: reminderForm.title.trim(),
+                      remind_at: new Date(reminderForm.remind_at).toISOString(),
+                      description: reminderForm.description.trim() || undefined,
+                    },
+                    {
+                      onSuccess: () => {
+                        setReminderForm({ title: "", remind_at: "", description: "" })
+                        setShowReminderForm(false)
+                      },
+                    }
+                  )
+                }}
+                className="mb-4 p-3 bg-gray-50 rounded-lg space-y-2"
+              >
+                <input
+                  placeholder="Title *"
+                  value={reminderForm.title}
+                  onChange={(e) => setReminderForm((f) => ({ ...f, title: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  required
+                />
+                <input
+                  type="datetime-local"
+                  value={reminderForm.remind_at}
+                  onChange={(e) => setReminderForm((f) => ({ ...f, remind_at: e.target.value }))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  required
+                />
+                <textarea
+                  placeholder="Description (optional)"
+                  value={reminderForm.description}
+                  onChange={(e) => setReminderForm((f) => ({ ...f, description: e.target.value }))}
+                  rows={2}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowReminderForm(false)}
+                    className="px-2.5 py-1 text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Reminders list */}
+            {reminders.length === 0 && !showReminderForm && (
+              <p className="text-xs text-gray-400 text-center py-4">No reminders yet</p>
+            )}
+            <div className="space-y-3">
+              {reminders.map((reminder: Reminder) => (
+                <div key={reminder.id} className="flex gap-2.5 group">
+                  <button
+                    onClick={() => !reminder.isCompleted && completeReminder(reminder.id)}
+                    className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      reminder.isCompleted
+                        ? "bg-emerald-100 border-emerald-300 text-emerald-600"
+                        : "border-gray-300 hover:border-indigo-400 text-transparent hover:text-indigo-400"
+                    }`}
+                    title={reminder.isCompleted ? "Completed" : "Mark complete"}
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-xs font-semibold ${
+                        reminder.isCompleted ? "text-gray-400 line-through" : "text-gray-700"
+                      }`}
+                    >
+                      {reminder.title}
+                    </p>
+                    {reminder.description && (
+                      <p className="text-xs text-gray-400 mt-0.5">{reminder.description}</p>
+                    )}
+                    <p className="text-[10px] text-gray-300 mt-1">
+                      {new Date(reminder.remindAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteReminder(reminder.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all shrink-0"
+                    title="Delete reminder"
                   >
                     <X className="w-3 h-3" />
                   </button>

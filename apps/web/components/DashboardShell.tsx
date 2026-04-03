@@ -13,6 +13,8 @@ import {
   ChevronUp,
   Zap,
   Target,
+  Bell,
+  Settings2,
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -24,6 +26,7 @@ import { useResumes } from "@/lib/hooks/useResumes"
 import { useAllJobs } from "@/lib/hooks/useJobs"
 import { useTailor } from "@/lib/hooks/useTailor"
 import { useUsage } from "@/lib/hooks/useBilling"
+import { useUpcomingReminders } from "@/lib/hooks/useReminders"
 import type { User } from "@supabase/supabase-js"
 import type { TailoringSessionMeta, ApplicationStatus } from "@/types"
 
@@ -90,6 +93,7 @@ export default function DashboardShell({ user }: DashboardShellProps) {
   const { data: jobs = [] } = useAllJobs()
   useUsage()
   const { data: tailoringSessions = [] } = useTailor()
+  const { data: upcomingReminders = [] } = useUpcomingReminders()
 
   const name = user?.email?.split("@")[0] ?? "there"
   const resumeList = resumes ?? []
@@ -261,6 +265,12 @@ export default function DashboardShell({ user }: DashboardShellProps) {
                 icon={TrendingUp}
                 title="Build Profile"
                 description="Strengthen your career data for better matches"
+              />
+              <QuickAction
+                href="/dashboard/preferences"
+                icon={Settings2}
+                title="Set Preferences"
+                description="Personalize your job recommendations"
               />
             </div>
           </div>
@@ -625,6 +635,46 @@ export default function DashboardShell({ user }: DashboardShellProps) {
               </CardContent>
             </Card>
           )}
+
+          {/* Upcoming Reminders */}
+          <Card>
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-amber-500" />
+                  <span className="text-sm font-bold text-gray-800">Upcoming Reminders</span>
+                </div>
+                <Badge variant="secondary">{upcomingReminders.length}</Badge>
+              </div>
+              {upcomingReminders.length === 0 ? (
+                <p className="text-xs text-gray-400">No upcoming reminders</p>
+              ) : (
+                <div className="space-y-2">
+                  {upcomingReminders.slice(0, 5).map((r: any) => (
+                    <div key={r.id} className="flex items-start gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-gray-700">{r.title}</p>
+                        <p className="text-[10px] text-gray-400">
+                          {new Date(r.remindAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Link href="/dashboard/tracker">
+                <Button variant="outline" size="sm" className="w-full text-xs">
+                  View All
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
 
           {/* Rotating Pro Tips */}
           <div className="rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 p-4 min-h-[80px]">

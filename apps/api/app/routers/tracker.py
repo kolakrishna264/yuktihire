@@ -431,6 +431,32 @@ async def add_event(
     return _serialize_event(event)
 
 
+@router.post("/{tracker_id}/tailor")
+async def tailor_from_tracker(
+    tracker_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get tailor-ready data from a tracked job."""
+    result = await db.execute(
+        select(JobApplication).where(
+            JobApplication.id == tracker_id,
+            JobApplication.user_id == current_user.id,
+        )
+    )
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Tracked job not found")
+
+    return {
+        "jobDescription": app.description or "",
+        "company": app.company,
+        "role": app.role,
+        "url": app.url,
+        "trackerId": app.id,
+    }
+
+
 @router.delete("/{tracker_id}/events/{event_id}", status_code=204)
 async def delete_event(
     tracker_id: str,

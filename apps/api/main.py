@@ -13,7 +13,7 @@ from app.core.database import engine, get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.models.billing import UsageLimit
-from app.models import user, profile, resume, tailoring, billing, jobs, discover, tracker  # register models
+from app.models import user, profile, resume, tailoring, billing, jobs, discover, tracker, v2  # register models
 
 settings = get_settings()
 
@@ -85,6 +85,10 @@ from app.routers.billing import router as billing_router
 from app.routers.job_board import router as job_board_router
 from app.routers.discover import router as discover_router
 from app.routers.tracker import router as tracker_router
+from app.routers.contacts import router as contacts_router
+from app.routers.reminders import router as reminders_router
+from app.routers.preferences import router as preferences_router
+from app.routers.insights import router as insights_router
 
 API_PREFIX = "/api/v1"
 
@@ -98,6 +102,10 @@ app.include_router(billing_router, prefix=API_PREFIX)
 app.include_router(job_board_router, prefix=API_PREFIX)
 app.include_router(discover_router, prefix=API_PREFIX)
 app.include_router(tracker_router, prefix=API_PREFIX)
+app.include_router(contacts_router, prefix=API_PREFIX)
+app.include_router(reminders_router, prefix=API_PREFIX)
+app.include_router(preferences_router, prefix=API_PREFIX)
+app.include_router(insights_router, prefix=API_PREFIX)
 
 
 @app.get("/health")
