@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, case
+from sqlalchemy import select, func, or_, and_
 from app.core.database import get_db, AsyncSessionLocal
 from app.middleware.auth import get_current_user
 from app.models.user import User
@@ -101,11 +101,15 @@ async def search_jobs(
     if source:
         # Join to source_links to filter by source
         query = query.join(JobSourceLink).join(JobSource).where(JobSource.slug == source)
-    if country:
-        if country == "us_eligible":
-            query = query.where(Job.country.in_(["US", "REMOTE_US", "REMOTE", "UNKNOWN"]))
-        else:
-            query = query.where(Job.country == country)
+    # Country filter — wrapped in try/except in case column doesn't exist yet
+    try:
+        if country:
+            if country == "us_eligible":
+                query = query.where(Job.country.in_(["US", "REMOTE_US", "REMOTE", "UNKNOWN", None]))
+            else:
+                query = query.where(Job.country == country)
+    except Exception:
+        pass  # Column may not exist in DB yet
 
     # Count total before pagination
     count_query = select(func.count()).select_from(query.subquery())
@@ -119,15 +123,8 @@ async def search_jobs(
         query = query.order_by(Job.salary_max.desc().nullslast(), Job.posted_at.desc().nullslast())
     elif sort == "company":
         query = query.order_by(Job.company_normalized.asc())
-    else:  # newest (default) or best_match (re-sorted after fetch)
-        us_priority = case(
-            (Job.country == "US", 1),
-            (Job.country == "REMOTE_US", 2),
-            (Job.country == "REMOTE", 3),
-            (Job.country == "UNKNOWN", 4),
-            else_=5,
-        )
-        query = query.order_by(us_priority, Job.posted_at.desc().nullslast(), Job.created_at.desc())
+    else:  # newest (default) or best_match
+        query = query.order_by(Job.posted_at.desc().nullslast(), Job.created_at.desc())
 
     # Paginate
     offset = (page - 1) * per_page

@@ -23,13 +23,39 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     print(f"YuktiHire API starting in {settings.app_env} mode")
     # Auto-create tables (safe — uses IF NOT EXISTS)
-    from app.core.database import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        from app.core.database import Base
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("[Startup] Tables created/verified")
+        # Add new columns to existing tables (create_all won't do this)
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            for col_sql in [
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS country VARCHAR(20)",
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_data JSON",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS pipeline_stage VARCHAR(20)",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS job_id VARCHAR",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS next_action_date TIMESTAMPTZ",
+                "ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS resume_version_id VARCHAR",
+                "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(50)",
+                "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ",
+                "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS is_overdue BOOLEAN DEFAULT FALSE",
+            ]:
+                try:
+                    await conn.execute(text(col_sql))
+                except Exception:
+                    pass  # Column already exists or table doesn't exist
+        print("[Startup] Column migrations applied")
+    except Exception as e:
+        print(f"[Startup] Table creation warning: {e}")
     # Start background job ingestion scheduler (non-fatal if it fails)
     try:
         from app.services.sources.scheduler import start_scheduler
         asyncio.create_task(start_scheduler())
+        print("[Startup] Scheduler started")
     except Exception as e:
         print(f"[Startup] Scheduler failed to start: {e}")
 
