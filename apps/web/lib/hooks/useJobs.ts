@@ -21,7 +21,10 @@ export function useCreateJob() {
       company: string
       status?: ApplicationStatus
       url?: string
+      location?: string
+      salary?: string
       notes?: string
+      source?: string
     }) => jobsApi.create(data),
     onSuccess: () => {
       toast.success("Job added")

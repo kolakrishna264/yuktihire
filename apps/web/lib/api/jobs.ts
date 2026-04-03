@@ -3,7 +3,9 @@ import { apiFetch } from "./client"
 export const jobsApi = {
   async getAll() {
     const data = await apiFetch("/applications/")
-    return Array.isArray(data) ? data : []
+    if (Array.isArray(data)) return data
+    if (data && Array.isArray(data.applications)) return data.applications
+    return []
   },
 
   async create(data: any) {

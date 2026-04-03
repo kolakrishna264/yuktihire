@@ -6,9 +6,9 @@ import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils/cn"
 import {
   LayoutDashboard,
-  FileText,
-  Briefcase,
-  Wand2,
+  Search,
+  PlusCircle,
+  CheckCircle2,
   User,
   Settings,
   Zap,
@@ -19,10 +19,10 @@ import { createClient } from "@/lib/supabase/client"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
-  { href: "/dashboard/tailor", label: "Tailor Resume", icon: Wand2, highlight: true },
-  { href: "/dashboard/jobs", label: "Job Tracker", icon: Briefcase },
-  { href: "/dashboard/profile", label: "My Profile", icon: User },
+  { href: "/dashboard/job-board", label: "Job Board", icon: Search },
+  { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
+  { href: "/dashboard/applied", label: "Applied", icon: CheckCircle2 },
+  { href: "/dashboard/resumes", label: "Profile & Resume", icon: User },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]
 
@@ -76,8 +76,7 @@ export function Sidebar() {
                 "hover:bg-accent hover:text-accent-foreground",
                 active
                   ? "bg-primary/10 text-primary shadow-sm"
-                  : "text-muted-foreground",
-                item.highlight && !active && "text-primary/80"
+                  : "text-muted-foreground"
               )}
             >
               <Icon
@@ -87,11 +86,6 @@ export function Sidebar() {
                 )}
               />
               <span className="flex-1">{item.label}</span>
-              {item.highlight && !active && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary leading-none">
-                  AI
-                </span>
-              )}
               {active && (
                 <ChevronRight className="w-3 h-3 opacity-50" />
               )}

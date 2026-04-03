@@ -1,6 +1,6 @@
 // ── Auth / User ───────────────────────────────────────────────────────────
 
-export type ApplicationStatus = "SAVED" | "APPLIED" | "INTERVIEWING" | "OFFER" | "REJECTED"
+export type ApplicationStatus = "SAVED" | "APPLIED" | "PHONE_SCREEN" | "INTERVIEWING" | "OFFER" | "REJECTED" | "WITHDRAWN"
 
 // ── Profile ───────────────────────────────────────────────────────────────
 
@@ -136,13 +136,35 @@ export interface SessionData {
 
 export interface JobApplication {
   id: string
-  title: string
+  title: string        // maps from 'role' in backend
   company: string
   status: ApplicationStatus
   url?: string
+  location?: string
+  salary?: string
   notes?: string
+  source?: string
+  resumeUsed?: string
+  appliedAt?: string
   createdAt: string
   updatedAt: string
+}
+
+export interface JobBoardItem {
+  id: string
+  title: string
+  company: string
+  location: string
+  postedDate: string
+  workType: 'Remote' | 'Hybrid' | 'On-site'
+  employmentType?: string
+  experienceLevel: string
+  salaryRange?: string
+  industry?: string
+  skills: string[]
+  url?: string
+  description?: string
+  certifications?: string[]
 }
 
 // ── Billing ───────────────────────────────────────────────────────────────
