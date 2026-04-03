@@ -26,9 +26,12 @@ async def lifespan(app: FastAPI):
     from app.core.database import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Start background job ingestion scheduler (Remotive + Arbeitnow + RemoteOK, every 15 min)
-    from app.services.sources.scheduler import start_scheduler
-    asyncio.create_task(start_scheduler())
+    # Start background job ingestion scheduler (non-fatal if it fails)
+    try:
+        from app.services.sources.scheduler import start_scheduler
+        asyncio.create_task(start_scheduler())
+    except Exception as e:
+        print(f"[Startup] Scheduler failed to start: {e}")
 
     yield
     await engine.dispose()
@@ -46,14 +49,8 @@ app = FastAPI(
 # CORS — allow frontend origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://yuktihire.com",
-        "https://www.yuktihire.com",
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "chrome-extension://*",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
