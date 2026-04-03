@@ -145,14 +145,20 @@ async def health():
 
 @app.get("/debug-jobs")
 async def debug_jobs(db: AsyncSession = Depends(get_db)):
-    """Debug: count user jobs in job_applications table."""
+    """Debug: show all jobs with user_ids to diagnose ownership."""
     from sqlalchemy import text
     try:
         result = await db.execute(text("SELECT COUNT(*) FROM job_applications"))
         total = result.scalar() or 0
-        result2 = await db.execute(text("SELECT id, role, company, status, source, created_at FROM job_applications ORDER BY created_at DESC LIMIT 5"))
+        result2 = await db.execute(text("SELECT id, user_id, role, company, status, source, created_at FROM job_applications ORDER BY created_at DESC LIMIT 10"))
         rows = [dict(r) for r in result2.mappings().all()]
-        return {"totalApplications": total, "recent": rows}
+        # Also get distinct user_ids
+        result3 = await db.execute(text("SELECT DISTINCT user_id FROM job_applications"))
+        user_ids = [r[0] for r in result3.all()]
+        # Get all users
+        result4 = await db.execute(text("SELECT id, email FROM users LIMIT 10"))
+        users = [dict(r) for r in result4.mappings().all()]
+        return {"totalApplications": total, "recent": rows, "distinctUserIds": user_ids, "users": users}
     except Exception as e:
         return {"error": str(e)}
 
