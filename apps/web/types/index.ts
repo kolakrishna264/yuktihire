@@ -209,6 +209,9 @@ export interface DiscoverJob {
   skills: { name: string; canonical: string; isRequired: boolean }[]
   sources: { slug: string; name: string; externalId: string; sourceUrl?: string }[]
   createdAt?: string
+  matchScore?: number
+  matchBadges?: string[]
+  matchReasons?: string[]
 }
 
 export interface DiscoverResponse {

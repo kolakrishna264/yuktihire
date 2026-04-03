@@ -63,7 +63,22 @@ async function init() {
 function showJobDetected(data, url) {
   $("#job-title").textContent = data.title || "Untitled"
   $("#job-company").textContent = data.company || "Unknown company"
-  $("#job-url").textContent = url.slice(0, 60) + (url.length > 60 ? "..." : "")
+  $("#job-logo").textContent = (data.company || "?").charAt(0).toUpperCase()
+
+  // Location
+  const locEl = $("#job-location")
+  if (data.location) {
+    locEl.textContent = data.location
+    locEl.classList.remove("hidden")
+  } else {
+    locEl.classList.add("hidden")
+  }
+
+  // Source domain
+  const srcEl = $("#job-source")
+  if (data.source_domain) {
+    srcEl.textContent = data.source_domain
+  }
 
   // Save button
   $("#save-btn").onclick = async () => {
@@ -83,6 +98,13 @@ function showJobDetected(data, url) {
     })
 
     if (result.ok) {
+      // Show match score if available
+      if (result.data?.matchScore) {
+        const matchEl = $("#job-match")
+        matchEl.textContent = `${result.data.matchScore}% match with your profile`
+        matchEl.classList.remove("hidden")
+        if (result.data.matchScore < 50) matchEl.classList.add("amber")
+      }
       showSuccess(result.data)
     } else {
       showError(result.error)

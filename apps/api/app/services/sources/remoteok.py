@@ -8,11 +8,16 @@ class RemoteOKAdapter(BaseSourceAdapter):
     slug = "remoteok"
     name = "RemoteOK"
 
-    async def fetch_jobs(self) -> list[NormalizedJob]:
+    async def fetch_jobs(self, search: str | None = None) -> list[NormalizedJob]:
         try:
+            url = "https://remoteok.com/api"
+            if search:
+                # RemoteOK supports tag-based search
+                tag = search.lower().replace(" ", "-")
+                url = f"https://remoteok.com/api?tag={tag}"
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(
-                    "https://remoteok.com/api",
+                    url,
                     headers={"User-Agent": "YuktiHire/1.0"},
                 )
                 resp.raise_for_status()

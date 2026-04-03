@@ -111,6 +111,74 @@ async def run_pipeline_background(
                 await err_db.commit()
 
 
+# ── Quick Tailor (one-call shortcut) ──────────────────────────────────────
+
+class QuickTailorRequest(BaseModel):
+    job_description: str
+    resume_id: Optional[str] = None  # If not provided, use default resume
+
+
+@router.post("/quick")
+async def quick_tailor(
+    data: QuickTailorRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One-call tailor shortcut - creates JD + starts tailoring in one step."""
+    # Get resume (use default if not specified)
+    if data.resume_id:
+        resume_result = await db.execute(
+            select(Resume).where(Resume.id == data.resume_id, Resume.user_id == current_user.id)
+        )
+    else:
+        resume_result = await db.execute(
+            select(Resume)
+            .where(Resume.user_id == current_user.id)
+            .order_by(Resume.is_default.desc(), Resume.created_at.desc())
+            .limit(1)
+        )
+    resume = resume_result.scalar_one_or_none()
+    if not resume:
+        raise HTTPException(status_code=404, detail="No resume found. Upload one first.")
+
+    # Create JobDescription
+    jd = JobDescription(
+        user_id=current_user.id,
+        raw_text=data.job_description[:20000],
+    )
+    db.add(jd)
+    await db.flush()
+    await db.refresh(jd)
+
+    # Create session
+    session = TailoringSession(
+        user_id=current_user.id,
+        resume_id=resume.id,
+        job_desc_id=jd.id,
+        status=SessionStatus.RUNNING,
+    )
+    db.add(session)
+    await db.flush()
+    await db.commit()
+    await db.refresh(session)
+
+    # Start background pipeline
+    background_tasks.add_task(
+        run_pipeline_background,
+        session.id,
+        resume.content or {},
+        data.job_description,
+        None,
+    )
+
+    return {
+        "sessionId": session.id,
+        "resumeId": resume.id,
+        "status": "RUNNING",
+    }
+
+
 # ── Job Description Analysis ──────────────────────────────────────────────
 
 @router.post("/analyze-jd")

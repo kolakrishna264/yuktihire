@@ -1,6 +1,6 @@
-"""Background job ingestion scheduler — runs adapters every 15 minutes."""
+"""Background job ingestion scheduler — bulk every 15 min, targeted every hour."""
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from app.core.database import AsyncSessionLocal as SessionLocal
 from app.models.discover import JobSource
@@ -8,6 +8,7 @@ from .remotive import RemotiveAdapter
 from .arbeitnow import ArbeitnowAdapter
 from .remoteok import RemoteOKAdapter
 from .ingestor import JobIngestor
+from .title_strategy import run_targeted_ingestion
 
 ADAPTERS = [
     RemotiveAdapter(),
@@ -15,7 +16,10 @@ ADAPTERS = [
     RemoteOKAdapter(),
 ]
 
-SYNC_INTERVAL_SECONDS = 900  # 15 minutes
+BULK_INTERVAL = 900  # 15 minutes
+TARGETED_INTERVAL = 3600  # 1 hour
+
+_last_targeted_at: datetime | None = None
 
 
 async def _ensure_sources():
@@ -31,36 +35,54 @@ async def _ensure_sources():
         await session.commit()
 
 
-async def run_sync_cycle():
-    """Run one sync cycle across all adapters."""
+async def run_bulk_sync():
+    """Run bulk fetch from all adapters."""
     async with SessionLocal() as session:
         ingestor = JobIngestor(session)
         total_new = 0
         total_updated = 0
-
         for adapter in ADAPTERS:
             try:
                 jobs = await adapter.fetch_jobs()
                 new, updated = await ingestor.ingest_batch(jobs, adapter.slug)
                 total_new += new
                 total_updated += updated
-                print(f"[Scheduler] {adapter.name}: {new} new, {updated} updated ({len(jobs)} fetched)")
+                print(f"[Bulk] {adapter.name}: {new} new, {updated} updated ({len(jobs)} fetched)")
             except Exception as e:
-                print(f"[Scheduler] {adapter.name} failed: {e}")
-
-        print(f"[Scheduler] Cycle complete: {total_new} new, {total_updated} updated")
+                print(f"[Bulk] {adapter.name} failed: {e}")
+        print(f"[Bulk] Complete: {total_new} new, {total_updated} updated")
         return total_new, total_updated
+
+
+async def run_targeted_sync():
+    """Run targeted keyword-based fetch."""
+    global _last_targeted_at
+    async with SessionLocal() as session:
+        ingestor = JobIngestor(session)
+        stats = await run_targeted_ingestion(ingestor)
+        _last_targeted_at = datetime.now(timezone.utc)
+        return stats
+
+
+async def run_sync_cycle():
+    """Run one sync cycle — bulk always, targeted if due."""
+    global _last_targeted_at
+    await run_bulk_sync()
+
+    # Run targeted if never run or interval elapsed
+    now = datetime.now(timezone.utc)
+    if _last_targeted_at is None or (now - _last_targeted_at).total_seconds() >= TARGETED_INTERVAL:
+        print("[Scheduler] Running targeted ingestion...")
+        await run_targeted_sync()
 
 
 async def start_scheduler():
     """Start the background sync loop."""
-    # Ensure sources are seeded
     try:
         await _ensure_sources()
     except Exception as e:
         print(f"[Scheduler] Failed to seed sources: {e}")
 
-    # Initial sync after 3 seconds
     await asyncio.sleep(3)
     print("[Scheduler] Starting initial sync...")
     try:
@@ -68,9 +90,8 @@ async def start_scheduler():
     except Exception as e:
         print(f"[Scheduler] Initial sync failed: {e}")
 
-    # Then every 15 minutes
     while True:
-        await asyncio.sleep(SYNC_INTERVAL_SECONDS)
+        await asyncio.sleep(BULK_INTERVAL)
         try:
             await run_sync_cycle()
         except Exception as e:

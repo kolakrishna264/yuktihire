@@ -7,7 +7,8 @@ class ArbeitnowAdapter(BaseSourceAdapter):
     slug = "arbeitnow"
     name = "Arbeitnow"
 
-    async def fetch_jobs(self) -> list[NormalizedJob]:
+    async def fetch_jobs(self, search: str | None = None) -> list[NormalizedJob]:
+        # Arbeitnow doesn't support keyword search — fetch all
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get("https://www.arbeitnow.com/api/job-board-api?page=1")

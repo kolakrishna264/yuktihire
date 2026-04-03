@@ -34,16 +34,25 @@
 
     <div id="job-detected-state" class="state hidden">
       <div class="job-card">
-        <p class="job-title" id="job-title"></p>
-        <p class="job-company" id="job-company"></p>
-        <p class="job-url" id="job-url"></p>
+        <div class="job-header">
+          <div class="job-logo" id="job-logo">?</div>
+          <div>
+            <p class="job-title" id="job-title"></p>
+            <p class="job-company" id="job-company"></p>
+          </div>
+        </div>
+        <div class="job-meta">
+          <span class="meta-tag" id="job-location"></span>
+          <span class="meta-tag source" id="job-source"></span>
+        </div>
+        <div id="job-match" class="match-badge hidden"></div>
       </div>
       <div class="actions">
         <button id="save-btn" class="btn btn-primary">Save to Tracker</button>
         <button id="apply-btn" class="btn btn-outline">Mark Applied</button>
       </div>
       <div class="secondary-actions">
-        <a id="dashboard-link" class="link" target="_blank">Open in Dashboard</a>
+        <a id="dashboard-link" class="link" target="_blank">Open Dashboard</a>
         <a id="tailor-link" class="link" target="_blank">Tailor Resume</a>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { useProfile } from "@/lib/hooks/useProfile"
 import { useResumes } from "@/lib/hooks/useResumes"
 import { usePreferences } from "@/lib/hooks/usePreferences"
 import { useTrackerKanban } from "@/lib/hooks/useTracker"
+import { useTailor } from "@/lib/hooks/useTailor"
 import {
   CheckCircle2,
   Circle,
@@ -16,6 +17,7 @@ import {
   Bookmark,
   Chrome,
   ArrowRight,
+  Wand2,
 } from "lucide-react"
 
 interface Step {
@@ -32,8 +34,10 @@ export function OnboardingChecklist() {
   const { data: resumes } = useResumes()
   const { data: prefs } = usePreferences()
   const { data: kanban } = useTrackerKanban()
+  const { data: tailorSessions } = useTailor()
 
   const hasResume = (resumes?.length ?? 0) > 0
+  const hasTailored = (tailorSessions?.length ?? 0) > 0
   const hasProfile = (profile?.completeness ?? 0) >= 30
   const hasPreferences =
     !!prefs?.preferredTitles?.length ||
@@ -80,6 +84,14 @@ export function OnboardingChecklist() {
         check: () => hasTracked,
       },
       {
+        id: "tailor",
+        label: "Tailor your first resume",
+        description: "AI-optimize your resume for a specific job",
+        href: "/dashboard/tailor",
+        icon: Wand2,
+        check: () => hasTailored,
+      },
+      {
         id: "extension",
         label: "Install the extension",
         description: "Save jobs from any website with one click",
@@ -88,15 +100,15 @@ export function OnboardingChecklist() {
         check: () => false, // Can't detect extension install
       },
     ],
-    [hasResume, hasPreferences, hasTracked]
+    [hasResume, hasPreferences, hasTracked, hasTailored]
   )
 
   const completed = steps.filter((s) => s.check()).length
   const total = steps.length
   const pct = Math.round((completed / total) * 100)
 
-  // Hide when mostly complete
-  if (completed >= 4) return null
+  // Hide when mostly complete (5+ of 6 steps done)
+  if (completed >= 5) return null
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 p-5 mb-6">

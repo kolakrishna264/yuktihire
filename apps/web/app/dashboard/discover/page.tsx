@@ -49,6 +49,7 @@ const INDUSTRIES = [
 const SOURCES = ["All", "Remotive", "Arbeitnow"] as const
 
 const SORT_OPTIONS = [
+  { label: "Best Match", value: "best_match" },
   { label: "Newest", value: "newest" },
   { label: "Oldest", value: "oldest" },
   { label: "Salary (highest)", value: "salary" },
@@ -116,7 +117,7 @@ export default function DiscoverPage() {
   const [experienceFilter, setExperienceFilter] = useState("All")
   const [industryFilter, setIndustryFilter] = useState("All")
   const [sourceFilter, setSourceFilter] = useState("All")
-  const [sortBy, setSortBy] = useState("newest")
+  const [sortBy, setSortBy] = useState("best_match")
   const [page, setPage] = useState(1)
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
@@ -410,6 +411,19 @@ export default function DiscoverPage() {
                         >
                           {job.title}
                         </button>
+                        {job.matchScore !== undefined && (
+                          <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                            job.matchScore >= 70 ? "bg-emerald-100 text-emerald-700" :
+                            job.matchScore >= 40 ? "bg-amber-100 text-amber-700" :
+                            "bg-gray-100 text-gray-500"
+                          )}>
+                            {job.matchScore}% match
+                          </span>
+                        )}
+                        {job.matchBadges?.slice(0, 2).map((b: string) => (
+                          <span key={b} className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{b}</span>
+                        ))}
                         {sourceName && (
                           <span
                             className={cn(

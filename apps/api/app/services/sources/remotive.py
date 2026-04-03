@@ -1,5 +1,6 @@
 import httpx
 from datetime import datetime
+from urllib.parse import quote
 from .base import BaseSourceAdapter, NormalizedJob, _guess_level
 
 
@@ -7,10 +8,13 @@ class RemotiveAdapter(BaseSourceAdapter):
     slug = "remotive"
     name = "Remotive"
 
-    async def fetch_jobs(self) -> list[NormalizedJob]:
+    async def fetch_jobs(self, search: str | None = None) -> list[NormalizedJob]:
         try:
+            url = "https://remotive.com/api/remote-jobs?limit=100"
+            if search:
+                url += f"&search={quote(search)}"
             async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get("https://remotive.com/api/remote-jobs?limit=100")
+                resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
 

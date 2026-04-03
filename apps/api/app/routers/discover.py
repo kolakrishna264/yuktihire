@@ -2,10 +2,10 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.models.discover import Job, JobSource, JobSourceLink, JobSkill
@@ -13,8 +13,22 @@ from app.models.discover import Job, JobSource, JobSourceLink, JobSkill
 router = APIRouter(prefix="/discover", tags=["discover"])
 
 
-def _serialize_job(job: Job, skills: list[JobSkill] = None, sources: list[dict] = None) -> dict:
-    return {
+async def get_optional_user(request: Request):
+    """Try to resolve user from auth header. Returns None if unauthenticated."""
+    try:
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        from fastapi.security import HTTPAuthorizationCredentials
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=auth.split(" ", 1)[1])
+        async with AsyncSessionLocal() as session:
+            return await get_current_user(creds, session)
+    except Exception:
+        return None
+
+
+def _serialize_job(job: Job, skills: list[JobSkill] = None, sources: list[dict] = None, match=None) -> dict:
+    data = {
         "id": job.id,
         "title": job.title,
         "company": job.company,
@@ -35,10 +49,16 @@ def _serialize_job(job: Job, skills: list[JobSkill] = None, sources: list[dict] 
         "sources": sources or [],
         "createdAt": job.created_at.isoformat() if job.created_at else None,
     }
+    if match:
+        data["matchScore"] = match.score
+        data["matchBadges"] = match.badges
+        data["matchReasons"] = match.reasons[:2]
+    return data
 
 
 @router.get("")
 async def search_jobs(
+    request: Request,
     q: Optional[str] = Query(None, description="Search query (title, company)"),
     work_type: Optional[str] = Query(None),
     location: Optional[str] = Query(None),
@@ -46,7 +66,7 @@ async def search_jobs(
     industry: Optional[str] = Query(None),
     salary_min: Optional[int] = Query(None),
     source: Optional[str] = Query(None, description="Source slug filter"),
-    sort: str = Query("newest", description="newest, oldest, salary, company"),
+    sort: str = Query("newest", description="newest, oldest, salary, company, best_match"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -85,14 +105,14 @@ async def search_jobs(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Sort
+    # Sort (best_match handled after fetch)
     if sort == "oldest":
         query = query.order_by(Job.posted_at.asc().nullslast())
     elif sort == "salary":
         query = query.order_by(Job.salary_max.desc().nullslast(), Job.posted_at.desc().nullslast())
     elif sort == "company":
         query = query.order_by(Job.company_normalized.asc())
-    else:  # newest (default)
+    else:  # newest (default) or best_match (re-sorted after fetch)
         query = query.order_by(Job.posted_at.desc().nullslast(), Job.created_at.desc())
 
     # Paginate
@@ -127,6 +147,36 @@ async def search_jobs(
             "externalId": link.external_id,
             "sourceUrl": link.source_url,
         })
+
+    # Best match: score + re-sort when user is authenticated and has preferences
+    if sort == "best_match":
+        current_user = await get_optional_user(request)
+        if current_user:
+            from app.services.recommendations import score_job
+            from app.models.v2 import UserPreference
+
+            prefs_result = await db.execute(
+                select(UserPreference).where(UserPreference.user_id == current_user.id)
+            )
+            prefs = prefs_result.scalar_one_or_none()
+
+            if prefs:
+                scored_jobs = []
+                for j in jobs:
+                    match_result = await score_job(j, skills_by_job.get(j.id, []), prefs)
+                    scored_jobs.append((j, match_result))
+                scored_jobs.sort(key=lambda x: x[1].score, reverse=True)
+
+                return {
+                    "jobs": [
+                        _serialize_job(j, skills_by_job.get(j.id, []), sources_by_job.get(j.id, []), match=m)
+                        for j, m in scored_jobs
+                    ],
+                    "total": total,
+                    "page": page,
+                    "perPage": per_page,
+                    "totalPages": (total + per_page - 1) // per_page if total > 0 else 0,
+                }
 
     return {
         "jobs": [_serialize_job(j, skills_by_job.get(j.id, []), sources_by_job.get(j.id, [])) for j in jobs],

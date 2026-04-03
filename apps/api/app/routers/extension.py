@@ -118,12 +118,44 @@ async def capture_job(
     db.add(event)
     await db.commit()
 
+    # Compute match score if user has preferences
+    match_data = {}
+    try:
+        from app.services.recommendations import _parse_json_array
+        from app.models.v2 import UserPreference
+        pref_result = await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
+        prefs = pref_result.scalar_one_or_none()
+        if prefs:
+            pref_titles = _parse_json_array(prefs.preferred_titles)
+            pref_skills = _parse_json_array(prefs.preferred_skills)
+            score = 0
+            badges = []
+            title_lower = title.lower()
+            for pt in pref_titles:
+                if pt.lower() in title_lower:
+                    score += 40
+                    badges.append("Title Match")
+                    break
+            if pref_skills and data.extracted_description:
+                desc_lower = data.extracted_description.lower()
+                matched = [s for s in pref_skills if s.lower() in desc_lower]
+                if len(matched) >= 3:
+                    score += 30
+                    badges.append("Strong Skills")
+                elif matched:
+                    score += 15
+                    badges.append("Skill Match")
+            match_data = {"matchScore": min(score, 100), "matchBadges": badges}
+    except Exception:
+        pass
+
     return {
         "status": "saved",
         "trackerId": app.id,
         "title": title,
         "company": company,
         "dashboardUrl": f"/dashboard/tracker/{app.id}",
+        **match_data,
     }
 
 

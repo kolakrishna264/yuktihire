@@ -48,5 +48,5 @@ class BaseSourceAdapter(ABC):
     name: str
 
     @abstractmethod
-    async def fetch_jobs(self) -> list[NormalizedJob]:
+    async def fetch_jobs(self, search: str | None = None) -> list[NormalizedJob]:
         ...

@@ -28,6 +28,7 @@ import { useTailor } from "@/lib/hooks/useTailor"
 import { useUsage } from "@/lib/hooks/useBilling"
 import { useUpcomingReminders, useOverdueReminders } from "@/lib/hooks/useReminders"
 import { useTrackerKanban } from "@/lib/hooks/useTracker"
+import { usePreferences } from "@/lib/hooks/usePreferences"
 import type { User } from "@supabase/supabase-js"
 import type { TailoringSessionMeta, ApplicationStatus } from "@/types"
 import { OnboardingChecklist } from "@/components/OnboardingChecklist"
@@ -98,6 +99,8 @@ export default function DashboardShell({ user }: DashboardShellProps) {
   const { data: upcomingReminders = [] } = useUpcomingReminders()
   const { data: overdueReminders = [] } = useOverdueReminders()
   const { data: kanbanData } = useTrackerKanban()
+  const { data: prefs } = usePreferences()
+  const prefsComplete = !!(prefs?.preferredTitles?.length || prefs?.preferredSkills?.length)
 
   const stages = (kanbanData as any)?.stages || {}
   const totalTracked = Object.values(stages).reduce((sum: number, s: any) => sum + (s?.count || 0), 0)
@@ -179,6 +182,18 @@ export default function DashboardShell({ user }: DashboardShellProps) {
             <p className="text-xs text-amber-600">Follow up on your applications</p>
           </div>
           <Link href="/dashboard/tracker" className="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900">View &rarr;</Link>
+        </div>
+      )}
+
+      {/* Preferences prompt */}
+      {!prefsComplete && (
+        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3">
+          <Settings2 className="w-4 h-4 text-indigo-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-indigo-800">Set your job preferences</p>
+            <p className="text-xs text-indigo-600">Get better job matches and recommendations</p>
+          </div>
+          <Link href="/dashboard/preferences" className="ml-auto text-xs font-medium text-indigo-700 hover:text-indigo-900">Set up &rarr;</Link>
         </div>
       )}
 
