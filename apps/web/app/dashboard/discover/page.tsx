@@ -151,10 +151,10 @@ export default function DiscoverPage() {
   }, [debouncedSearch, debouncedTitle, workTypeFilter, experienceFilter, industryFilter, sourceFilter, countryFilter, freshnessFilter, sortBy])
 
   // Combine search + title filter into one query
-  const searchQuery = [debouncedSearch, debouncedTitle].filter(Boolean).join(" ") || undefined
+  const combinedQuery = [debouncedSearch, debouncedTitle].filter(Boolean).join(" ") || undefined
 
   const { data, isLoading, error, refetch } = useDiscover({
-    q: searchQuery,
+    q: combinedQuery,
     workType: workTypeFilter !== "All" ? workTypeFilter : undefined,
     experienceLevel: experienceFilter !== "All" ? experienceFilter : undefined,
     industry: industryFilter !== "All" ? industryFilter : undefined,
