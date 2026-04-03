@@ -32,32 +32,45 @@ export default function ExtensionPage() {
         </div>
       </div>
 
-      {/* Install Instructions */}
-      <Card className="mb-6 border-indigo-200 bg-indigo-50/30">
+      {/* Install CTA */}
+      <Card className="mb-6 border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50">
         <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
-              <Download className="w-5 h-5 text-white" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center shrink-0 shadow-lg shadow-indigo-200">
+              <Chrome className="w-7 h-7 text-white" />
             </div>
             <div className="flex-1">
-              <h2 className="text-lg font-bold text-gray-900 mb-1">Install the Extension</h2>
-              <p className="text-sm text-gray-600 mb-4">Follow these steps to install YuktiHire on Chrome:</p>
-              <div className="space-y-3">
-                {[
-                  { step: "1", text: "Open Chrome and go to chrome://extensions" },
-                  { step: "2", text: "Enable \"Developer mode\" (toggle in top right)" },
-                  { step: "3", text: "Click \"Load unpacked\"" },
-                  { step: "4", text: "Select the apps/extension folder from the YuktiHire project" },
-                  { step: "5", text: "The YuktiHire icon will appear in your toolbar" },
-                ].map((item) => (
-                  <div key={item.step} className="flex items-start gap-3">
-                    <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      {item.step}
-                    </span>
-                    <p className="text-sm text-gray-700">{item.text}</p>
-                  </div>
-                ))}
-              </div>
+              <h2 className="text-lg font-bold text-gray-900 mb-1">Add YuktiHire to Chrome</h2>
+              <p className="text-sm text-gray-600">
+                Install the extension to save jobs from LinkedIn, Indeed, Greenhouse, and any career page with one click.
+              </p>
+            </div>
+            <a
+              href="https://github.com/kolakrishna264/yuktihire/archive/refs/heads/main.zip"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-200 shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              Download Extension
+            </a>
+          </div>
+
+          {/* Quick install steps */}
+          <div className="mt-5 pt-5 border-t border-indigo-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Quick setup (1 minute)</p>
+            <div className="grid sm:grid-cols-4 gap-3">
+              {[
+                { step: "1", text: "Download & unzip the file" },
+                { step: "2", text: "Open chrome://extensions" },
+                { step: "3", text: "Enable Developer Mode → Load unpacked" },
+                { step: "4", text: "Select the apps/extension folder" },
+              ].map((item) => (
+                <div key={item.step} className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                    {item.step}
+                  </span>
+                  <p className="text-xs text-gray-600">{item.text}</p>
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>
