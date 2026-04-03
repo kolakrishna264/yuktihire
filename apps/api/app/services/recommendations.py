@@ -232,6 +232,19 @@ async def get_recommendations(db: AsyncSession, user_id: str, limit: int = 20) -
     if not rows:
         return []
 
+    # Filter out obviously non-US jobs (German GmbH, etc.)
+    def _is_likely_us(r):
+        company = (r.get("company") or "").lower()
+        location = (r.get("location") or "").lower()
+        if "gmbh" in company:
+            return False
+        non_us_markers = ["germany", "berlin", "munich", "frankfurt", "hamburg", "united kingdom", "uk", "london", "france", "paris", "india", "bangalore"]
+        if any(m in location for m in non_us_markers):
+            return False
+        return True
+
+    rows = [r for r in rows if _is_likely_us(r)]
+
     # Pre-filter by title keywords if user has preferred titles
     pref_titles = _parse_json_array(prefs.preferred_titles) if prefs else []
     if pref_titles:

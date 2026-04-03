@@ -14,7 +14,7 @@ router = APIRouter(prefix="/discover", tags=["discover"])
 
 # ── Location helpers (inline to avoid import issues) ─────────────────────
 
-_US_MARKERS = {"united states", "usa", ", us", " us,", "(us)", "u.s."}
+_US_MARKERS = {"united states", "usa", ", us", " us,", "(us)", "u.s.", "usa only", "us only", "north america"}
 _US_STATES = {
     "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
     "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
@@ -41,13 +41,19 @@ _US_CITIES = {
     "minneapolis", "raleigh", "salt lake city", "arlington", "columbus",
 }
 _NON_US = {
-    "united kingdom", "uk", "london", "manchester", "england", "scotland",
-    "germany", "berlin", "munich", "frankfurt", "hamburg",
-    "france", "paris", "netherlands", "amsterdam", "spain", "madrid",
-    "italy", "rome", "milan", "sweden", "stockholm",
+    "united kingdom", "uk", "london", "manchester", "england", "scotland", "wales",
+    "germany", "berlin", "munich", "frankfurt", "hamburg", "köln", "cologne",
+    "düsseldorf", "stuttgart", "leipzig", "dresden", "herford", "münster",
+    "mülheim", "offenburg", "mannheim", "blaustein", "ostwestfalen",
+    "france", "paris", "lyon", "netherlands", "amsterdam", "rotterdam",
+    "spain", "madrid", "barcelona", "italy", "rome", "milan",
+    "sweden", "stockholm", "denmark", "copenhagen", "norway", "oslo",
+    "switzerland", "zurich", "austria", "vienna",
+    "poland", "warsaw", "czech", "prague", "portugal", "lisbon",
     "canada", "toronto", "vancouver", "montreal",
-    "australia", "sydney", "melbourne", "india", "bangalore", "mumbai",
-    "singapore", "japan", "tokyo", "brazil", "europe", "emea", "apac",
+    "australia", "sydney", "melbourne", "india", "bangalore", "mumbai", "hyderabad",
+    "singapore", "japan", "tokyo", "brazil", "são paulo",
+    "europe", "eu", "emea", "apac", "dach", "gmbh",
 }
 
 
@@ -77,9 +83,15 @@ def _detect_country(location: str) -> str:
     return "UNKNOWN"
 
 
-def _is_us_eligible(location: str) -> bool:
+def _is_us_eligible(location: str, company: str = "") -> bool:
+    """Check if a job is US-eligible based on location AND company name."""
     c = _detect_country(location)
-    return c in ("US", "REMOTE_US", "REMOTE", "UNKNOWN")
+    if c == "NON_US":
+        return False
+    # Also check company name for German GmbH indicator
+    if company and "gmbh" in company.lower():
+        return False
+    return True
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -115,7 +127,7 @@ def _serialize_row(r, skills=None, sources=None, match=None) -> dict:
         "employmentType": r.get("employment_type"),
         "experienceLevel": r.get("experience_level"),
         "industry": r.get("industry"),
-        "country": _detect_country(loc),
+        "country": "NON_US" if (r.get("company") or "").lower().endswith("gmbh") else _detect_country(loc),
         "postedAt": posted.isoformat() if posted else None,
         "isActive": r.get("is_active", True),
         "companyLogoUrl": r.get("company_logo_url"),
@@ -186,7 +198,7 @@ async def search_jobs(
         # Filter by country IN PYTHON (no DB column needed)
         if country and country != "":
             if country == "us_eligible":
-                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "")]
+                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "", r.get("company") or "")]
             elif country == "US":
                 all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "US"]
             elif country == "REMOTE_US":
