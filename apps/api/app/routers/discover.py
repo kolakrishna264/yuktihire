@@ -92,6 +92,31 @@ def _is_us_job(location: str, company: str = "", title: str = "") -> bool:
     return False
 
 
+# Title family synonyms — expand search queries to related roles
+TITLE_SYNONYMS = {
+    "ai": ["ai", "artificial intelligence", "machine learning", "ml", "deep learning", "llm", "genai", "nlp"],
+    "ml": ["ml", "machine learning", "ai", "deep learning", "mlops", "applied ml"],
+    "data scientist": ["data scientist", "research scientist", "applied scientist", "decision scientist"],
+    "data engineer": ["data engineer", "analytics engineer", "etl", "big data", "data platform"],
+    "data analyst": ["data analyst", "bi analyst", "business analyst", "product analyst", "analytics analyst", "reporting analyst"],
+    "software": ["software", "developer", "swe", "full stack", "backend", "frontend"],
+    "devops": ["devops", "sre", "site reliability", "infrastructure", "platform"],
+    "cloud": ["cloud", "aws", "azure", "gcp", "infrastructure"],
+    "security": ["security", "cybersecurity", "infosec", "appsec"],
+    "qa": ["qa", "quality", "test", "testing", "sdet", "automation"],
+}
+
+def _expand_search_words(words: list[str]) -> list[str]:
+    """Expand search words with synonyms from title families."""
+    expanded = set(words)
+    for word in words:
+        wl = word.lower()
+        for key, synonyms in TITLE_SYNONYMS.items():
+            if wl in key or key in wl or wl in synonyms:
+                expanded.update(synonyms)
+    return list(expanded)
+
+
 def _detect_country(location: str) -> str:
     """Simple country label for display badges."""
     if not location:
@@ -175,6 +200,7 @@ async def search_jobs(
     salary_min: Optional[int] = Query(None),
     source: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
+    freshness: Optional[str] = Query(None, description="24h, 7d, 30d"),
     sort: str = Query("newest"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -247,8 +273,16 @@ async def search_jobs(
         params = {}
 
         if q:
-            conditions.append("(lower(title) LIKE :q OR lower(company) LIKE :q OR lower(COALESCE(location,'')) LIKE :q)")
-            params["q"] = f"%{q.lower()}%"
+            # Split query into words, expand with synonyms, match ANY
+            words = [w.strip() for w in q.lower().split() if len(w.strip()) >= 2]
+            if words:
+                expanded = _expand_search_words(words)
+                word_conditions = []
+                for i, word in enumerate(expanded):
+                    key = f"qw{i}"
+                    word_conditions.append(f"lower(title) LIKE :{key}")
+                    params[key] = f"%{word}%"
+                conditions.append(f"({' OR '.join(word_conditions)})")
         if work_type and work_type != "All":
             conditions.append("lower(COALESCE(work_type,'')) = :wt")
             params["wt"] = work_type.lower()
@@ -262,6 +296,17 @@ async def search_jobs(
             conditions.append("lower(COALESCE(industry,'')) LIKE :ind")
             params["ind"] = f"%{industry.lower()}%"
 
+        # Freshness filter at SQL level — uses created_at (ingestion time) for reliability
+        if freshness:
+            if freshness == "24h":
+                conditions.append("created_at > NOW() - INTERVAL '1 day'")
+            elif freshness == "3d":
+                conditions.append("created_at > NOW() - INTERVAL '3 days'")
+            elif freshness == "7d":
+                conditions.append("created_at > NOW() - INTERVAL '7 days'")
+            elif freshness == "30d":
+                conditions.append("created_at > NOW() - INTERVAL '30 days'")
+
         where_clause = " AND ".join(conditions)
         order = "posted_at DESC NULLS LAST, created_at DESC"
         if sort == "oldest":
@@ -271,18 +316,18 @@ async def search_jobs(
         elif sort == "company":
             order = "company ASC"
 
-        # Fetch large batch then filter by country in Python
-        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT 2000"
+        # Count total matching jobs
+        count_sql = f"SELECT COUNT(*) FROM jobs WHERE {where_clause}"
+        count_result = await db.execute(text(count_sql), params)
+        total = count_result.scalar() or 0
+
+        # Paginate with SQL LIMIT/OFFSET (proper pagination, no cap)
+        offset = (page - 1) * per_page
+        sql = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY {order} LIMIT :lim OFFSET :off"
+        params["lim"] = per_page
+        params["off"] = offset
         result = await db.execute(text(sql), params)
-        all_rows = result.mappings().all()
-
-        # US filtering done in SQL — no Python filter needed
-
-        total = len(all_rows)
-
-        # Paginate
-        start = (page - 1) * per_page
-        rows = all_rows[start:start + per_page]
+        rows = result.mappings().all()
 
         # Load skills + sources for page
         job_ids = [r["id"] for r in rows]

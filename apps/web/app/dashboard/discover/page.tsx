@@ -150,41 +150,22 @@ export default function DiscoverPage() {
     setPage(1)
   }, [debouncedSearch, debouncedTitle, workTypeFilter, experienceFilter, industryFilter, sourceFilter, countryFilter, freshnessFilter, sortBy])
 
+  // Combine search + title filter into one query
+  const searchQuery = [debouncedSearch, debouncedTitle].filter(Boolean).join(" ") || undefined
+
   const { data, isLoading, error, refetch } = useDiscover({
-    q: debouncedSearch || undefined,
+    q: searchQuery,
     workType: workTypeFilter !== "All" ? workTypeFilter : undefined,
     experienceLevel: experienceFilter !== "All" ? experienceFilter : undefined,
     industry: industryFilter !== "All" ? industryFilter : undefined,
     source: sourceFilter !== "All" ? sourceFilter : undefined,
-    country: countryFilter || undefined,
+    freshness: freshnessFilter !== "any" ? freshnessFilter : undefined,
     sort: sortBy,
     page,
     perPage: 20,
   })
 
-  const rawJobs = data?.jobs ?? []
-
-  // Client-side freshness filter
-  const jobs = rawJobs.filter((job) => {
-    // Freshness filter — use postedAt or createdAt (ingestion time) as fallback
-    if (freshnessFilter !== "any") {
-      const dateStr = job.postedAt || job.createdAt
-      if (dateStr) {
-        const jobDate = new Date(dateStr)
-        const now = new Date()
-        const diffDays = (now.getTime() - jobDate.getTime()) / (1000 * 60 * 60 * 24)
-        if (freshnessFilter === "24h" && diffDays > 1) return false
-        if (freshnessFilter === "7d" && diffDays > 7) return false
-        if (freshnessFilter === "30d" && diffDays > 30) return false
-      }
-    }
-    // Title filter (client-side)
-    if (debouncedTitle) {
-      const titleLower = debouncedTitle.toLowerCase()
-      if (!job.title?.toLowerCase().includes(titleLower)) return false
-    }
-    return true
-  })
+  const jobs = data?.jobs ?? []
 
   const totalCount = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
