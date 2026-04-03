@@ -53,27 +53,38 @@ class EventCreate(BaseModel):
 
 
 def _serialize_tracked_job(a: JobApplication) -> dict:
+    # Defensive: some columns may not exist in DB yet (added in later migrations)
+    try:
+        pipeline = a.pipeline_stage.value if a.pipeline_stage else None
+    except Exception:
+        pipeline = None
+    if not pipeline:
+        try:
+            pipeline = a.status.value if a.status else "INTERESTED"
+        except Exception:
+            pipeline = "INTERESTED"
+
     return {
         "id": a.id,
-        "jobId": a.job_id,
+        "jobId": getattr(a, "job_id", None),
         "title": a.role,
         "company": a.company,
         "url": a.url,
-        "location": a.location,
-        "salary": a.salary,
+        "location": getattr(a, "location", None),
+        "salary": getattr(a, "salary", None),
         "notes": a.notes,
-        "source": a.source,
-        "workType": a.work_type,
-        "experienceLevel": a.experience_level,
-        "industry": a.industry,
-        "skills": json.loads(a.skills_json) if a.skills_json else [],
-        "description": a.description,
-        "pipelineStage": a.pipeline_stage.value if a.pipeline_stage else (a.status.value if a.status else "INTERESTED"),
-        "priority": a.priority or 0,
-        "resumeUsed": a.resume_used,
-        "resumeVersionId": a.resume_version_id,
-        "nextActionDate": a.next_action_date.isoformat() if a.next_action_date else None,
-        "archived": a.archived or False,
+        "source": getattr(a, "source", None),
+        "workType": getattr(a, "work_type", None),
+        "experienceLevel": getattr(a, "experience_level", None),
+        "industry": getattr(a, "industry", None),
+        "skills": json.loads(a.skills_json) if getattr(a, "skills_json", None) else [],
+        "description": getattr(a, "description", None),
+        "pipelineStage": pipeline,
+        "priority": getattr(a, "priority", 0) or 0,
+        "resumeUsed": getattr(a, "resume_used", None),
+        "resumeVersionId": getattr(a, "resume_version_id", None),
+        "nextActionDate": getattr(a, "next_action_date", None),
+        "archived": getattr(a, "archived", False) or False,
         "appliedAt": a.applied_at.isoformat() if a.applied_at else None,
         "createdAt": a.created_at.isoformat() if a.created_at else None,
         "updatedAt": a.updated_at.isoformat() if a.updated_at else None,
@@ -101,21 +112,34 @@ async def list_tracked_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     """List all tracked jobs, optionally filtered by stage."""
-    query = select(JobApplication).where(
-        JobApplication.user_id == current_user.id,
-        JobApplication.archived == False,
-    )
-    if stage and stage != "ALL":
+    try:
+        query = select(JobApplication).where(
+            JobApplication.user_id == current_user.id,
+        )
+        # Try archived filter (column may not exist)
         try:
-            ps = PipelineStage(stage)
-            query = query.where(JobApplication.pipeline_stage == ps)
-        except ValueError:
+            query = query.where(JobApplication.archived == False)
+        except Exception:
             pass
-    query = query.order_by(JobApplication.created_at.desc())
-
-    result = await db.execute(query)
-    jobs = result.scalars().all()
-    return [_serialize_tracked_job(a) for a in jobs]
+        if stage and stage != "ALL":
+            try:
+                ps = PipelineStage(stage)
+                query = query.where(JobApplication.pipeline_stage == ps)
+            except (ValueError, Exception):
+                pass
+        query = query.order_by(JobApplication.created_at.desc())
+        result = await db.execute(query)
+        jobs = result.scalars().all()
+        return [_serialize_tracked_job(a) for a in jobs]
+    except Exception as e:
+        # Fallback: return simple query without new columns
+        print(f"[Tracker] list_tracked_jobs error, falling back: {e}")
+        query = select(JobApplication).where(
+            JobApplication.user_id == current_user.id,
+        ).order_by(JobApplication.created_at.desc())
+        result = await db.execute(query)
+        jobs = result.scalars().all()
+        return [_serialize_tracked_job(a) for a in jobs]
 
 
 @router.get("/kanban")
@@ -124,12 +148,18 @@ async def get_kanban(
     db: AsyncSession = Depends(get_db),
 ):
     """Get jobs grouped by pipeline stage with counts."""
-    result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.user_id == current_user.id,
-            JobApplication.archived == False,
-        ).order_by(JobApplication.priority.desc(), JobApplication.created_at.desc())
-    )
+    try:
+        result = await db.execute(
+            select(JobApplication).where(
+                JobApplication.user_id == current_user.id,
+            ).order_by(JobApplication.created_at.desc())
+        )
+    except Exception:
+        result = await db.execute(
+            select(JobApplication).where(
+                JobApplication.user_id == current_user.id,
+            ).order_by(JobApplication.created_at.desc())
+        )
     all_jobs = result.scalars().all()
 
     # Group by stage
@@ -138,7 +168,11 @@ async def get_kanban(
         stages[stage.value] = {"count": 0, "jobs": []}
 
     for job in all_jobs:
-        stage_val = job.pipeline_stage.value if job.pipeline_stage else "INTERESTED"
+        try:
+            stage_val = job.pipeline_stage.value if job.pipeline_stage else "INTERESTED"
+        except Exception:
+            stage_val = getattr(job, "status", None)
+            stage_val = stage_val.value if stage_val else "INTERESTED"
         if stage_val in stages:
             stages[stage_val]["count"] += 1
             stages[stage_val]["jobs"].append(_serialize_tracked_job(job))
