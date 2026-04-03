@@ -232,14 +232,34 @@ async def get_recommendations(db: AsyncSession, user_id: str, limit: int = 20) -
     if not rows:
         return []
 
-    # Filter out obviously non-US jobs (German GmbH, etc.)
+    # Filter out non-US jobs aggressively
+    _non_us_loc = {
+        "germany", "berlin", "munich", "frankfurt", "hamburg", "köln", "cologne",
+        "düsseldorf", "stuttgart", "leipzig", "dresden", "herford", "münster",
+        "mülheim", "offenburg", "mannheim", "blaustein", "ostwestfalen",
+        "united kingdom", "uk", "london", "manchester", "england",
+        "france", "paris", "netherlands", "amsterdam", "spain", "madrid",
+        "italy", "rome", "milan", "sweden", "stockholm",
+        "canada", "toronto", "vancouver", "australia", "sydney", "melbourne",
+        "india", "bangalore", "mumbai", "singapore", "japan", "tokyo",
+        "europe", "emea", "apac", "dach",
+    }
+
     def _is_likely_us(r):
         company = (r.get("company") or "").lower()
+        title = (r.get("title") or "").lower()
         location = (r.get("location") or "").lower()
+        # German company suffix
         if "gmbh" in company:
             return False
-        non_us_markers = ["germany", "berlin", "munich", "frankfurt", "hamburg", "united kingdom", "uk", "london", "france", "paris", "india", "bangalore"]
-        if any(m in location for m in non_us_markers):
+        # German job title pattern (m/w/d)
+        if "(m/w/d)" in title or "(w/m/d)" in title or "(all gender)" in title:
+            return False
+        # Non-US location markers
+        if any(m in location for m in _non_us_loc):
+            return False
+        # Non-US location in company name
+        if any(m in company for m in ["gmbh", "ag ", " ag", "b.v.", "ltd"]):
             return False
         return True
 

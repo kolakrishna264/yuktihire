@@ -83,13 +83,18 @@ def _detect_country(location: str) -> str:
     return "UNKNOWN"
 
 
-def _is_us_eligible(location: str, company: str = "") -> bool:
-    """Check if a job is US-eligible based on location AND company name."""
+def _is_us_eligible(location: str, company: str = "", title: str = "") -> bool:
+    """Check if a job is US-eligible based on location, company, and title."""
     c = _detect_country(location)
     if c == "NON_US":
         return False
-    # Also check company name for German GmbH indicator
-    if company and "gmbh" in company.lower():
+    cl = company.lower() if company else ""
+    tl = title.lower() if title else ""
+    # German company indicators
+    if "gmbh" in cl or "ag " in cl or " ag" in cl:
+        return False
+    # German job title pattern
+    if "(m/w/d)" in tl or "(w/m/d)" in tl or "(all gender)" in tl:
         return False
     return True
 
@@ -198,7 +203,7 @@ async def search_jobs(
         # Filter by country IN PYTHON (no DB column needed)
         if country and country != "":
             if country == "us_eligible":
-                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "", r.get("company") or "")]
+                all_rows = [r for r in all_rows if _is_us_eligible(r.get("location") or "", r.get("company") or "", r.get("title") or "")]
             elif country == "US":
                 all_rows = [r for r in all_rows if _detect_country(r.get("location") or "") == "US"]
             elif country == "REMOTE_US":
@@ -239,24 +244,24 @@ async def search_jobs(
         # Serialize
         jobs_data = [_serialize_row(r, skills_by_job.get(r["id"], []), sources_by_job.get(r["id"], [])) for r in rows]
 
-        # Best match scoring
-        if sort == "best_match":
-            current_user = await get_optional_user(request)
-            if current_user:
-                try:
-                    from app.services.recommendations import score_job_dict
-                    from app.models.v2 import UserPreference
-                    prefs_result = await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
-                    prefs = prefs_result.scalar_one_or_none()
-                    if prefs:
-                        for jd in jobs_data:
-                            m = score_job_dict(jd, prefs)
-                            jd["matchScore"] = m["score"]
-                            jd["matchBadges"] = m["badges"]
-                            jd["matchReasons"] = m["reasons"][:2]
+        # Always try to score jobs against user preferences
+        current_user = await get_optional_user(request)
+        if current_user:
+            try:
+                from app.services.recommendations import score_job_dict
+                from app.models.v2 import UserPreference
+                prefs_result = await db.execute(select(UserPreference).where(UserPreference.user_id == current_user.id))
+                prefs = prefs_result.scalar_one_or_none()
+                if prefs:
+                    for jd in jobs_data:
+                        m = score_job_dict(jd, prefs)
+                        jd["matchScore"] = m["score"]
+                        jd["matchBadges"] = m["badges"]
+                        jd["matchReasons"] = m["reasons"][:2]
+                    if sort == "best_match":
                         jobs_data.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
-                except Exception as e:
-                    print(f"[Discover] best_match error: {e}")
+            except Exception as e:
+                print(f"[Discover] scoring error: {e}")
 
         return {
             "jobs": jobs_data,
