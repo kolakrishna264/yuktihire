@@ -101,15 +101,20 @@ async def search_jobs(
     if source:
         # Join to source_links to filter by source
         query = query.join(JobSourceLink).join(JobSource).where(JobSource.slug == source)
-    # Country filter — wrapped in try/except in case column doesn't exist yet
-    try:
-        if country:
-            if country == "us_eligible":
-                query = query.where(Job.country.in_(["US", "REMOTE_US", "REMOTE", "UNKNOWN", None]))
-            else:
-                query = query.where(Job.country == country)
-    except Exception:
-        pass  # Column may not exist in DB yet
+    # Country filter — only apply if column exists in DB
+    _apply_country = False
+    if country:
+        try:
+            from sqlalchemy import text as _text
+            check = await db.execute(_text("SELECT column_name FROM information_schema.columns WHERE table_name='jobs' AND column_name='country'"))
+            _apply_country = check.scalar() is not None
+        except Exception:
+            pass
+    if _apply_country and country:
+        if country == "us_eligible":
+            query = query.where(or_(Job.country.in_(["US", "REMOTE_US", "REMOTE", "UNKNOWN"]), Job.country == None))
+        else:
+            query = query.where(Job.country == country)
 
     # Count total before pagination
     count_query = select(func.count()).select_from(query.subquery())

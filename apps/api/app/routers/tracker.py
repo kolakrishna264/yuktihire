@@ -52,6 +52,41 @@ class EventCreate(BaseModel):
     metadata: Optional[dict] = None
 
 
+def _serialize_row(r) -> dict:
+    """Serialize a raw SQL row mapping (dict-like) — safe even if columns are missing."""
+    pipeline = r.get("pipeline_stage") or r.get("status") or "INTERESTED"
+    skills_raw = r.get("skills_json")
+    skills = json.loads(skills_raw) if skills_raw else []
+    applied = r.get("applied_at")
+    created = r.get("created_at")
+    updated = r.get("updated_at")
+    return {
+        "id": r.get("id"),
+        "jobId": r.get("job_id"),
+        "title": r.get("role", ""),
+        "company": r.get("company", ""),
+        "url": r.get("url"),
+        "location": r.get("location"),
+        "salary": r.get("salary"),
+        "notes": r.get("notes"),
+        "source": r.get("source"),
+        "workType": r.get("work_type"),
+        "experienceLevel": r.get("experience_level"),
+        "industry": r.get("industry"),
+        "skills": skills,
+        "description": r.get("description"),
+        "pipelineStage": pipeline,
+        "priority": r.get("priority", 0) or 0,
+        "resumeUsed": r.get("resume_used"),
+        "resumeVersionId": r.get("resume_version_id"),
+        "nextActionDate": str(r["next_action_date"]) if r.get("next_action_date") else None,
+        "archived": r.get("archived", False) or False,
+        "appliedAt": applied.isoformat() if applied else None,
+        "createdAt": created.isoformat() if created else None,
+        "updatedAt": updated.isoformat() if updated else None,
+    }
+
+
 def _serialize_tracked_job(a: JobApplication) -> dict:
     # Defensive: some columns may not exist in DB yet (added in later migrations)
     try:
@@ -112,34 +147,16 @@ async def list_tracked_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     """List all tracked jobs, optionally filtered by stage."""
+    from sqlalchemy import text
     try:
-        query = select(JobApplication).where(
-            JobApplication.user_id == current_user.id,
-        )
-        # Try archived filter (column may not exist)
-        try:
-            query = query.where(JobApplication.archived == False)
-        except Exception:
-            pass
-        if stage and stage != "ALL":
-            try:
-                ps = PipelineStage(stage)
-                query = query.where(JobApplication.pipeline_stage == ps)
-            except (ValueError, Exception):
-                pass
-        query = query.order_by(JobApplication.created_at.desc())
-        result = await db.execute(query)
-        jobs = result.scalars().all()
-        return [_serialize_tracked_job(a) for a in jobs]
+        # Use raw SQL to avoid referencing columns that may not exist
+        sql = "SELECT * FROM job_applications WHERE user_id = :uid ORDER BY created_at DESC"
+        result = await db.execute(text(sql), {"uid": current_user.id})
+        rows = result.mappings().all()
+        return [_serialize_row(r) for r in rows]
     except Exception as e:
-        # Fallback: return simple query without new columns
-        print(f"[Tracker] list_tracked_jobs error, falling back: {e}")
-        query = select(JobApplication).where(
-            JobApplication.user_id == current_user.id,
-        ).order_by(JobApplication.created_at.desc())
-        result = await db.execute(query)
-        jobs = result.scalars().all()
-        return [_serialize_tracked_job(a) for a in jobs]
+        print(f"[Tracker] list error: {e}")
+        return []
 
 
 @router.get("/kanban")
@@ -148,34 +165,28 @@ async def get_kanban(
     db: AsyncSession = Depends(get_db),
 ):
     """Get jobs grouped by pipeline stage with counts."""
+    from sqlalchemy import text
     try:
-        result = await db.execute(
-            select(JobApplication).where(
-                JobApplication.user_id == current_user.id,
-            ).order_by(JobApplication.created_at.desc())
-        )
-    except Exception:
-        result = await db.execute(
-            select(JobApplication).where(
-                JobApplication.user_id == current_user.id,
-            ).order_by(JobApplication.created_at.desc())
-        )
-    all_jobs = result.scalars().all()
+        sql = "SELECT * FROM job_applications WHERE user_id = :uid ORDER BY created_at DESC"
+        result = await db.execute(text(sql), {"uid": current_user.id})
+        rows = result.mappings().all()
+    except Exception as e:
+        print(f"[Tracker] kanban error: {e}")
+        rows = []
 
-    # Group by stage
     stages = {}
     for stage in PipelineStage:
         stages[stage.value] = {"count": 0, "jobs": []}
 
-    for job in all_jobs:
-        try:
-            stage_val = job.pipeline_stage.value if job.pipeline_stage else "INTERESTED"
-        except Exception:
-            stage_val = getattr(job, "status", None)
-            stage_val = stage_val.value if stage_val else "INTERESTED"
+    for r in rows:
+        stage_val = r.get("pipeline_stage") or r.get("status") or "INTERESTED"
         if stage_val in stages:
             stages[stage_val]["count"] += 1
-            stages[stage_val]["jobs"].append(_serialize_tracked_job(job))
+            stages[stage_val]["jobs"].append(_serialize_row(r))
+        else:
+            # Unknown stage — put in INTERESTED
+            stages["INTERESTED"]["count"] += 1
+            stages["INTERESTED"]["jobs"].append(_serialize_row(r))
 
     return {"stages": stages}
 
