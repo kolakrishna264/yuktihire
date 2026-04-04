@@ -7,15 +7,12 @@ import { Badge } from "@/components/ui/Badge"
 import { Check, Upload, Loader2, Sparkles, ArrowRight } from "lucide-react"
 import { toast } from "sonner"
 import { profileApi } from "@/lib/api/profile"
-import { useProfile, useUpdateProfile, useAddSkill, useAddExperience, useAddEducation } from "@/lib/hooks/useProfile"
+import { apiFetch } from "@/lib/api/client"
+import { useProfile } from "@/lib/hooks/useProfile"
 import Link from "next/link"
 
 export function ProfileAutoSetup() {
   const { data: profile, isLoading: profileLoading } = useProfile()
-  const { mutateAsync: updateProfile } = useUpdateProfile()
-  const { mutateAsync: addSkill } = useAddSkill()
-  const { mutateAsync: addExperience } = useAddExperience()
-  const { mutateAsync: addEducation } = useAddEducation()
 
   const [uploading, setUploading] = useState(false)
   const [parsed, setParsed] = useState<any>(null)
@@ -40,6 +37,7 @@ export function ProfileAutoSetup() {
   const handleConfirmAndSave = async () => {
     if (!parsed) return
     setSaving(true)
+    let savedCount = 0
 
     try {
       // 1. Update basic profile fields
@@ -54,52 +52,93 @@ export function ProfileAutoSetup() {
       if (parsed.portfolio) profileUpdate.portfolio = parsed.portfolio
 
       if (Object.keys(profileUpdate).length > 0) {
-        await updateProfile(profileUpdate)
+        try {
+          await apiFetch("/profiles/me", { method: "PATCH", body: JSON.stringify(profileUpdate) })
+          savedCount++
+        } catch (e) { console.error("Profile update failed:", e) }
       }
 
-      // 2. Add skills
-      const skills = parsed.skills || []
-      for (const skill of skills.slice(0, 20)) {
-        const name = typeof skill === "string" ? skill : skill.name || skill
+      // 2. Add skills (use direct API)
+      for (const skill of (parsed.skills || []).slice(0, 30)) {
+        const name = typeof skill === "string" ? skill : skill?.name || ""
         if (name && name.length > 1) {
-          try { await addSkill({ name, category: "From Resume" }) } catch {}
+          try {
+            await apiFetch("/profiles/me/skills", { method: "POST", body: JSON.stringify({ name }) })
+            savedCount++
+          } catch {}
         }
       }
 
-      // 3. Add experiences
+      // 3. Add experiences (parse dates properly)
       for (const exp of (parsed.experiences || []).slice(0, 5)) {
         try {
-          await addExperience({
-            title: exp.title || exp.role || "",
-            company: exp.company || "",
-            location: exp.location || "",
-            start_date: exp.start_date || exp.startDate || "",
-            end_date: exp.end_date || exp.endDate || "",
-            current: exp.current || false,
-            bullets: exp.bullets || exp.achievements || [],
+          await apiFetch("/profiles/me/experiences", {
+            method: "POST",
+            body: JSON.stringify({
+              title: exp.title || exp.role || "Unknown Role",
+              company: exp.company || "Unknown Company",
+              location: exp.location || "",
+              start_date: parseDate(exp.start_date || exp.startDate),
+              end_date: exp.current ? null : parseDate(exp.end_date || exp.endDate),
+              current: exp.current || (exp.end_date === "Present") || false,
+              bullets: (exp.bullets || exp.achievements || []).slice(0, 6),
+              skills_used: exp.skills_used || [],
+            }),
           })
-        } catch {}
+          savedCount++
+        } catch (e) { console.error("Experience save failed:", e) }
       }
 
-      // 4. Add education
-      for (const edu of (parsed.educations || parsed.education || []).slice(0, 3)) {
+      // 4. Add education (parse dates properly)
+      for (const edu of (parsed.educations || parsed.education || []).slice(0, 5)) {
+        if (!edu.degree || edu.degree === "Not specified") continue
         try {
-          await addEducation({
-            degree: edu.degree || "",
-            field: edu.field || edu.major || "",
-            school: edu.school || edu.institution || "",
-            start_date: edu.start_date || "",
-            end_date: edu.end_date || "",
+          await apiFetch("/profiles/me/educations", {
+            method: "POST",
+            body: JSON.stringify({
+              degree: edu.degree || "",
+              field: edu.field || "",
+              school: edu.school || "",
+              start_date: parseDate(edu.start_date),
+              end_date: parseDate(edu.end_date),
+              gpa: edu.gpa || null,
+            }),
           })
-        } catch {}
+          savedCount++
+        } catch (e) { console.error("Education save failed:", e) }
       }
 
       setSaved(true)
-      toast.success("Profile updated from resume!")
+      toast.success(`Profile updated! ${savedCount} items saved from resume.`)
     } catch (err: any) {
       toast.error("Some fields failed to save")
     }
     setSaving(false)
+  }
+
+  /** Convert date strings like "Jul 2024", "2024", "2024-07" to YYYY-MM-DD */
+  function parseDate(d: string | null | undefined): string | null {
+    if (!d || d === "null" || d === "Present" || d === "present") return null
+    // Already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d
+    // YYYY-MM
+    if (/^\d{4}-\d{2}$/.test(d)) return d + "-01"
+    // YYYY only
+    if (/^\d{4}$/.test(d)) return d + "-01-01"
+    // "Mon YYYY" like "Jul 2024"
+    const monthMap: Record<string, string> = { jan:"01", feb:"02", mar:"03", apr:"04", may:"05", jun:"06", jul:"07", aug:"08", sep:"09", oct:"10", nov:"11", dec:"12" }
+    const match = d.match(/^(\w{3})\s+(\d{4})$/)
+    if (match) {
+      const mm = monthMap[match[1].toLowerCase()]
+      if (mm) return `${match[2]}-${mm}-01`
+    }
+    // "Month YYYY" like "July 2024"
+    const longMatch = d.match(/^(\w+)\s+(\d{4})$/)
+    if (longMatch) {
+      const mm = monthMap[longMatch[1].toLowerCase().slice(0, 3)]
+      if (mm) return `${longMatch[2]}-${mm}-01`
+    }
+    return null
   }
 
   // Calculate completion

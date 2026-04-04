@@ -22,7 +22,6 @@ import { useResumes } from "@/lib/hooks/useResumes"
 import { useTailor } from "@/lib/hooks/useTailor"
 import { useTrackerList } from "@/lib/hooks/useTracker"
 import { OnboardingChecklist } from "@/components/OnboardingChecklist"
-import { ProfileAutoSetup } from "@/components/ProfileAutoSetup"
 import type { User } from "@supabase/supabase-js"
 import type { TrackedJob } from "@/types"
 
@@ -67,7 +66,7 @@ export default function DashboardShell({ user }: DashboardShellProps) {
       {isNewUser && <OnboardingChecklist />}
 
       {/* Profile auto-setup from resume */}
-      <ProfileAutoSetup />
+      {/* Profile setup moved to Profile page only */}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-3 gap-4 mb-8">
