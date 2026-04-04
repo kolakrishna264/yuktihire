@@ -5,24 +5,34 @@ const APP_URL = "https://yuktihire.com"
 // ── Token Management ──────────────────────────────────────────────────────
 
 async function getToken() {
-  // ALWAYS try cookie first — it has the freshest token
-  try {
-    const cookies = await chrome.cookies.getAll({ domain: "yuktihire.com" })
-    const authCookie = cookies.find(c => c.name.includes("auth-token"))
-    if (authCookie) {
-      const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
-      const decoded = JSON.parse(atob(raw))
-      if (decoded.access_token) {
-        return decoded.access_token
+  // Try reading token from yuktihire.com cookie (multiple domain variants)
+  for (const url of ["https://yuktihire.com", "https://www.yuktihire.com", "http://localhost:3000"]) {
+    try {
+      const cookies = await chrome.cookies.getAll({ url })
+      console.log(`[YuktiHire] Cookies from ${url}:`, cookies.map(c => c.name))
+      const authCookie = cookies.find(c => c.name.includes("auth-token"))
+      if (authCookie) {
+        const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
+        const decoded = JSON.parse(atob(raw))
+        if (decoded.access_token) {
+          console.log("[YuktiHire] Got token from cookie:", decoded.access_token.slice(0, 20) + "...")
+          return decoded.access_token
+        }
       }
+    } catch (e) {
+      console.log(`[YuktiHire] Cookie error for ${url}:`, e.message)
     }
-  } catch (e) {
-    console.log("[YuktiHire] Cookie read error:", e)
   }
 
-  // Fallback to storage only if cookie unavailable
+  // Fallback to storage
   const result = await chrome.storage.local.get(["yuktihire_token"])
-  return result.yuktihire_token || null
+  if (result.yuktihire_token) {
+    console.log("[YuktiHire] Using stored token")
+    return result.yuktihire_token
+  }
+
+  console.log("[YuktiHire] No token found anywhere")
+  return null
 }
 
 async function storeTokens(accessToken, refreshToken, expiresAt) {
