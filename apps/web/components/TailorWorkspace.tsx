@@ -1,7 +1,9 @@
 "use client"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { useResumes, useResume, useUpdateResume } from "@/lib/hooks/useResumes"
 import { useRunTailoring, useTailoringSession, useUpdateRecommendation, useApplyRecommendations } from "@/lib/hooks/useTailor"
+import { useTrackerDetail } from "@/lib/hooks/useTracker"
 import { JDInputPanel } from "./JDInputPanel"
 import { ResumeSelectPanel } from "./ResumeSelectPanel"
 import { AtsScorePanel } from "./AtsScorePanel"
@@ -17,6 +19,9 @@ import { toast } from "sonner"
 type Step = "setup" | "running" | "results"
 
 export function TailorWorkspace() {
+  const searchParams = useSearchParams()
+  const trackerId = searchParams?.get("tracker") || ""
+
   const [step, setStep] = useState<Step>("setup")
   const [selectedResumeId, setSelectedResumeId] = useState<string>("")
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -25,9 +30,23 @@ export function TailorWorkspace() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [insertedKeywords, setInsertedKeywords] = useState<string[]>([])
   const [acceptingAll, setAcceptingAll] = useState(false)
+  const [prefilledJD, setPrefilledJD] = useState("")
 
   const { data: resumes = [] } = useResumes()
   const { data: resumeData } = useResume(selectedResumeId)
+
+  // Load JD from tracked job if tracker param exists
+  const { data: trackerJob } = useTrackerDetail(trackerId)
+  useEffect(() => {
+    if (trackerJob && !prefilledJD) {
+      // Use notes (where extension saves JD) or description
+      const jd = trackerJob.notes || trackerJob.description || ""
+      if (jd) {
+        setPrefilledJD(jd)
+        toast.success(`Loaded JD from "${trackerJob.title}" — select a resume and start tailoring`)
+      }
+    }
+  }, [trackerJob, prefilledJD])
   const { mutateAsync: updateResumeAsync } = useUpdateResume()
   const { mutate: runTailoring, isPending: startingTailor } = useRunTailoring()
   const { data: sessionData, isPolling } = useTailoringSession(sessionId)
@@ -239,7 +258,15 @@ export function TailorWorkspace() {
       {step === "setup" && (
         <div className="flex-1 grid lg:grid-cols-2 gap-6 p-6 overflow-auto">
           {/* Left: JD Input */}
-          <JDInputPanel onAnalyzed={handleJDAnalyzed} />
+          {/* Show job info if coming from tracker */}
+          {trackerJob && (
+            <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+              <p className="text-xs font-semibold text-indigo-700 mb-0.5">Tailoring for:</p>
+              <p className="text-sm font-bold text-gray-900">{trackerJob.title}</p>
+              <p className="text-xs text-gray-500">{trackerJob.company}</p>
+            </div>
+          )}
+          <JDInputPanel onAnalyzed={handleJDAnalyzed} initialText={prefilledJD} />
 
           {/* Right: Resume select */}
           <div className="space-y-4">

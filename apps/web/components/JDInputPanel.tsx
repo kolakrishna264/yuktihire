@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAnalyzeJD } from "@/lib/hooks/useTailor"
 import { Button } from "@/components/ui/Button"
 import { Textarea } from "@/components/ui/Textarea"
@@ -9,13 +9,19 @@ import type { JDAnalysis } from "@/types"
 
 interface JDInputPanelProps {
   onAnalyzed: (analysis: JDAnalysis) => void
+  initialText?: string
 }
 
-export function JDInputPanel({ onAnalyzed }: JDInputPanelProps) {
+export function JDInputPanel({ onAnalyzed, initialText }: JDInputPanelProps) {
   const [mode, setMode] = useState<"text" | "url">("text")
-  const [text, setText] = useState("")
+  const [text, setText] = useState(initialText || "")
   const [url, setUrl] = useState("")
   const [analyzed, setAnalyzed] = useState(false)
+
+  // Update text when initialText loads (async from tracker)
+  useEffect(() => {
+    if (initialText && !text) setText(initialText)
+  }, [initialText])
   const { mutate: analyze, isPending } = useAnalyzeJD()
 
   const handleAnalyze = () => {
