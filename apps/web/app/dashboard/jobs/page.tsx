@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useTrackerList, useUpdateTracker } from "@/lib/hooks/useTracker"
 import { Card, CardContent } from "@/components/ui/Card"
@@ -24,6 +24,8 @@ import {
 } from "lucide-react"
 import { useResumes } from "@/lib/hooks/useResumes"
 import { IntelligencePanel } from "@/components/IntelligencePanel"
+import { apiFetch } from "@/lib/api/client"
+import { cn } from "@/lib/utils/cn"
 import type { TrackedJob, PipelineStage } from "@/types"
 
 type FilterStatus = "ALL" | "SAVED" | "TAILORED" | "APPLIED"
@@ -60,6 +62,56 @@ function shortDate(dateStr: string | undefined | null): string {
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return ""
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
+function ReadinessBar({ trackerId }: { trackerId: string }) {
+  const [score, setScore] = useState<number | null>(null)
+  const [details, setDetails] = useState<any>(null)
+  const [recommendation, setRecommendation] = useState("")
+  const [loading, setLoading] = useState(false)
+
+  const loadScore = async () => {
+    setLoading(true)
+    try {
+      const result = await apiFetch("/intelligence/readiness-score", {
+        method: "POST",
+        body: JSON.stringify({ tracker_id: trackerId }),
+      })
+      setScore(result.score)
+      setDetails(result.details)
+      setRecommendation(result.recommendation)
+    } catch {}
+    setLoading(false)
+  }
+
+  useEffect(() => { loadScore() }, [trackerId])
+
+  if (score === null) return null
+
+  const color = score >= 70 ? "bg-emerald-500" : score >= 40 ? "bg-amber-500" : "bg-red-500"
+
+  return (
+    <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-semibold text-gray-600">Apply Readiness</span>
+        <span className={cn("text-xs font-bold px-2 py-0.5 rounded-full text-white", color)}>{score}%</span>
+      </div>
+      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${score}%` }} />
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1">{recommendation}</p>
+      {details && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {details.jdCaptured && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">JD ✓</span>}
+          {details.resumeUploaded && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Resume ✓</span>}
+          {details.profileComplete && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Profile ✓</span>}
+          {details.hasApplyLink && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Link ✓</span>}
+          {!details.jdCaptured && <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">No JD</span>}
+          {!details.profileComplete && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">Profile incomplete</span>}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function MyJobsPage() {
@@ -296,6 +348,7 @@ export default function MyJobsPage() {
                   {/* Expanded details */}
                   {isExpanded && (
                     <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+                      <ReadinessBar trackerId={job.id} />
                       {job.description && (
                         <div>
                           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">

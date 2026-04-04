@@ -700,6 +700,58 @@ async def tailor_from_tracker(
     }
 
 
+@router.post("/{tracker_id}/create-followups")
+async def create_follow_up_reminders(
+    tracker_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create automatic follow-up reminders after applying."""
+    from sqlalchemy import text
+    import uuid
+    from datetime import timedelta
+
+    # Verify ownership
+    result = await db.execute(
+        text("SELECT id, role, company FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
+    )
+    job = result.mappings().first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    now = datetime.now(timezone.utc)
+    company = job.get("company", "the company")
+    role = job.get("role", "the role")
+
+    reminders = [
+        {"title": f"Follow up on {role} at {company}", "days": 3, "type": "follow_up"},
+        {"title": f"Second follow up — {role} at {company}", "days": 7, "type": "follow_up"},
+        {"title": f"Recruiter outreach — {company}", "days": 5, "type": "recruiter"},
+    ]
+
+    created = 0
+    for r in reminders:
+        try:
+            await db.execute(
+                text("""INSERT INTO reminders (id, user_id, application_id, title, remind_at, is_completed, created_at)
+                        VALUES (:id, :uid, :app_id, :title, :remind_at, false, NOW())"""),
+                {
+                    "id": str(uuid.uuid4()),
+                    "uid": current_user.id,
+                    "app_id": tracker_id,
+                    "title": r["title"],
+                    "remind_at": (now + timedelta(days=r["days"])).isoformat(),
+                },
+            )
+            created += 1
+        except Exception as e:
+            print(f"[Reminders] Error creating: {e}")
+
+    await db.commit()
+    return {"created": created, "reminders": [r["title"] for r in reminders]}
+
+
 @router.delete("/{tracker_id}/events/{event_id}", status_code=204)
 async def delete_event(
     tracker_id: str,

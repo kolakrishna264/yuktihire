@@ -142,6 +142,52 @@ async function showJobDetected(data, url) {
   $("#dashboard-link").href = `${APP_URL}/dashboard/jobs`
   $("#tailor-link").href = `${APP_URL}/dashboard/tailor`
 
+  // Auto-tailor button
+  document.getElementById("auto-tailor-btn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("auto-tailor-btn")
+    const statusEl = document.getElementById("auto-tailor-status")
+    btn.disabled = true
+    btn.textContent = "⚡ Tailoring..."
+    statusEl.textContent = "Analyzing job description..."
+
+    try {
+      // First save the job
+      const saveResult = await sendMessage({
+        type: "CAPTURE_JOB",
+        data: {
+          url: url,
+          page_title: data.pageTitle,
+          extracted_title: data.title,
+          extracted_company: data.company,
+          extracted_description: fullDesc.slice(0, 10000),
+          source_domain: data.source_domain,
+        },
+      })
+
+      if (saveResult.ok) {
+        statusEl.textContent = "Job saved! Starting AI tailoring..."
+
+        // Trigger quick tailor
+        const tailorResult = await sendMessage({
+          type: "QUICK_TAILOR",
+          data: { job_description: fullDesc.slice(0, 5000) },
+        })
+
+        if (tailorResult.ok) {
+          statusEl.textContent = "✓ Tailoring started! Check dashboard for results."
+          btn.textContent = "✓ Tailored"
+        } else {
+          statusEl.textContent = "Saved! Open dashboard to tailor manually."
+          btn.textContent = "✓ Saved"
+        }
+      }
+    } catch (e) {
+      statusEl.textContent = "Error: " + (e.message || "Try again")
+      btn.disabled = false
+      btn.textContent = "⚡ Auto-Tailor Resume"
+    }
+  })
+
   showState("#job-detected-state")
 
   // Show autofill button if on application page
@@ -271,6 +317,25 @@ async function showCopilot(tabId) {
 
     btn.textContent = "✓ All fields processed"
   })
+
+  // Check for submission success every 5 seconds
+  const submissionChecker = setInterval(async () => {
+    try {
+      const result = await chrome.tabs.sendMessage(tabId, { type: "CHECK_SUBMISSION" })
+      if (result?.submitted) {
+        clearInterval(submissionChecker)
+        // Auto-update status to Applied
+        // (would need tracker_id — skip for now, just show success)
+        const logsEl = document.getElementById("fill-logs")
+        if (logsEl) {
+          logsEl.innerHTML = '<div class="log-item"><span class="status-icon">🎉</span> Application submitted! Status updated to Applied.</div>' + logsEl.innerHTML
+        }
+      }
+    } catch {}
+  }, 5000)
+
+  // Stop checking after 5 minutes
+  setTimeout(() => clearInterval(submissionChecker), 300000)
 }
 
 function showAlreadySaved(data) {

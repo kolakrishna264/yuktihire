@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Card, CardContent } from "@/components/ui/Card"
 import {
-  GraduationCap, Building2, Mail, Loader2, Sparkles, Copy, Check,
+  GraduationCap, Building2, Mail, Target, Loader2, Sparkles, Copy, Check,
 } from "lucide-react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -17,13 +17,14 @@ interface IntelligencePanelProps {
   jobDescription: string
 }
 
-type Tab = "interview" | "company" | "outreach"
+type Tab = "interview" | "company" | "outreach" | "strategy"
 
 export function IntelligencePanel({ trackerId, resumeId, company, role, jobDescription }: IntelligencePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("interview")
   const [interviewPrep, setInterviewPrep] = useState("")
   const [companyResearch, setCompanyResearch] = useState("")
   const [outreachMessages, setOutreachMessages] = useState("")
+  const [strategyContent, setStrategyContent] = useState("")
   const [loading, setLoading] = useState<Tab | null>(null)
   const [copiedSection, setCopiedSection] = useState("")
 
@@ -31,12 +32,14 @@ export function IntelligencePanel({ trackerId, resumeId, company, role, jobDescr
     { key: "interview", label: "Interview Prep", icon: GraduationCap },
     { key: "company", label: "Company Intel", icon: Building2 },
     { key: "outreach", label: "Outreach", icon: Mail },
+    { key: "strategy", label: "Strategy", icon: Target },
   ]
 
   const handleGenerate = async (tab: Tab) => {
     setLoading(tab)
     const endpoint = tab === "interview" ? "/intelligence/interview-prep"
       : tab === "company" ? "/intelligence/company-research"
+      : tab === "strategy" ? "/intelligence/apply-strategy"
       : "/intelligence/recruiter-outreach"
 
     try {
@@ -53,6 +56,7 @@ export function IntelligencePanel({ trackerId, resumeId, company, role, jobDescr
 
       if (tab === "interview") setInterviewPrep(result.interviewPrep || "")
       else if (tab === "company") setCompanyResearch(result.companyResearch || "")
+      else if (tab === "strategy") setStrategyContent(result.strategy || "")
       else setOutreachMessages(result.outreachMessages || "")
 
       toast.success("Generated!")
@@ -71,6 +75,7 @@ export function IntelligencePanel({ trackerId, resumeId, company, role, jobDescr
 
   const content = activeTab === "interview" ? interviewPrep
     : activeTab === "company" ? companyResearch
+    : activeTab === "strategy" ? strategyContent
     : outreachMessages
 
   return (
@@ -101,6 +106,7 @@ export function IntelligencePanel({ trackerId, resumeId, company, role, jobDescr
               {activeTab === "interview" && "Generate role-specific interview questions with suggested answers"}
               {activeTab === "company" && "Get AI-powered company intelligence and talking points"}
               {activeTab === "outreach" && "Generate recruiter messages for LinkedIn and email"}
+              {activeTab === "strategy" && "Generate a strategic application plan with match assessment"}
             </p>
             <Button
               onClick={() => handleGenerate(activeTab)}

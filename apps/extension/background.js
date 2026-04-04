@@ -190,6 +190,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "QUICK_TAILOR") {
+    apiCall("/tailor/quick", {
+      method: "POST",
+      body: JSON.stringify(msg.data),
+    })
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
   if (msg.type === "SET_TOKEN") {
     // Strip quotes that may wrap the token from console paste
     const cleanToken = (msg.token || "").replace(/^['"`]+|['"`]+$/g, "").trim()

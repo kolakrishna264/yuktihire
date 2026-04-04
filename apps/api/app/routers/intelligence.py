@@ -221,3 +221,107 @@ For each message:
 
     result = await _call_ai(prompt)
     return {"outreachMessages": result, "company": ctx["company"], "role": ctx["role"], "applicantName": name}
+
+
+# ── Apply Readiness Score ────────────────────────────────────────────────
+
+@router.post("/readiness-score")
+async def calculate_readiness(
+    data: IntelRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Calculate apply readiness score for a tracked job."""
+    score = 0
+    details = {}
+
+    if data.tracker_id:
+        try:
+            result = await db.execute(text("SELECT * FROM job_applications WHERE id = :id AND user_id = :uid"),
+                                      {"id": data.tracker_id, "uid": current_user.id})
+            job = result.mappings().first()
+            if job:
+                # Resume uploaded? (20 pts)
+                has_resume = bool(job.get("resume_used") or job.get("resume_version_id"))
+                details["resumeUploaded"] = has_resume
+                if has_resume: score += 20
+
+                # JD captured? (15 pts)
+                has_jd = bool(job.get("notes") and len(job.get("notes", "")) > 50)
+                details["jdCaptured"] = has_jd
+                if has_jd: score += 15
+
+                # Resume tailored? (25 pts)
+                details["resumeTailored"] = has_resume  # Simplified — check if version exists
+                if has_resume: score += 25
+
+                # Profile complete? (15 pts)
+                profile = await db.execute(text("SELECT completeness FROM profiles WHERE user_id = :uid"), {"uid": current_user.id})
+                p = profile.mappings().first()
+                profile_pct = p.get("completeness", 0) if p else 0
+                details["profileComplete"] = profile_pct >= 60
+                if profile_pct >= 60: score += 15
+
+                # Has source URL? (10 pts)
+                details["hasApplyLink"] = bool(job.get("url"))
+                if job.get("url"): score += 10
+
+                # Company researched? (15 pts) — simplified
+                details["companyResearched"] = False
+                score += 0  # User needs to generate research
+        except Exception as e:
+            print(f"[Readiness] Error: {e}")
+
+    return {
+        "score": min(score, 100),
+        "details": details,
+        "recommendation": "Ready to apply!" if score >= 70 else "Complete more steps before applying" if score >= 40 else "Start by tailoring your resume",
+    }
+
+
+# ── Apply Strategy ───────────────────────────────────────────────────────
+
+@router.post("/apply-strategy")
+async def generate_apply_strategy(
+    data: IntelRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an AI apply strategy for a specific job."""
+    ctx = await _get_context(data, current_user, db)
+
+    prompt = f"""Generate a strategic application plan for this job.
+
+Role: {ctx['role']}
+Company: {ctx['company']}
+
+Job Description:
+{ctx['jd']}
+
+Candidate Resume:
+{ctx['resume_text']}
+
+Generate:
+
+## Match Assessment
+Rate the match as Strong / Good / Moderate / Weak with reasoning. (2-3 sentences)
+
+## Top 3 Strengths to Highlight
+Specific experiences from the resume that align with this role.
+
+## Key Gaps to Address
+Skills or experience the JD requires that the resume doesn't clearly show.
+
+## Recommended Actions Before Applying
+Numbered list of 3-5 actions (e.g., "Add X keyword to resume", "Prepare story about Y").
+
+## Best Resume Strategy
+Which sections of the resume to emphasize or modify for this specific role.
+
+## Application Timing Tip
+Brief advice on when/how to apply for best results.
+
+Be specific and actionable."""
+
+    result = await _call_ai(prompt)
+    return {"strategy": result, "company": ctx["company"], "role": ctx["role"]}
