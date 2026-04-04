@@ -119,6 +119,7 @@ from app.routers.preferences import router as preferences_router
 from app.routers.insights import router as insights_router
 from app.routers.extension import router as extension_router
 from app.routers.answers import router as answers_router
+from app.routers.intelligence import router as intelligence_router
 
 API_PREFIX = "/api/v1"
 
@@ -138,6 +139,7 @@ app.include_router(preferences_router, prefix=API_PREFIX)
 app.include_router(insights_router, prefix=API_PREFIX)
 app.include_router(extension_router, prefix=API_PREFIX)
 app.include_router(answers_router, prefix=API_PREFIX)
+app.include_router(intelligence_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

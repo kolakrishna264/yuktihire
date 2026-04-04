@@ -22,6 +22,8 @@ import {
   Chrome,
   Loader2,
 } from "lucide-react"
+import { useResumes } from "@/lib/hooks/useResumes"
+import { IntelligencePanel } from "@/components/IntelligencePanel"
 import type { TrackedJob, PipelineStage } from "@/types"
 
 type FilterStatus = "ALL" | "SAVED" | "TAILORED" | "APPLIED"
@@ -63,6 +65,8 @@ function shortDate(dateStr: string | undefined | null): string {
 export default function MyJobsPage() {
   const { data: jobs = [], isLoading } = useTrackerList()
   const { mutate: updateTracker } = useUpdateTracker()
+  const { data: resumes } = useResumes()
+  const defaultResumeId = resumes?.[0]?.id || ""
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<FilterStatus>("ALL")
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -330,6 +334,13 @@ export default function MyJobsPage() {
                       {!job.description && !job.notes && (!job.skills || job.skills.length === 0) && (
                         <p className="text-sm text-gray-400 italic">No additional details available.</p>
                       )}
+                      <IntelligencePanel
+                        trackerId={job.id}
+                        resumeId={defaultResumeId}
+                        company={job.company}
+                        role={job.title}
+                        jobDescription={job.notes || job.description || ""}
+                      />
                     </div>
                   )}
                 </CardContent>
