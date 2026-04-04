@@ -9,10 +9,11 @@ import type { JDAnalysis } from "@/types"
 
 interface JDInputPanelProps {
   onAnalyzed: (analysis: JDAnalysis) => void
+  onTextChange?: (text: string) => void
   initialText?: string
 }
 
-export function JDInputPanel({ onAnalyzed, initialText }: JDInputPanelProps) {
+export function JDInputPanel({ onAnalyzed, onTextChange, initialText }: JDInputPanelProps) {
   const [mode, setMode] = useState<"text" | "url">("text")
   const [text, setText] = useState(initialText || "")
   const [url, setUrl] = useState("")
@@ -20,7 +21,10 @@ export function JDInputPanel({ onAnalyzed, initialText }: JDInputPanelProps) {
 
   // Update text when initialText loads (async from tracker)
   useEffect(() => {
-    if (initialText && !text) setText(initialText)
+    if (initialText && !text) {
+      setText(initialText)
+      onTextChange?.(initialText)
+    }
   }, [initialText])
   const { mutate: analyze, isPending } = useAnalyzeJD()
 
@@ -74,7 +78,7 @@ export function JDInputPanel({ onAnalyzed, initialText }: JDInputPanelProps) {
 We're looking for a Senior ML Engineer with 5+ years experience in Python, PyTorch, and distributed training..."
             className="min-h-[220px] text-sm resize-none"
             value={text}
-            onChange={(e) => { setText(e.target.value); setAnalyzed(false) }}
+            onChange={(e) => { setText(e.target.value); setAnalyzed(false); onTextChange?.(e.target.value) }}
           />
         ) : (
           <div className="space-y-2">

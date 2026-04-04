@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useTrackerList } from "@/lib/hooks/useTracker"
+import { useTrackerList, useUpdateTracker } from "@/lib/hooks/useTracker"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
@@ -36,7 +36,8 @@ const STATUS_CONFIG: Record<
   APPLIED: { label: "Applied", variant: "default" },
   PHONE_SCREEN: { label: "Applied", variant: "default" },
   INTERVIEWING: { label: "Applied", variant: "default" },
-  OFFER: { label: "Applied", variant: "default" },
+  OFFER: { label: "Offered", variant: "success" },
+  REJECTED: { label: "Rejected", variant: "secondary" },
 }
 
 const APPLIED_STAGES = new Set(["APPLIED", "PHONE_SCREEN", "INTERVIEWING", "OFFER"])
@@ -61,9 +62,14 @@ function shortDate(dateStr: string | undefined | null): string {
 
 export default function MyJobsPage() {
   const { data: jobs = [], isLoading } = useTrackerList()
+  const { mutate: updateTracker } = useUpdateTracker()
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<FilterStatus>("ALL")
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const handleStatusChange = (jobId: string, newStatus: string) => {
+    updateTracker({ id: jobId, data: { status: newStatus } })
+  }
 
   // Filter logic
   const filtered = jobs
@@ -237,6 +243,17 @@ export default function MyJobsPage() {
 
                     {/* Right actions */}
                     <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        value={job.pipelineStage || "SAVED"}
+                        onChange={e => handleStatusChange(job.id, e.target.value)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1"
+                      >
+                        <option value="SAVED">Saved</option>
+                        <option value="APPLIED">Applied</option>
+                        <option value="INTERVIEWING">Interviewing</option>
+                        <option value="OFFER">Offered</option>
+                        <option value="REJECTED">Rejected</option>
+                      </select>
                       <Link href={`/dashboard/tailor?tracker=${job.id}`}>
                         <Button size="sm" variant="outline" className="text-xs">
                           <Wand2 className="w-3.5 h-3.5" />

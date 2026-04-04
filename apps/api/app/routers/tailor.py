@@ -32,6 +32,14 @@ class RecommendationStatusUpdate(BaseModel):
     status: RecommendationStatus
 
 
+class CoverLetterRequest(BaseModel):
+    job_description: str
+    resume_id: Optional[str] = None
+    company: Optional[str] = None
+    role: Optional[str] = None
+    tone: str = "professional"  # professional, concise, technical
+
+
 class ApplyRecommendationsRequest(BaseModel):
     label: Optional[str] = None
 
@@ -458,4 +466,95 @@ async def apply_recommendations(
         "versionId": version.id,
         "resumeId": resume.id,
         "appliedCount": len(accepted),
+    }
+
+
+# ── Cover Letter Generator ──────────────────────────────────────────────
+
+@router.post("/cover-letter")
+async def generate_cover_letter(
+    data: CoverLetterRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate an AI cover letter from resume + JD."""
+    # Get resume
+    if data.resume_id:
+        result = await db.execute(
+            select(Resume).where(Resume.id == data.resume_id, Resume.user_id == current_user.id)
+        )
+    else:
+        result = await db.execute(
+            select(Resume).where(Resume.user_id == current_user.id).order_by(Resume.is_default.desc()).limit(1)
+        )
+    resume = result.scalar_one_or_none()
+
+    # Get profile
+    from app.models.profile import Profile
+    profile_result = await db.execute(select(Profile).where(Profile.user_id == current_user.id))
+    profile = profile_result.scalar_one_or_none()
+
+    # Build context
+    resume_text = ""
+    if resume and resume.content:
+        content = resume.content
+        parts = []
+        if content.get("summary"):
+            parts.append(f"Summary: {content['summary']}")
+        for exp in content.get("experiences", []):
+            parts.append(f"{exp.get('title', '')} at {exp.get('company', '')}")
+            parts.extend(exp.get("bullets", []))
+        parts.extend(content.get("skills", []))
+        resume_text = "\n".join(parts)
+
+    applicant_name = profile.headline if profile else (current_user.full_name or current_user.email.split("@")[0])
+
+    # Generate with Claude AI
+    from anthropic import AsyncAnthropic
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    prompt = f"""Generate a professional cover letter for this job application.
+
+Job Description:
+{data.job_description[:3000]}
+
+Company: {data.company or 'the company'}
+Role: {data.role or 'the position'}
+
+Applicant's Resume:
+{resume_text[:3000]}
+
+Applicant Name: {applicant_name}
+
+Tone: {data.tone}
+
+Requirements:
+- Write a complete cover letter (greeting, 3-4 paragraphs, closing)
+- Be specific to this role and company
+- Reference actual skills and experience from the resume
+- Do NOT fabricate experience
+- Keep it under 400 words
+- Be {data.tone} in tone
+- End with a professional closing
+
+Return ONLY the cover letter text, nothing else."""
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6-20250514",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        cover_letter = response.content[0].text.strip()
+    except Exception as e:
+        cover_letter = f"Error generating cover letter: {str(e)}"
+
+    return {
+        "coverLetter": cover_letter,
+        "company": data.company,
+        "role": data.role,
+        "tone": data.tone,
     }

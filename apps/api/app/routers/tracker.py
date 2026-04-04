@@ -38,6 +38,7 @@ class TrackerUpdate(BaseModel):
     priority: Optional[int] = None
     next_action_date: Optional[str] = None
     resume_used: Optional[str] = None
+    status: Optional[str] = None
 
 
 class StageChange(BaseModel):
@@ -467,31 +468,53 @@ async def update_tracked_job(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update tracked job fields (notes, priority, etc.)."""
-    result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
+    """Update tracked job fields (notes, priority, status, etc.)."""
+    from sqlalchemy import text
+    try:
+        # Check ownership
+        result = await db.execute(
+            text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+            {"id": tracker_id, "uid": current_user.id},
         )
-    )
-    app = result.scalar_one_or_none()
-    if not app:
-        raise HTTPException(status_code=404, detail="Tracked job not found")
+        if not result.first():
+            raise HTTPException(status_code=404, detail="Not found")
 
-    payload = data.model_dump(exclude_none=True)
-    if "next_action_date" in payload:
-        try:
-            app.next_action_date = datetime.fromisoformat(payload.pop("next_action_date"))
-        except (ValueError, TypeError):
-            payload.pop("next_action_date", None)
+        # Update fields
+        payload = data.model_dump(exclude_none=True)
+        if not payload:
+            return {"status": "no changes"}
 
-    for field, value in payload.items():
-        setattr(app, field, value)
+        # Map field names to DB column names
+        field_to_col = {
+            "notes": "notes",
+            "priority": "priority",
+            "next_action_date": "next_action_date",
+            "resume_used": "resume_used",
+            "status": "pipeline_stage",
+        }
 
-    await db.flush()
-    await db.commit()
-    await db.refresh(app)
-    return _serialize_tracked_job(app)
+        set_clauses = []
+        params = {"id": tracker_id}
+        for key, value in payload.items():
+            col = field_to_col.get(key, key)
+            set_clauses.append(f"{col} = :{key}")
+            params[key] = value
+
+        if set_clauses:
+            set_clauses.append("updated_at = NOW()")
+            sql = f"UPDATE job_applications SET {', '.join(set_clauses)} WHERE id = :id"
+            await db.execute(text(sql), params)
+            await db.commit()
+
+        # Return updated
+        result = await db.execute(text("SELECT * FROM job_applications WHERE id = :id"), {"id": tracker_id})
+        row = result.mappings().first()
+        return _serialize_row(row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Tracker] update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.patch("/{tracker_id}/stage")

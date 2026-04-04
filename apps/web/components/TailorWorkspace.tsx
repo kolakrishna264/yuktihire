@@ -7,6 +7,7 @@ import { useTrackerDetail } from "@/lib/hooks/useTracker"
 import { JDInputPanel } from "./JDInputPanel"
 import { ResumeSelectPanel } from "./ResumeSelectPanel"
 import { AtsScorePanel } from "./AtsScorePanel"
+import { CoverLetterPanel } from "./CoverLetterPanel"
 import { SuggestionsList } from "./SuggestionsList"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
@@ -31,6 +32,7 @@ export function TailorWorkspace() {
   const [insertedKeywords, setInsertedKeywords] = useState<string[]>([])
   const [acceptingAll, setAcceptingAll] = useState(false)
   const [prefilledJD, setPrefilledJD] = useState("")
+  const [jdText, setJdText] = useState("")
 
   const { data: resumes = [] } = useResumes()
   const { data: resumeData } = useResume(selectedResumeId)
@@ -113,6 +115,7 @@ export function TailorWorkspace() {
     setJdAnalysis(null)
     setSaveLabel("")
     setInsertedKeywords([])
+    setJdText("")
   }
 
   const handleInsertKeyword = useCallback(
@@ -301,7 +304,7 @@ export function TailorWorkspace() {
               <p className="text-xs text-gray-500">{trackerJob.company}</p>
             </div>
           )}
-          <JDInputPanel onAnalyzed={handleJDAnalyzed} initialText={prefilledJD} />
+          <JDInputPanel onAnalyzed={handleJDAnalyzed} onTextChange={setJdText} initialText={prefilledJD} />
 
           {/* Right: Resume select */}
           <div className="space-y-4">
@@ -359,13 +362,21 @@ export function TailorWorkspace() {
             {isPolling ? (
               <TailoringRunningState compact />
             ) : (
-              sessionData.atsScore && (
-                <AtsScorePanel
-                  atsScore={sessionData.atsScore}
-                  jdAnalysis={jdAnalysis}
-                  onInsertKeyword={handleInsertKeyword}
+              <>
+                {sessionData.atsScore && (
+                  <AtsScorePanel
+                    atsScore={sessionData.atsScore}
+                    jdAnalysis={jdAnalysis}
+                    onInsertKeyword={handleInsertKeyword}
+                  />
+                )}
+                <CoverLetterPanel
+                  jobDescription={jdText || prefilledJD}
+                  resumeId={selectedResumeId}
+                  company={trackerJob?.company || jdAnalysis?.company}
+                  role={trackerJob?.title || jdAnalysis?.role}
                 />
-              )
+              </>
             )}
           </div>
 
