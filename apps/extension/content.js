@@ -1629,11 +1629,18 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     if (msg.type === "FIND_AND_FILL_QUESTION") {
-      // Async — supports custom dropdown click-wait-select
       findAndFillQuestionAsync(msg.question, msg.answer).then(function(result) {
         sendResponse(result)
       })
-      return true  // Keep channel open for async response
+      return true
+    }
+
+    if (msg.type === "UNIVERSAL_FILL") {
+      // Universal autofill — works on ANY job portal
+      universalFill(msg.data).then(function(result) {
+        sendResponse(result)
+      })
+      return true
     }
     return false
   })
@@ -2174,6 +2181,398 @@ if (document.location.hostname.includes("yuktihire.com")) {
           resolve({ ok: false, error: "No matching option for: " + questionKeyword + " (tried " + allOptions.length + " options)" })
         }
       }, 400)  // 400ms wait for dropdown render
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // UNIVERSAL AUTOFILL — Works on ANY job portal (Greenhouse, Workday,
+  // Lever, iCIMS, Taleo, Ashby, BambooHR, SmartRecruiters, etc.)
+  //
+  // Instead of searching for question text then hunting for inputs,
+  // this scans ALL form controls first, reads their labels, and fills.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function universalFill(profileData) {
+    return new Promise(async function(resolve) {
+      var logs = { filled: [], skipped: [], failed: [] }
+      if (typeof filledElements !== "undefined") filledElements.clear()
+
+      // Build answer map from profile data
+      var answers = buildAnswerMap(profileData)
+
+      // ── STEP 1: Find every form control on the page ──
+      var controls = findAllFormControls()
+
+      // ── STEP 2: For each control, read its label and match to an answer ──
+      for (var i = 0; i < controls.length; i++) {
+        var ctrl = controls[i]
+        if (filledElements.has(ctrl.element)) continue
+
+        var label = ctrl.label.toLowerCase()
+        if (!label || label.length < 2) { logs.skipped.push(label || "(no label)"); continue }
+
+        // Find the best matching answer
+        var match = matchLabelToAnswer(label, answers, ctrl.type)
+        if (!match) { logs.skipped.push(label.slice(0, 40)); continue }
+
+        // ── STEP 3: Fill the control ──
+        var filled = false
+
+        // Text inputs / textareas
+        if (ctrl.type === "text" || ctrl.type === "email" || ctrl.type === "tel" ||
+            ctrl.type === "url" || ctrl.type === "textarea" || ctrl.type === "number" || ctrl.type === "date") {
+          if (ctrl.element.value && ctrl.element.value.trim().length > 0) {
+            logs.skipped.push(label.slice(0, 40) + " (has value)")
+            continue
+          }
+          var tr = tryTextFill(ctrl.element, match.value, { selector: "", inputType: ctrl.type })
+          if (tr.ok) {
+            tryClickDropdownOption(ctrl.element, match.value)
+            filled = true
+          }
+        }
+
+        // Native select
+        if (ctrl.type === "select") {
+          var sr = trySelectFill(ctrl.element, match.value, { selector: "", inputType: "select" })
+          if (sr.ok) filled = true
+        }
+
+        // Radio buttons
+        if (ctrl.type === "radio") {
+          var rr = tryRadioFill(ctrl.container, match.value, { selector: "", inputType: "radio" })
+          if (rr.ok) filled = true
+        }
+
+        // Checkbox
+        if (ctrl.type === "checkbox") {
+          var cr = tryCheckboxFill(ctrl.element, match.value, { selector: "", inputType: "checkbox" })
+          if (cr.ok) filled = true
+        }
+
+        // Custom dropdown (React-Select, MUI, Workday, etc.)
+        if (ctrl.type === "custom-select" && !filled) {
+          filled = await fillCustomDropdown(ctrl.element, ctrl.container, match.value)
+        }
+
+        if (filled) {
+          filledElements.add(ctrl.element)
+          if (ctrl.container) filledElements.add(ctrl.container)
+          logs.filled.push({ label: label.slice(0, 40), value: String(match.value).slice(0, 30), key: match.key })
+          highlightField(ctrl.element, "success")
+        } else {
+          logs.failed.push(label.slice(0, 40))
+        }
+
+        // Small delay for React/Angular re-renders
+        await sleep(100)
+      }
+
+      resolve(logs)
+    })
+  }
+
+  function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms) }) }
+
+  // ── Find ALL form controls on the page ──
+  function findAllFormControls() {
+    var controls = []
+    var seen = new Set()
+
+    // 1. Native inputs, selects, textareas
+    var elements = document.querySelectorAll(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), ' +
+      'select, textarea'
+    )
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i]
+      if (!el.offsetParent && el.type !== "hidden") continue  // Skip invisible
+      if (seen.has(el)) continue
+      seen.add(el)
+
+      var type = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" :
+                 (el.type || "text")
+      if (type === "file") continue  // Skip file uploads
+
+      // For radio buttons, group them
+      if (type === "radio") {
+        var groupName = el.name
+        if (!groupName || seen.has("radio:" + groupName)) continue
+        seen.add("radio:" + groupName)
+        var container = el.closest("[class*='field'], [class*='question'], fieldset, [role='radiogroup'], [class*='group']") || el.parentElement?.parentElement
+        controls.push({
+          element: el,
+          container: container,
+          type: "radio",
+          label: readLabel(el, container),
+        })
+        continue
+      }
+
+      var container = el.closest("[class*='field'], [class*='question'], [class*='form-group'], [class*='formField'], [class*='row']") || el.parentElement
+      controls.push({
+        element: el,
+        container: container,
+        type: type,
+        label: readLabel(el, container),
+      })
+    }
+
+    // 2. Custom dropdowns (React-Select, MUI Select, Workday, etc.)
+    var customSelectors = [
+      '[role="combobox"]', '[role="listbox"]', '[aria-haspopup="listbox"]',
+      '[class*="select__control"]', '[class*="css-"][class*="control"]',
+      '[class*="SelectTrigger"]', '[class*="select-trigger"]',
+      '[class*="chosen-container"]', '[class*="MuiSelect"]',
+      '[class*="ant-select"]', '[class*="dropdown-toggle"]',
+      '[data-automation-id*="select"]', '[data-automation-id*="dropdown"]'
+    ]
+    var customEls = document.querySelectorAll(customSelectors.join(", "))
+    for (var j = 0; j < customEls.length; j++) {
+      var cel = customEls[j]
+      if (!cel.offsetParent) continue
+      if (seen.has(cel)) continue
+      // Skip if there's already a native select we found in same container
+      var parentContainer = cel.closest("[class*='field'], [class*='question'], [class*='form-group']") || cel.parentElement
+      var hasNativeSelect = parentContainer && parentContainer.querySelector("select")
+      if (hasNativeSelect && seen.has(hasNativeSelect)) continue
+      seen.add(cel)
+      controls.push({
+        element: cel,
+        container: parentContainer,
+        type: "custom-select",
+        label: readLabel(cel, parentContainer),
+      })
+    }
+
+    return controls
+  }
+
+  // ── Read label for ANY form control ──
+  function readLabel(el, container) {
+    var label = ""
+
+    // 1. aria-label
+    label = el.getAttribute("aria-label") || ""
+    if (label) return label
+
+    // 2. <label for="id">
+    if (el.id) {
+      var lbl = document.querySelector('label[for="' + el.id + '"]')
+      if (lbl) return (lbl.textContent || "").trim()
+    }
+
+    // 3. aria-labelledby
+    var lblBy = el.getAttribute("aria-labelledby")
+    if (lblBy) {
+      var lblEl = document.getElementById(lblBy)
+      if (lblEl) return (lblEl.textContent || "").trim()
+    }
+
+    // 4. Wrapping <label>
+    var parentLabel = el.closest("label")
+    if (parentLabel) {
+      // Get label text excluding the input's own value
+      var clone = parentLabel.cloneNode(true)
+      var inputs = clone.querySelectorAll("input, select, textarea")
+      inputs.forEach(function(inp) { inp.remove() })
+      label = (clone.textContent || "").trim()
+      if (label) return label
+    }
+
+    // 5. Previous sibling label/span/p
+    if (container) {
+      var prev = el.previousElementSibling
+      while (prev) {
+        if (["LABEL", "SPAN", "P", "DIV", "H3", "H4", "H5", "STRONG", "LEGEND"].indexOf(prev.tagName) !== -1) {
+          var pt = (prev.textContent || "").trim()
+          if (pt.length > 0 && pt.length < 120) return pt
+        }
+        prev = prev.previousElementSibling
+      }
+    }
+
+    // 6. Container's first heading/label element
+    if (container) {
+      var headings = container.querySelectorAll("label, legend, h3, h4, h5, h6, strong, [class*='label'], [class*='Label']")
+      for (var hi = 0; hi < headings.length; hi++) {
+        var ht = (headings[hi].textContent || "").trim()
+        if (ht.length > 0 && ht.length < 120 && !ht.includes("Select")) return ht
+      }
+    }
+
+    // 7. Placeholder
+    if (el.placeholder) return el.placeholder
+
+    // 8. name/id as last resort
+    var nameId = (el.name || el.id || "").replace(/[_-]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")
+    return nameId
+  }
+
+  // ── Build answer map from profile data ──
+  function buildAnswerMap(pd) {
+    return {
+      // Identity
+      "first name": pd.firstName, "first_name": pd.firstName, "fname": pd.firstName, "given name": pd.firstName,
+      "last name": pd.lastName, "last_name": pd.lastName, "lname": pd.lastName, "surname": pd.lastName, "family name": pd.lastName,
+      "full name": pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
+      "name": pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
+      // Contact
+      "email": pd.email, "e-mail": pd.email, "email address": pd.email,
+      "phone": pd.phone, "phone number": pd.phone, "mobile": pd.phone, "telephone": pd.phone, "cell": pd.phone,
+      // Links
+      "linkedin": pd.linkedin, "linkedin url": pd.linkedin, "linkedin profile": pd.linkedin,
+      "github": pd.github, "github url": pd.github, "github profile": pd.github,
+      "portfolio": pd.portfolio, "website": pd.portfolio, "personal website": pd.portfolio, "personal site": pd.portfolio,
+      // Location
+      "location": pd.location, "city": pd.location,
+      "address": pd.address || pd.location, "street address": pd.address || pd.location,
+      "country": "United States", "state": "",
+      // Work
+      "current company": pd.headline, "current employer": pd.headline,
+      "headline": pd.headline, "summary": pd.summary,
+      // Authorization
+      "authorized to work": pd.workAuthorization || "Yes",
+      "legally authorized": pd.workAuthorization || "Yes",
+      "work authorization": pd.workAuthorization || "Yes",
+      "eligible to work": pd.workAuthorization || "Yes",
+      "right to work": pd.workAuthorization || "Yes",
+      // Sponsorship
+      "sponsorship": pd.sponsorship || "Yes",
+      "visa sponsorship": pd.sponsorship || "Yes",
+      "require sponsorship": pd.sponsorship || "Yes",
+      "require visa": pd.sponsorship || "Yes",
+      "employment visa": pd.sponsorship || "Yes",
+      // Relocation
+      "relocation": pd.relocation || "Yes",
+      "open to relocation": pd.relocation || "Yes",
+      "willing to relocate": pd.relocation || "Yes",
+      // EEO
+      "gender": pd.gender || "Male",
+      "sex": pd.gender || "Male",
+      "hispanic": pd.hispanicLatino || "No",
+      "hispanic/latino": pd.hispanicLatino || "No",
+      "latino": pd.hispanicLatino || "No",
+      "ethnicity": pd.hispanicLatino || "No",
+      "race": pd.race || "Asian",
+      "veteran": pd.veteranStatus || "I am not a protected veteran",
+      "veteran status": pd.veteranStatus || "I am not a protected veteran",
+      "disability": pd.disabilityStatus || "No, I do not have a disability",
+      "disability status": pd.disabilityStatus || "No, I do not have a disability",
+      "pronouns": pd.pronouns || "He/him/his",
+      // Application
+      "earliest start": pd.earliestStart || "2 weeks from offer",
+      "start date": pd.earliestStart || "2 weeks from offer",
+      "when can you start": pd.earliestStart || "2 weeks from offer",
+      "availability": pd.earliestStart || "2 weeks from offer",
+      "interviewed before": pd.interviewedBefore || "No",
+      "ever interviewed": pd.interviewedBefore || "No",
+      // Policy
+      "ai policy": "Yes",
+      "in-person": "Yes",
+      "on-site": "Yes",
+      "acknowledge": "Yes",
+      "confirm your understanding": "Yes",
+      "consent": "Yes",
+      "text message": "Yes",
+      "sms": "Yes",
+    }
+  }
+
+  // ── Match a label to the best answer ──
+  function matchLabelToAnswer(label, answers, controlType) {
+    var labelLower = label.toLowerCase()
+
+    // Skip file uploads
+    if (labelLower.includes("resume") || labelLower.includes("cv") || labelLower.includes("cover letter")) {
+      if (controlType === "file") return null
+    }
+
+    // Exact key match
+    for (var key in answers) {
+      if (answers[key] && labelLower === key) return { key: key, value: answers[key] }
+    }
+
+    // Contains match — longest key first for specificity
+    var keys = Object.keys(answers).sort(function(a, b) { return b.length - a.length })
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k]
+      if (!answers[key]) continue
+      if (labelLower.includes(key)) {
+        // Guard: don't put address into select/radio/custom-select fields
+        var isAddressAnswer = key === "address" || key === "location" || key === "city" || key === "street address" || key === "country" || key === "state"
+        if (isAddressAnswer && (controlType === "select" || controlType === "radio" || controlType === "custom-select")) continue
+        return { key: key, value: answers[key] }
+      }
+    }
+
+    return null
+  }
+
+  // ── Fill a custom dropdown (async — click, wait, select) ──
+  function fillCustomDropdown(triggerEl, container, value) {
+    return new Promise(function(resolve) {
+      var answerLower = value.toLowerCase()
+
+      // Click the trigger to open
+      triggerEl.click()
+      triggerEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+
+      // Also try clicking inner elements (some React-Selects need this)
+      var inner = triggerEl.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator']")
+      if (inner) inner.click()
+
+      // Wait for dropdown to render (React portals, etc.)
+      setTimeout(function() {
+        var optionSelectors = [
+          '[class*="select__option"]', '[class*="option"]', '[role="option"]',
+          '[class*="menu"] [class*="item"]', '[class*="MenuList"] > div',
+          'li[id*="option"]', 'li[id*="react-select"]', 'li[role="option"]',
+          '[class*="MuiMenuItem"]', '[class*="ant-select-item"]',
+          '[data-automation-id*="option"]', '[class*="dropdown-item"]'
+        ]
+        var allOptions = document.querySelectorAll(optionSelectors.join(", "))
+
+        for (var oi = 0; oi < allOptions.length; oi++) {
+          var opt = allOptions[oi]
+          if (!opt.offsetParent && !opt.getBoundingClientRect().height) continue  // Skip invisible
+          var optText = (opt.textContent || "").trim().toLowerCase()
+          if (optText === answerLower ||
+              optText.startsWith(answerLower) ||
+              answerLower.startsWith(optText) ||
+              optText.includes(answerLower) ||
+              answerLower.includes(optText)) {
+            opt.click()
+            highlightField(triggerEl, "success")
+            resolve(true)
+            return
+          }
+        }
+
+        // No match — try typing into the search input (some custom selects have search)
+        var searchInput = document.querySelector('[class*="select__input"] input, [class*="search"] input, [role="combobox"] input')
+        if (searchInput) {
+          searchInput.focus()
+          searchInput.value = value
+          searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+          // Wait for filtered options
+          setTimeout(function() {
+            var filteredOpts = document.querySelectorAll('[role="option"], [class*="option"]')
+            if (filteredOpts.length > 0) {
+              filteredOpts[0].click()
+              highlightField(triggerEl, "success")
+              resolve(true)
+            } else {
+              // Close dropdown
+              document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+              resolve(false)
+            }
+          }, 300)
+        } else {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+          resolve(false)
+        }
+      }, 400)
     })
   }
 

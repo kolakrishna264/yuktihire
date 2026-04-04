@@ -188,112 +188,86 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // ── FILL FORM (Fill Everything) ───────────────────────────────────────
+  // ── FILL FORM (Universal — works on any portal) ────────────────────
   $("#autofill-btn")?.addEventListener("click", async () => {
     if (!currentTabId) { showStatus("Open a job page first", "info"); return }
 
     const btn = $("#autofill-btn")
     btn.disabled = true
-    btn.innerHTML = "⚡ Filling..."
+    btn.innerHTML = "⚡ Scanning..."
     const logs = []
     const logsEl = $("#fill-logs")
     if (logsEl) logsEl.innerHTML = ""
 
-    // Step 1: Fill profile fields
-    showStatus("Filling profile fields...", "info")
+    // Step 1: Get profile + preferences from API
+    showStatus("Loading your profile...", "info")
     const profile = await sendMessage({ type: "GET_AUTOFILL_DATA" })
-    if (profile.ok) {
-      const r = await chrome.tabs.sendMessage(currentTabId, { type: "FILL_SAFE_FIELDS", data: profile.data }).catch(() => ({ filled: [], skipped: [], failed: [] }))
-      r?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
-      r?.skipped?.forEach(f => logs.push(`— ${f.label}: ${f.reason}`))
+    if (!profile.ok) {
+      showStatus("Could not load profile data", "error")
+      btn.disabled = false; btn.innerHTML = "⚡ Fill Form"
+      return
     }
 
-    // Step 2: Fill questions by searching the page
-    // Order matters: EEO first (to claim those fields), then specific questions, then generic
-    // Each question is tried ONCE — if it fills a field, that field is locked from future fills
-    showStatus("Filling dropdowns & questions...", "info")
-    const pd = profile?.data || {}
+    // Step 2: Universal fill — scans ALL form controls, matches labels, fills everything
+    showStatus("Filling all fields...", "info")
+    btn.innerHTML = "⚡ Filling fields..."
+    const universalResult = await chrome.tabs.sendMessage(currentTabId, {
+      type: "UNIVERSAL_FILL", data: profile.data
+    }).catch(() => ({ filled: [], skipped: [], failed: [] }))
 
-    // Phase A: EEO / Demographic — fill FIRST so no other value can contaminate these
-    // Each question waits for the async fill to complete before moving to next
-    const eeoQuestions = [
+    universalResult?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
+    universalResult?.failed?.forEach(f => logs.push(`✗ ${f}`))
+
+    // Step 3: Targeted question fill for fields the universal scan may have missed
+    // (custom dropdowns that need async click-wait-select)
+    showStatus("Filling custom dropdowns...", "info")
+    const pd = profile.data || {}
+    const targetedQuestions = [
+      // EEO (custom dropdowns on Greenhouse/Lever)
       { q: "gender", a: pd.gender || "Male" },
-      { q: "are you hispanic/latino", a: pd.hispanicLatino || "No" },
-      { q: "hispanic or latino", a: pd.hispanicLatino || "No" },
       { q: "hispanic/latino", a: pd.hispanicLatino || "No" },
+      { q: "are you hispanic/latino", a: pd.hispanicLatino || "No" },
       { q: "race", a: pd.race || "Asian" },
       { q: "veteran status", a: pd.veteranStatus || "I am not a protected veteran" },
       { q: "disability status", a: pd.disabilityStatus || "No, I do not have a disability" },
+      // Yes/No questions (often custom selects)
+      { q: "open to relocation", a: pd.relocation || "Yes" },
+      { q: "open to working in-person", a: "Yes" },
+      { q: "do you require visa sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "require employment visa sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "authorized to work", a: pd.workAuthorization || "Yes" },
+      { q: "interviewed before", a: pd.interviewedBefore || "No" },
+      { q: "interviewed at", a: pd.interviewedBefore || "No" },
+      { q: "ai policy", a: "Yes" },
+      { q: "confirm your understanding", a: "Yes" },
+      // Timeline
+      { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
+      { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
+      // Address (text input only)
+      { q: "address from which you plan", a: pd.address || pd.location || "" },
     ]
 
-    for (const qa of eeoQuestions) {
+    for (const qa of targetedQuestions) {
+      if (!qa.a) continue
       try {
-        btn.innerHTML = `⚡ EEO: ${qa.q.slice(0, 15)}...`
+        btn.innerHTML = `⚡ ${qa.q.slice(0, 20)}...`
         const r = await chrome.tabs.sendMessage(currentTabId, {
           type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
         }).catch(() => null)
         if (r?.ok) logs.push(`✓ ${qa.q}: ${r.selected || qa.a}`)
-        // Small delay between EEO fills to let React re-render
         await new Promise(res => setTimeout(res, 200))
       } catch {}
     }
 
-    // Phase B: Application-specific questions (non-EEO)
-    const appQuestions = [
-      // Visa / sponsorship
-      { q: "do you require visa sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "require employment visa sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "require sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "visa sponsorship", a: pd.sponsorship || "Yes" },
-      // Work authorization
-      { q: "authorized to work", a: pd.workAuthorization || "Yes" },
-      { q: "legally authorized", a: pd.workAuthorization || "Yes" },
-      { q: "right to work", a: pd.workAuthorization || "Yes" },
-      // Relocation
-      { q: "open to relocation", a: pd.relocation || "Yes" },
-      { q: "willing to relocate", a: pd.relocation || "Yes" },
-      // In-person / office
-      { q: "open to working in-person", a: "Yes" },
-      { q: "work on-site", a: "Yes" },
-      // Timeline
-      { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
-      { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
-      { q: "when can you start", a: pd.earliestStart || "2 weeks from offer" },
-      // Interview history
-      { q: "interviewed at anthropic", a: pd.interviewedBefore || "No" },
-      { q: "interviewed before", a: pd.interviewedBefore || "No" },
-      { q: "ever interviewed", a: pd.interviewedBefore || "No" },
-      // Policy / consent
-      { q: "ai policy", a: "Yes" },
-      { q: "confirm your understanding", a: "Yes" },
-      { q: "text message", a: "Yes" },
-      { q: "consent to receiving", a: "Yes" },
-      // Address
-      { q: "address from which you plan", a: pd.address || pd.location || "Arlington, Texas, United States" },
-      // Salary expectations
-      { q: "salary expectation", a: pd.salaryExpectation || "" },
-      { q: "desired salary", a: pd.salaryExpectation || "" },
-    ]
-
-    for (const qa of appQuestions) {
-      if (!qa.a) continue  // Skip if no answer
-      try {
-        btn.innerHTML = `⚡ ${qa.q.slice(0, 18)}...`
-        const r = await chrome.tabs.sendMessage(currentTabId, {
-          type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
-        }).catch(() => null)
-        if (r?.ok) logs.push(`✓ ${qa.q}: ${r.selected || qa.a}`)
-        await new Promise(res => setTimeout(res, 150))
-      } catch {}
-    }
-
-    // Step 3: AI answers for open questions
-    showStatus("Generating AI answers...", "info")
+    // Step 4: AI answers for open-ended questions (Why this company? etc.)
+    showStatus("AI answering open questions...", "info")
     try {
       const analysis = await chrome.tabs.sendMessage(currentTabId, { type: "GET_FORM_ANALYSIS" }).catch(() => ({ fields: [] }))
       const aiFields = (analysis?.fields || []).filter(f =>
-        f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" ||
-        f.fieldType === "motivation" || f.fieldType === "openEnded"
+        (f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" ||
+         f.fieldType === "motivation" || f.fieldType === "openEnded") &&
+        // Only fill empty textareas
+        !f.isFilled
       )
       for (const field of aiFields) {
         btn.innerHTML = `⚡ AI: ${(field.label || "").slice(0, 15)}...`
