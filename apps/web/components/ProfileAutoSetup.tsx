@@ -185,7 +185,7 @@ export function ProfileAutoSetup() {
               </div>
             )}
             {/* Education */}
-            {eduCount > 0 && (
+            {eduCount > 0 ? (
               <div>
                 <p className="font-semibold text-gray-700 mb-1">Education ({eduCount})</p>
                 {(parsed.educations || parsed.education || []).map((edu: any, i: number) => (
@@ -193,6 +193,11 @@ export function ProfileAutoSetup() {
                     • <span className="font-medium text-gray-700">{edu.degree}</span> in {edu.field} — {edu.school}
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div>
+                <p className="font-semibold text-amber-600 mb-1">⚠ Education not detected</p>
+                <p className="ml-2 text-gray-400">Add your education manually in Profile after saving.</p>
               </div>
             )}
             {/* Skills preview */}

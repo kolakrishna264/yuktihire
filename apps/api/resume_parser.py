@@ -83,19 +83,41 @@ Extract ALL entries. Do not say "and more" or truncate. Include every single wor
         }]
     )
 
+    raw_response = message.content[0].text
+    print(f"[ResumeParser] AI response length: {len(raw_response)}")
+
     try:
-        parsed = extract_json_safe(message.content[0].text)
-        parsed["confidence"] = 0.85
-        parsed["raw_text"] = text
-        return parsed
-    except Exception as e:
-        return {
-            "confidence": 0.3,
-            "raw_text": text,
-            "error": str(e),
-            "name": "", "email": "", "phone": "",
-            "experiences": [], "educations": [], "skills": [],
-        }
+        parsed = extract_json_safe(raw_response)
+    except Exception:
+        # Fallback: try direct JSON parse
+        import json
+        try:
+            # Find JSON in the response
+            start = raw_response.find("{")
+            end = raw_response.rfind("}") + 1
+            if start >= 0 and end > start:
+                parsed = json.loads(raw_response[start:end])
+            else:
+                parsed = {}
+        except Exception:
+            parsed = {}
+
+    # Ensure all expected fields exist
+    parsed.setdefault("name", "")
+    parsed.setdefault("email", "")
+    parsed.setdefault("phone", "")
+    parsed.setdefault("experiences", [])
+    parsed.setdefault("educations", [])
+    parsed.setdefault("skills", [])
+    parsed.setdefault("certifications", [])
+    parsed.setdefault("projects", [])
+
+    # Log what was extracted
+    print(f"[ResumeParser] Extracted: {parsed.get('name','?')} | {len(parsed.get('experiences',[]))} exp | {len(parsed.get('educations',[]))} edu | {len(parsed.get('skills',[]))} skills")
+
+    parsed["confidence"] = 0.85
+    parsed["raw_text"] = text
+    return parsed
 
 
 def extract_text(content: bytes, filename: str) -> str:
