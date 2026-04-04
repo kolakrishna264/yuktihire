@@ -43,9 +43,14 @@ async function clearTokens() {
 
 async function apiCall(path, options = {}) {
   const token = await getToken()
+  console.log("[YuktiHire] apiCall", path, "token:", token ? token.slice(0, 20) + "..." : "NULL")
+
   if (!token) throw new Error("Not authenticated")
 
-  const resp = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`
+  console.log("[YuktiHire] Fetching:", url)
+
+  const resp = await fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -54,14 +59,22 @@ async function apiCall(path, options = {}) {
     },
   })
 
+  console.log("[YuktiHire] Response:", resp.status, resp.statusText)
+
   if (resp.status === 401) {
-    await clearTokens()
     throw new Error("Session expired. Please sign in again.")
   }
 
   if (!resp.ok) {
-    const data = await resp.json().catch(() => ({}))
-    throw new Error(data.detail || `HTTP ${resp.status}`)
+    const text = await resp.text()
+    console.log("[YuktiHire] Error body:", text)
+    try {
+      const data = JSON.parse(text)
+      throw new Error(data.detail || `HTTP ${resp.status}`)
+    } catch (e) {
+      if (e.message.includes("HTTP")) throw e
+      throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+    }
   }
 
   if (resp.status === 204) return null
