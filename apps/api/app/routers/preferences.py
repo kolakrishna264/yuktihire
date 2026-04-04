@@ -3,7 +3,7 @@ import json
 from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.middleware.auth import get_current_user
@@ -11,6 +11,13 @@ from app.models.user import User
 from app.models.v2 import UserPreference
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
+
+# Application info field names (camelCase keys used by frontend/extension)
+APP_INFO_KEYS = [
+    "workAuthorization", "sponsorship", "gender", "pronouns",
+    "veteranStatus", "disabilityStatus", "hispanicLatino", "race",
+    "relocation", "earliestStart",
+]
 
 
 class PreferencesUpdate(BaseModel):
@@ -23,6 +30,17 @@ class PreferencesUpdate(BaseModel):
     max_salary: Optional[int] = None
     experience_level: Optional[str] = None
     visa_sponsorship: Optional[bool] = None
+    # Application info fields (stored as JSON in application_data column)
+    workAuthorization: Optional[str] = None
+    sponsorship: Optional[str] = None
+    gender: Optional[str] = None
+    pronouns: Optional[str] = None
+    veteranStatus: Optional[str] = None
+    disabilityStatus: Optional[str] = None
+    hispanicLatino: Optional[str] = None
+    race: Optional[str] = None
+    relocation: Optional[str] = None
+    earliestStart: Optional[str] = None
 
 
 def _parse_json_field(value: str | None) -> list[str]:
@@ -34,8 +52,48 @@ def _parse_json_field(value: str | None) -> list[str]:
         return []
 
 
-def _serialize(p: UserPreference) -> dict:
-    return {
+async def _ensure_application_data_column(db: AsyncSession):
+    """Add application_data TEXT column if it doesn't exist yet."""
+    try:
+        await db.execute(text(
+            "ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS application_data TEXT"
+        ))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
+async def _get_application_data(db: AsyncSession, user_id: str) -> dict:
+    """Read application_data JSON from user_preferences."""
+    try:
+        result = await db.execute(
+            text("SELECT application_data FROM user_preferences WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+        row = result.first()
+        if row and row[0]:
+            return json.loads(row[0])
+    except Exception:
+        pass
+    return {}
+
+
+async def _save_application_data(db: AsyncSession, user_id: str, app_data: dict):
+    """Write application_data JSON to user_preferences."""
+    try:
+        json_str = json.dumps(app_data)
+        await db.execute(
+            text("UPDATE user_preferences SET application_data = :data WHERE user_id = :uid"),
+            {"data": json_str, "uid": user_id},
+        )
+        await db.commit()
+    except Exception as e:
+        print(f"[Preferences] save application_data error: {e}")
+        await db.rollback()
+
+
+def _serialize(p: UserPreference, app_data: dict | None = None) -> dict:
+    result = {
         "preferredTitles": _parse_json_field(p.preferred_titles),
         "preferredLocations": _parse_json_field(p.preferred_locations),
         "preferredWorkTypes": _parse_json_field(p.preferred_work_types),
@@ -46,6 +104,9 @@ def _serialize(p: UserPreference) -> dict:
         "experienceLevel": p.experience_level,
         "visaSponsorship": p.visa_sponsorship,
     }
+    if app_data:
+        result["applicationInfo"] = app_data
+    return result
 
 
 @router.get("")
@@ -54,6 +115,8 @@ async def get_preferences(
     db: AsyncSession = Depends(get_db),
 ):
     """Get user preferences, auto-create if not exists."""
+    await _ensure_application_data_column(db)
+
     result = await db.execute(
         select(UserPreference).where(UserPreference.user_id == current_user.id)
     )
@@ -66,7 +129,8 @@ async def get_preferences(
         await db.commit()
         await db.refresh(pref)
 
-    return _serialize(pref)
+    app_data = await _get_application_data(db, current_user.id)
+    return _serialize(pref, app_data)
 
 
 @router.put("")
@@ -75,7 +139,9 @@ async def update_preferences(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update user preferences."""
+    """Update user preferences (job search prefs + application info)."""
+    await _ensure_application_data_column(db)
+
     result = await db.execute(
         select(UserPreference).where(UserPreference.user_id == current_user.id)
     )
@@ -111,4 +177,20 @@ async def update_preferences(
     await db.flush()
     await db.commit()
     await db.refresh(pref)
-    return _serialize(pref)
+
+    # Handle application info fields — merge with existing
+    app_info_payload = {}
+    for key in APP_INFO_KEYS:
+        val = getattr(data, key, None)
+        if val is not None:
+            app_info_payload[key] = val
+
+    app_data = {}
+    if app_info_payload:
+        app_data = await _get_application_data(db, current_user.id)
+        app_data.update(app_info_payload)
+        await _save_application_data(db, current_user.id, app_data)
+    else:
+        app_data = await _get_application_data(db, current_user.id)
+
+    return _serialize(pref, app_data)

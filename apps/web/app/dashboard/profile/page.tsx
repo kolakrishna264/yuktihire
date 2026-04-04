@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useProfile, useUpdateProfile, useAddExperience, useDeleteExperience, useAddEducation, useDeleteEducation, useAddSkill, useDeleteSkill } from "@/lib/hooks/useProfile"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -22,14 +22,16 @@ export default function ProfilePage() {
   const { mutate: updateProfile, isPending: saving } = useUpdateProfile()
 
   const [basics, setBasics] = useState({
-    fullName: "", headline: "", summary: "", phone: "", location: "",
+    firstName: "", lastName: "", headline: "", summary: "", phone: "", location: "",
     linkedinUrl: "", githubUrl: "", portfolioUrl: "",
   })
   const [basicsLoaded, setBasicsLoaded] = useState(false)
 
   if (profile && !basicsLoaded) {
+    const nameParts = (profile.fullName ?? "").trim().split(" ")
     setBasics({
-      fullName: profile.fullName ?? "",
+      firstName: (profile as any).firstName ?? nameParts[0] ?? "",
+      lastName: (profile as any).lastName ?? nameParts.slice(1).join(" ") ?? "",
       headline: profile.headline ?? "",
       summary: profile.summary ?? "",
       phone: profile.phone ?? "",
@@ -109,9 +111,17 @@ export default function ProfilePage() {
             <BasicsTab
               basics={basics}
               onChange={(k, v) => setBasics((p) => ({ ...p, [k]: v }))}
-              onSave={() =>
+              onSave={async () => {
+                // Save name separately (first_name + last_name)
+                try {
+                  await apiFetch("/extension/update-name", {
+                    method: "POST",
+                    body: JSON.stringify({ first_name: basics.firstName, last_name: basics.lastName }),
+                  })
+                } catch {}
+                // Save rest of profile
                 updateProfile({
-                  full_name: basics.fullName,
+                  full_name: `${basics.firstName} ${basics.lastName}`.trim(),
                   headline: basics.headline,
                   summary: basics.summary,
                   phone: basics.phone,
@@ -120,7 +130,7 @@ export default function ProfilePage() {
                   github: basics.githubUrl,
                   portfolio: basics.portfolioUrl,
                 })
-              }
+              }}
               saving={saving}
             />
           )}
@@ -151,13 +161,17 @@ function BasicsTab({
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-4">
         <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Full Name</label>
-          <Input value={basics.fullName} onChange={(e) => onChange("fullName", e.target.value)} placeholder="Jane Smith" />
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">First Name</label>
+          <Input value={basics.firstName} onChange={(e) => onChange("firstName", e.target.value)} placeholder="Jane" />
         </div>
         <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Location</label>
-          <Input value={basics.location} onChange={(e) => onChange("location", e.target.value)} placeholder="San Francisco, CA" />
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Last Name</label>
+          <Input value={basics.lastName} onChange={(e) => onChange("lastName", e.target.value)} placeholder="Smith" />
         </div>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-1 block">Location</label>
+        <Input value={basics.location} onChange={(e) => onChange("location", e.target.value)} placeholder="San Francisco, CA" />
       </div>
 
       <div>
@@ -605,6 +619,29 @@ function ApplicationInfoTab() {
   })
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // Load saved application info from preferences on mount
+  useEffect(() => {
+    apiFetch("/preferences")
+      .then((prefs: any) => {
+        if (prefs?.applicationInfo) {
+          const ai = prefs.applicationInfo
+          setForm((prev) => ({
+            workAuthorization: ai.workAuthorization || prev.workAuthorization,
+            sponsorship: ai.sponsorship || prev.sponsorship,
+            gender: ai.gender || prev.gender,
+            pronouns: ai.pronouns || prev.pronouns,
+            veteranStatus: ai.veteranStatus || prev.veteranStatus,
+            disabilityStatus: ai.disabilityStatus || prev.disabilityStatus,
+            hispanicLatino: ai.hispanicLatino || prev.hispanicLatino,
+            race: ai.race || prev.race,
+            relocation: ai.relocation || prev.relocation,
+            earliestStart: ai.earliestStart || prev.earliestStart,
+          }))
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const handleSave = async () => {
     setSaving(true)

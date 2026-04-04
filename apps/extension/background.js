@@ -197,6 +197,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "GET_RESUMES") {
+    apiCall("/extension/resumes")
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
+  if (msg.type === "TAILOR_STATUS") {
+    apiCall(`/extension/tailor-status/${msg.sessionId}`)
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
+  if (msg.type === "UPDATE_JD") {
+    apiCall("/extension/update-jd", {
+      method: "POST",
+      body: JSON.stringify(msg.data),
+    })
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
+  if (msg.type === "DOWNLOAD_RESUME") {
+    // Open download URL in new tab (browser handles the download)
+    const format = msg.format || "pdf"
+    const resumeId = msg.resumeId
+    getToken().then(token => {
+      if (!token) { sendResponse({ ok: false, error: "Not authenticated" }); return }
+      // Use fetch to get the file, then create a blob URL
+      fetch(`${API_BASE}/extension/export?resume_id=${resumeId}&format=${format}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then(resp => {
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+          return resp.blob()
+        })
+        .then(blob => {
+          const url = URL.createObjectURL(blob)
+          chrome.downloads.download({
+            url,
+            filename: `resume.${format}`,
+            saveAs: true,
+          }, () => {
+            sendResponse({ ok: true })
+            URL.revokeObjectURL(url)
+          })
+        })
+        .catch(err => sendResponse({ ok: false, error: err.message }))
+    })
+    return true
+  }
+
   if (msg.type === "SET_TOKEN") {
     // Strip quotes that may wrap the token from console paste
     const cleanToken = (msg.token || "").replace(/^['"`]+|['"`]+$/g, "").trim()

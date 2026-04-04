@@ -109,9 +109,19 @@ async def get_profile_or_404(user_id: str, db: AsyncSession) -> Profile:
 
 
 def serialize_profile(profile: Profile, user: User) -> dict:
+    full_name = getattr(user, "full_name", None) or getattr(profile, "full_name", None) or ""
+    first_name = getattr(user, "first_name", None) or ""
+    last_name = getattr(user, "last_name", None) or ""
+    # Fallback: split full_name if first/last not set
+    if not first_name and full_name:
+        parts = full_name.strip().split(" ")
+        first_name = parts[0] if parts else ""
+        last_name = " ".join(parts[1:]) if len(parts) >= 2 else ""
     return {
         "id": profile.id,
-        "fullName": getattr(user, "full_name", None) or getattr(profile, "full_name", None),
+        "firstName": first_name,
+        "lastName": last_name,
+        "fullName": full_name,
         "email": getattr(user, "email", None),
         "headline": profile.headline,
         "summary": profile.summary,
@@ -186,6 +196,7 @@ async def update_profile(
     if "full_name" in payload:
         try:
             current_user.full_name = payload.pop("full_name")
+            await db.flush()  # Ensure user table is updated before profile changes
         except Exception:
             payload.pop("full_name", None)
 

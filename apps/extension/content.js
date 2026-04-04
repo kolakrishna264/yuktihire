@@ -66,16 +66,73 @@ if (document.location.hostname.includes("yuktihire.com")) {
     var widget = document.createElement("div")
     widget.id = "yuktihire-widget"
     widget.innerHTML = `
-      <div id="yh-chip" style="position:fixed;bottom:20px;right:20px;z-index:999999;cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;border-radius:14px;font-family:system-ui,sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(108,99,255,0.4);transition:transform 0.15s,box-shadow 0.15s" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform=''">
-        <span style="font-size:18px">Y</span>
-        YuktiHire
+      <div id="yh-panel" style="position:fixed;bottom:20px;right:20px;z-index:999999;font-family:system-ui,sans-serif;">
+        <div id="yh-chip" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;border-radius:14px;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(108,99,255,0.4);transition:transform 0.15s,box-shadow 0.15s" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform=''">
+          <span style="font-size:16px">Y</span>
+          YuktiHire
+          <span id="yh-badge" style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:99px;font-size:10px"></span>
+        </div>
+        <div id="yh-expanded" style="display:none;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,0.15);overflow:hidden">
+          <div style="padding:12px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:space-between">
+            <span style="font-weight:700;font-size:14px">YuktiHire Assistant</span>
+            <span id="yh-close" style="cursor:pointer;font-size:18px;opacity:0.8">&#10005;</span>
+          </div>
+          <div id="yh-content" style="padding:12px 16px;max-height:400px;overflow-y:auto">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <button class="yh-btn" data-action="save" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Save Job</button>
+              <button class="yh-btn" data-action="fill" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Fill Form</button>
+              <button class="yh-btn" data-action="tailor" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Tailor</button>
+              <button class="yh-btn" data-action="dashboard" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Dashboard</button>
+            </div>
+            <div id="yh-status" style="margin-top:8px;font-size:11px;color:#6b7280;text-align:center"></div>
+          </div>
+        </div>
       </div>
     `
     document.body.appendChild(widget)
 
-    document.getElementById("yh-chip").addEventListener("click", function() {
-      // Open the extension popup via chrome.runtime
-      chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+    // Add hover styles for buttons
+    var style = document.createElement("style")
+    style.textContent = ".yh-btn:hover { border-color:#c4b5fd !important; background:#faf9ff !important; }"
+    document.head.appendChild(style)
+
+    var chip = document.getElementById("yh-chip")
+    var expanded = document.getElementById("yh-expanded")
+    var closeBtn = document.getElementById("yh-close")
+    var statusEl = document.getElementById("yh-status")
+
+    // Toggle expand/collapse
+    chip.addEventListener("click", function() {
+      if (expanded.style.display === "none") {
+        expanded.style.display = "block"
+        chip.style.display = "none"
+      } else {
+        expanded.style.display = "none"
+        chip.style.display = "flex"
+      }
+    })
+
+    closeBtn.addEventListener("click", function() {
+      expanded.style.display = "none"
+      chip.style.display = "flex"
+    })
+
+    // Action button handlers
+    widget.querySelectorAll(".yh-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var action = btn.getAttribute("data-action")
+        if (action === "save") {
+          statusEl.textContent = "Saving job..."
+          chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+        } else if (action === "fill") {
+          statusEl.textContent = "Opening autofill..."
+          chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+        } else if (action === "tailor") {
+          chrome.runtime.sendMessage({ type: "OPEN_TAB", url: "https://yuktihire.com/dashboard/tailor" })
+        } else if (action === "dashboard") {
+          chrome.runtime.sendMessage({ type: "OPEN_TAB", url: "https://yuktihire.com/dashboard/jobs" })
+        }
+      })
     })
   }
 })()
@@ -795,9 +852,26 @@ if (document.location.hostname.includes("yuktihire.com")) {
     if (text.includes("github")) return "github"
     if (matches(text, ["portfolio", "website", "personal site", "personal url", "personal website", "home page", "homepage"])) return "portfolio"
 
-    // Location
-    if (matches(text, ["street address", "address line"])) return "address"
-    if (matches(text, ["city", "location", "where are you", "located", "based in"])) return "location"
+    // EEO / Demographics — MUST come EARLY to prevent misclassification
+    // "relocation" contains "location", "gender" is near "race" on forms — order matters!
+    if (matches(text, ["gender"]) && !text.includes("transgender")) return "gender"
+    if (matches(text, ["hispanic", "latino", "latina", "latinx"])) return "ethnicity"
+    if (matches(text, ["race", "ethnicity", "ethnic"]) && !text.includes("relocat")) return "ethnicity"
+    if (matches(text, ["veteran"])) return "veteran"
+    if (matches(text, ["disability", "disabled", "accommodation"])) return "disability"
+    if (matches(text, ["pronouns"])) return "pronouns"
+
+    // Authorization — must come before location keywords
+    if (matches(text, ["authorized to work", "authorised to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"])) return "workAuthorization"
+    if (matches(text, ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "immigration", "require sponsorship", "need sponsorship", "require visa"])) return "sponsorship"
+    // Relocation MUST come before "location" — "relocation" contains "location" substring!
+    if (matches(text, ["relocat"])) return "relocation"
+
+    // Location — only after relocation is handled
+    if (matches(text, ["street address", "address line", "address from which"])) return "address"
+    if (matches(text, ["city", "where are you", "located", "based in"])) return "location"
+    // "location" keyword ONLY if NOT part of "relocation"
+    if (text.includes("location") && !text.includes("relocat")) return "location"
     if (matches(text, ["state", "province", "region"])) return "state"
     if (matches(text, ["zip", "postal", "postcode", "zip code"])) return "zip"
     if (matches(text, ["country"])) return "country"
@@ -806,11 +880,6 @@ if (document.location.hostname.includes("yuktihire.com")) {
     if (matches(text, ["current company", "current employer", "company name", "employer name"])) return "currentCompany"
     if (matches(text, ["current title", "current role", "job title", "current position"])) return "currentTitle"
 
-    // Authorization — must come before generic work keywords
-    if (matches(text, ["authorized to work", "authorised to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"])) return "workAuthorization"
-    if (matches(text, ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "immigration", "require sponsorship", "need sponsorship", "require visa"])) return "sponsorship"
-    if (matches(text, ["relocat"])) return "relocation"
-
     // Compensation
     if (matches(text, ["salary", "compensation", "expected pay", "desired salary", "pay expectation", "salary expectation"])) return "salary"
     if (matches(text, ["start date", "earliest start", "when can you start", "availability", "notice period", "available to start", "date available"])) return "availability"
@@ -818,11 +887,6 @@ if (document.location.hostname.includes("yuktihire.com")) {
     // Experience
     if (matches(text, ["years of experience", "how many years", "years experience", "total experience"])) return "yearsExperience"
     if (matches(text, ["education", "highest degree", "degree", "university", "school", "academic"])) return "education"
-    if (matches(text, ["gender"]) && !text.includes("transgender")) return "gender"
-    if (matches(text, ["race", "ethnicity", "ethnic"])) return "ethnicity"
-    if (matches(text, ["veteran"])) return "veteran"
-    if (matches(text, ["disability", "disabled"])) return "disability"
-    if (matches(text, ["pronouns"])) return "pronouns"
 
     // Files
     if (matches(text, ["resume", "cv", "résumé"]) && (block.inputType === "file" || block.hasFileInput)) return "resumeUpload"
@@ -1370,6 +1434,28 @@ if (document.location.hostname.includes("yuktihire.com")) {
         continue
       }
 
+      // SAFETY NET: Even if classifier said this is a location/address field,
+      // double-check the question text for EEO, sponsorship, relocation keywords
+      var qText = (block.questionText || "").toLowerCase()
+      var isEEOByText = ["hispanic", "latino", "latina", "ethnicity", "race", "gender", "veteran", "disability", "disabled", "sex", "pronouns", "accommodation", "eeo", "self-identification"].some(function(w) { return qText.includes(w) })
+      if (isEEOByText) {
+        results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "EEO field detected — skipping safe fill" })
+        continue
+      }
+      // Also skip if question text mentions sponsorship, relocation, authorization (these need Yes/No, not text)
+      var isOptionByText = ["sponsorship", "sponsor", "visa", "relocat", "authorized to work", "work authorization", "employment eligibility"].some(function(w) { return qText.includes(w) })
+      if (isOptionByText && (block.fieldType === "location" || block.fieldType === "address")) {
+        results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "Option question misclassified as location — skipping" })
+        continue
+      }
+
+      // Guard: location/address values should ONLY go into text inputs, never selects or radios
+      if ((block.fieldType === "location" || block.fieldType === "address") &&
+          (block.inputType === "select" || block.inputType === "radio")) {
+        results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "address value cannot fill select/radio" })
+        continue
+      }
+
       var fillResult = fillField(block, value)
       if (fillResult.ok) {
         results.filled.push({ label: block.questionText, type: block.fieldType, value: String(value).slice(0, 30), method: fillResult.method })
@@ -1402,65 +1488,14 @@ if (document.location.hostname.includes("yuktihire.com")) {
       var result = fillField(block, value)
       if (result.ok) return result
 
-      // If standard fill failed and value is Yes/No, search the entire page
-      // for radio buttons or clickable options near this element
+      // If standard fill failed, only try custom component fill within the IMMEDIATE container
+      // DO NOT scan entire page — that causes cross-contamination between fields
       var valueLower = String(value).toLowerCase()
       if (valueLower === "yes" || valueLower === "no") {
-        // Search for clickable options in a wide area around the element
-        var searchContainer = el.closest("[class*='question'], [class*='field'], [class*='form'], [class*='block'], [class*='group']") || el.parentElement?.parentElement?.parentElement
-        if (searchContainer) {
+        var searchContainer = el.closest("[class*='question'], [class*='field'], [class*='block'], [class*='group']")
+        if (searchContainer && !filledElements.has(searchContainer)) {
           var clickResult = tryCustomComponentFill(searchContainer, value, block)
           if (clickResult.ok) return clickResult
-        }
-
-        // Last resort: find ALL radio buttons on the page and match by proximity
-        var allRadios = document.querySelectorAll('input[type="radio"]')
-        for (var i = 0; i < allRadios.length; i++) {
-          var radio = allRadios[i]
-          var label = radio.closest("label")
-          var labelText = (label ? label.textContent : radio.value || "").trim().toLowerCase()
-          if ((valueLower === "yes" && labelText.startsWith("yes")) || (valueLower === "no" && labelText.startsWith("no"))) {
-            // Check if this radio is within 500px of our target element
-            var elRect = el.getBoundingClientRect()
-            var radioRect = radio.getBoundingClientRect()
-            var distance = Math.abs(elRect.top - radioRect.top)
-            if (distance < 500) {
-              radio.click()
-              radio.checked = true
-              radio.dispatchEvent(new Event("change", { bubbles: true }))
-              highlightField(label || radio, "success")
-              return { ok: true, method: "proximity_radio", selected: labelText }
-            }
-          }
-        }
-
-        // Try clicking any Select dropdown on the page with this value
-        var allSelects = document.querySelectorAll("select")
-        for (var j = 0; j < allSelects.length; j++) {
-          var sel = allSelects[j]
-          var selRect = sel.getBoundingClientRect()
-          var dist = Math.abs(el.getBoundingClientRect().top - selRect.top)
-          if (dist < 300) {
-            var opts = Array.from(sel.options)
-            var match = opts.find(function(o) {
-              return o.text.toLowerCase().trim() === valueLower || o.value.toLowerCase().trim() === valueLower
-            })
-            if (match) {
-              sel.value = match.value
-              sel.dispatchEvent(new Event("change", { bubbles: true }))
-              highlightField(sel, "success")
-              return { ok: true, method: "proximity_select", selected: match.text }
-            }
-          }
-        }
-      }
-
-      // If value is a location-like string, try typing + clicking dropdown
-      if (value.includes(",") || value.toLowerCase().includes("arlington") || value.toLowerCase().includes("texas")) {
-        var textResult = tryTextFill(el, value, block)
-        if (textResult.ok) {
-          tryClickDropdownOption(el, value)
-          return textResult
         }
       }
 
@@ -1582,6 +1617,8 @@ if (document.location.hostname.includes("yuktihire.com")) {
       sendResponse(getFormAnalysis())
     }
     if (msg.type === "FILL_SAFE_FIELDS") {
+      // Reset fill tracking at start of new fill session
+      if (typeof filledElements !== "undefined") filledElements.clear()
       sendResponse(fillSafeFields(msg.data))
     }
     if (msg.type === "FILL_SINGLE_FIELD") {
@@ -1602,102 +1639,417 @@ if (document.location.hostname.includes("yuktihire.com")) {
    * then find the nearest form control and fill it with the answer.
    * This handles custom React forms where the scanner can't link questions to inputs.
    */
+  // Track which DOM elements have been filled to prevent cross-contamination
+  var filledElements = new Set()
+
+  // EEO/demographic keywords — these fields must ONLY be filled by their exact question matcher
+  var EEO_KEYWORDS = ["hispanic", "latino", "latina", "latinx", "ethnicity", "race", "gender", "sex",
+    "veteran", "disability", "disabled", "accommodation", "pronouns", "sexual orientation",
+    "protected class", "equal opportunity", "eeo", "voluntary self-identification"]
+
+  // Protected question keywords — these should only be filled by their exact question, not by address/location
+  var PROTECTED_QUESTION_KEYWORDS = EEO_KEYWORDS.concat([
+    "sponsorship", "sponsor", "visa", "employment visa", "relocat", "authorized to work",
+    "work authorization", "eligible to work", "in-person", "on-site", "ai policy"
+  ])
+
+  function isProtectedContext(element) {
+    // Check if an element or its parent container (up 3 levels) contains protected keywords
+    var node = element
+    for (var up = 0; up < 4; up++) {
+      if (!node) break
+      var t = (node.textContent || "").toLowerCase()
+      if (t.length < 500) {
+        for (var k = 0; k < PROTECTED_QUESTION_KEYWORDS.length; k++) {
+          if (t.includes(PROTECTED_QUESTION_KEYWORDS[k])) return true
+        }
+      }
+      node = node.parentElement
+    }
+    return false
+  }
+
+  // Narrower check — only EEO keywords
+  function isEEOContext(element) {
+    var node = element
+    for (var up = 0; up < 4; up++) {
+      if (!node) break
+      var t = (node.textContent || "").toLowerCase()
+      if (t.length < 500) {
+        for (var k = 0; k < EEO_KEYWORDS.length; k++) {
+          if (t.includes(EEO_KEYWORDS[k])) return true
+        }
+      }
+      node = node.parentElement
+    }
+    return false
+  }
+
+  function getSelectLabel(el) {
+    var label = ""
+    // Method 1: aria-label
+    label = (el.getAttribute("aria-label") || "").toLowerCase()
+    // Method 2: associated <label for="id">
+    if (!label && el.id) {
+      var assocLabel = document.querySelector("label[for='" + el.id + "']")
+      if (assocLabel) label = (assocLabel.textContent || "").toLowerCase().trim()
+    }
+    // Method 3: parent <label>
+    if (!label) {
+      var parentLabel = el.closest("label")
+      if (parentLabel) label = (parentLabel.textContent || "").toLowerCase().trim()
+    }
+    // Method 4: previous sibling text
+    if (!label) {
+      var prev = el.previousElementSibling
+      while (prev && !label) {
+        var pt = (prev.textContent || "").toLowerCase().trim()
+        if (pt.length > 0 && pt.length < 100) { label = pt; break }
+        prev = prev.previousElementSibling
+      }
+    }
+    // Method 5: parent's first label/heading
+    if (!label && el.parentElement) {
+      var labels = el.parentElement.querySelectorAll("label, legend, span, p, h3, h4, h5, h6, strong")
+      for (var li = 0; li < labels.length; li++) {
+        var lt = (labels[li].textContent || "").toLowerCase().trim()
+        if (lt.length > 0 && lt.length < 80 && !lt.includes("select")) { label = lt; break }
+      }
+    }
+    // Method 6: Walk up to grandparent for label
+    if (!label && el.parentElement && el.parentElement.parentElement) {
+      var gp = el.parentElement.parentElement
+      var gpLabels = gp.querySelectorAll("label, legend, h3, h4, strong")
+      for (var gi = 0; gi < gpLabels.length; gi++) {
+        var gt = (gpLabels[gi].textContent || "").toLowerCase().trim()
+        if (gt.length > 0 && gt.length < 80) { label = gt; break }
+      }
+    }
+    // Method 7: name/id
+    if (!label) label = ((el.name || "") + " " + (el.id || "")).toLowerCase()
+    return label
+  }
+
   function findAndFillQuestion(questionKeyword, answer) {
     var keyword = questionKeyword.toLowerCase()
     var answerLower = answer.toLowerCase()
 
-    // Search for question text — only match SHORT text elements (actual labels, not large containers)
-    var allElements = document.querySelectorAll("p, span, label, h3, h4, h5, h6, strong, legend, div")
+    // Determine if THIS question is an EEO question (so it's ALLOWED to fill EEO fields)
+    var isEEOQuestion = EEO_KEYWORDS.some(function(k) { return keyword.includes(k) })
+
+    // Determine if the answer is a long text (address, freeform) vs a short option (Yes/No/select value)
+    // Long text answers should ONLY go into text inputs/textareas, NEVER selects/radios
+    var isLongTextAnswer = answerLower.length > 10 && (answer.includes(",") || answer.includes(" ") && answerLower !== "i am not a protected veteran" && answerLower !== "i do not want to answer")
+
+    // ── STRATEGY 0: Direct select/radio scan for EEO and option-based questions ──
+    // For EEO questions and yes/no questions, directly scan ALL selects and radios on the page
+    // and match by label/aria-label/nearby text. This bypasses the generic element search entirely.
+    if (isEEOQuestion || answerLower === "yes" || answerLower === "no" || answerLower === "male" || answerLower === "female") {
+      // Scan ALL selects (native + hidden) on the page
+      var allSelects = document.querySelectorAll("select")
+      for (var si = 0; si < allSelects.length; si++) {
+        var sel = allSelects[si]
+        if (filledElements.has(sel)) continue
+
+        // Get this select's label via multiple methods
+        var selLabel = getSelectLabel(sel)
+
+        if (selLabel.includes(keyword)) {
+          var fillResult = trySelectFill(sel, answer, { selector: "", inputType: "select" })
+          if (fillResult.ok) {
+            filledElements.add(sel)
+            if (sel.parentElement) filledElements.add(sel.parentElement)
+            return fillResult
+          }
+        }
+      }
+
+      // Also scan for Greenhouse-style custom selects (div-based dropdowns)
+      // These are typically: <label>Question</label> + <div class="select">Select...</div>
+      var customSelectors = [
+        '[data-testid*="select"]', '[class*="select-trigger"]', '[class*="SelectTrigger"]',
+        '[role="combobox"]', '[role="listbox"]', '[aria-haspopup="listbox"]',
+        '[class*="chosen-container"]', '[class*="react-select"]', '[class*="css-"][class*="control"]'
+      ]
+      for (var cs = 0; cs < customSelectors.length; cs++) {
+        var customEls = document.querySelectorAll(customSelectors[cs])
+        for (var ce = 0; ce < customEls.length; ce++) {
+          var customEl = customEls[ce]
+          if (filledElements.has(customEl)) continue
+          var customLabel = getSelectLabel(customEl)
+          if (customLabel.includes(keyword)) {
+            // Try clicking to open, then selecting the option
+            customEl.click()
+            // Wait for dropdown to appear
+            var clickResult = { ok: false }
+            setTimeout(function() {}, 100)  // Yield
+            // Look for options in the dropdown
+            var optionSels = '[role="option"], [class*="option"], [class*="menu"] [class*="item"], li[data-value]'
+            var dropOptions = document.querySelectorAll(optionSels)
+            for (var do2 = 0; do2 < dropOptions.length; do2++) {
+              var optText = (dropOptions[do2].textContent || "").trim().toLowerCase()
+              if (optText === answerLower || optText.includes(answerLower) || answerLower.includes(optText)) {
+                dropOptions[do2].click()
+                highlightField(customEl, "success")
+                filledElements.add(customEl)
+                if (customEl.parentElement) filledElements.add(customEl.parentElement)
+                clickResult = { ok: true, method: "custom_select_direct", selected: optText, question: keyword }
+                break
+              }
+            }
+            if (clickResult.ok) return clickResult
+            // If clicking didn't open a dropdown, try the hidden native select inside
+            var hiddenSelect = customEl.parentElement && customEl.parentElement.querySelector("select")
+            if (!hiddenSelect) hiddenSelect = customEl.querySelector("select")
+            if (hiddenSelect) {
+              var hResult = trySelectFill(hiddenSelect, answer, { selector: "", inputType: "select" })
+              if (hResult.ok) {
+                filledElements.add(hiddenSelect)
+                filledElements.add(customEl)
+                return hResult
+              }
+            }
+          }
+        }
+      }
+
+      // Also try radio button groups
+      var allRadioGroups = {}
+      var allRadios = document.querySelectorAll('input[type="radio"]')
+      for (var ri = 0; ri < allRadios.length; ri++) {
+        var rName = allRadios[ri].name || ("radio_" + ri)
+        if (!allRadioGroups[rName]) allRadioGroups[rName] = []
+        allRadioGroups[rName].push(allRadios[ri])
+      }
+      for (var groupName in allRadioGroups) {
+        var groupRadios = allRadioGroups[groupName]
+        if (groupRadios.some(function(r) { return filledElements.has(r) })) continue
+
+        // Find the group's label text
+        var groupContainer = groupRadios[0].closest("[class*='field'], [class*='question'], fieldset, [role='radiogroup']") || groupRadios[0].parentElement?.parentElement
+        var groupLabel = ""
+        if (groupContainer) {
+          var headings = groupContainer.querySelectorAll("label, legend, h3, h4, span, p, strong")
+          for (var hi = 0; hi < headings.length; hi++) {
+            var ht = (headings[hi].textContent || "").toLowerCase().trim()
+            if (ht.length > 0 && ht.length < 100 && !ht.includes(answerLower)) { groupLabel = ht; break }
+          }
+        }
+
+        if (groupLabel.includes(keyword)) {
+          for (var gi = 0; gi < groupRadios.length; gi++) {
+            var radio = groupRadios[gi]
+            var rLabel = radio.closest("label")
+            var rText = (rLabel ? rLabel.textContent : radio.value || "").trim().toLowerCase()
+            if ((answerLower === "yes" && rText.startsWith("yes")) ||
+                (answerLower === "no" && (rText.startsWith("no") || rText === "no")) ||
+                rText === answerLower || rText.includes(answerLower)) {
+              radio.click()
+              radio.checked = true
+              radio.dispatchEvent(new Event("change", { bubbles: true }))
+              highlightField(rLabel || radio, "success")
+              groupRadios.forEach(function(r) { filledElements.add(r) })
+              if (groupContainer) filledElements.add(groupContainer)
+              return { ok: true, method: "direct_radio_scan", selected: rText, question: keyword }
+            }
+          }
+        }
+      }
+    }
+    // ── END STRATEGY 0 ──
+
+    // Search for question text — prefer small, specific label elements over div containers
+    var labelElements = document.querySelectorAll("label, legend, h3, h4, h5, h6, strong")
+    var otherElements = document.querySelectorAll("p, span, div")
+    // Search labels first (most specific), then other elements
+    var allElements = Array.from(labelElements).concat(Array.from(otherElements))
+
+    var bestMatch = null
+    var bestScore = 0
 
     for (var i = 0; i < allElements.length; i++) {
       var el = allElements[i]
-      var text = (el.textContent || "").toLowerCase().trim()
-      if (!text.includes(keyword)) continue
-      // Skip large containers — only match elements with <300 chars of text
-      if (text.length > 300) continue
-      // Skip if too many children (it's a container)
-      if (el.children.length > 8) continue
-      // Skip if this is inside a name/email/phone field area
+      // Use only the element's DIRECT text (not nested children for div/span)
+      var directText = ""
+      if (el.tagName === "DIV" || el.tagName === "SPAN") {
+        // For divs/spans, prefer textContent but skip if it's a large container
+        directText = (el.textContent || "").toLowerCase().trim()
+        if (directText.length > 200) continue
+        if (el.children.length > 6) continue
+      } else {
+        directText = (el.textContent || "").toLowerCase().trim()
+      }
+      if (!directText.includes(keyword)) continue
+      if (directText.length > 300) continue
+
+      // CRITICAL GUARD: If this is NOT an EEO question but the element is in an EEO context, SKIP IT
+      if (!isEEOQuestion && isEEOContext(el)) continue
+
+      // GUARD: If the answer is a long text (address), skip elements in protected contexts
+      // This prevents "arlington, texas" from being filled into sponsorship/relocation/EEO fields
+      if (isLongTextAnswer && isProtectedContext(el)) continue
+
+      // Skip already-filled question blocks
+      if (filledElements.has(el)) continue
+
+      // Skip if inside a name/email/phone field area
       var nearbyInput = el.closest("label")?.querySelector("input")
       if (nearbyInput) {
-        var inputType = (nearbyInput.name + nearbyInput.id + nearbyInput.type).toLowerCase()
-        if (inputType.includes("name") || inputType.includes("email") || inputType.includes("phone")) continue
+        var inputIdent = (nearbyInput.name + nearbyInput.id + nearbyInput.type + (nearbyInput.placeholder || "")).toLowerCase()
+        var protectedPatterns = ["first", "last", "name", "email", "phone", "tel", "fname", "lname", "resume", "cv", "linkedin", "github", "website", "portfolio"]
+        if (protectedPatterns.some(function(w) { return inputIdent.includes(w) })) continue
       }
 
-      // Found a matching question! Search ONLY in the immediate vicinity
-      // Walk up max 3 levels to find the question block container
-      var container = el.parentElement
-      for (var up = 0; up < 3; up++) {
-        if (!container) break
-        var inputs = container.querySelectorAll("select, input[type='radio'], input:not([type='hidden']):not([type='submit']):not([type='file']), textarea")
-        if (inputs.length > 0 && inputs.length <= 5) break // Found a reasonable container
-        container = container.parentElement
+      // Score this match: shorter text = better (more specific), labels score higher
+      var score = 1000 - directText.length
+      if (el.tagName === "LABEL" || el.tagName === "LEGEND") score += 500
+      if (el.tagName === "H3" || el.tagName === "H4" || el.tagName === "STRONG") score += 300
+      if (el.tagName === "P") score += 200
+      // Exact match bonus — the element text should closely match the keyword
+      if (directText === keyword || directText.startsWith(keyword + "?") || directText.startsWith(keyword + " ")) score += 400
+      // For EEO questions, STRONGLY prefer elements where the keyword is the MAIN text
+      // This prevents "Race & Ethnicity Definitions" from matching "race" when we want the "Race" label
+      if (isEEOQuestion) {
+        // Penalize if the text is much longer than the keyword (means it's a heading or description)
+        if (directText.length > keyword.length * 3) score -= 500
+        // Bonus if the element has a nearby select/radio (it's actually a form label)
+        var nearSibling = el.nextElementSibling
+        if (nearSibling && (nearSibling.tagName === "SELECT" || nearSibling.querySelector && nearSibling.querySelector("select, input[type='radio']"))) {
+          score += 600
+        }
+        var parentSel = el.parentElement && el.parentElement.querySelector("select, input[type='radio']")
+        if (parentSel) score += 400
       }
-      if (!container) continue
+      // Penalize elements with many children (containers)
+      score -= el.children.length * 50
 
-      // Strategy 1: Find a native <select> in this block
-      var select = container.querySelector("select")
-      if (select) {
-        var result = trySelectFill(select, answer, { selector: "", inputType: "select" })
-        if (result.ok) return result
+      if (score > bestScore) {
+        bestScore = score
+        bestMatch = el
       }
+    }
 
-      // Strategy 2: Find radio buttons in this block
+    if (!bestMatch) return { ok: false, error: "Question not found on page: " + questionKeyword }
+
+    var el = bestMatch
+
+    // Walk up max 3 levels to find the question block container with inputs
+    var container = el.parentElement
+    for (var up = 0; up < 4; up++) {
+      if (!container) break
+      var inputs = container.querySelectorAll("select, input[type='radio'], input:not([type='hidden']):not([type='submit']):not([type='file']), textarea")
+      if (inputs.length > 0 && inputs.length <= 8) break
+      container = container.parentElement
+    }
+    if (!container) return { ok: false, error: "No input found for: " + questionKeyword }
+
+    // Verify: the container should not already be claimed by a different question
+    if (filledElements.has(container)) return { ok: false, error: "Field already filled for: " + questionKeyword }
+
+    // CRITICAL: Double-check protection at the container level
+    if (!isEEOQuestion) {
+      var containerText = (container.textContent || "").toLowerCase()
+      if (containerText.length < 1000) {
+        for (var ek = 0; ek < EEO_KEYWORDS.length; ek++) {
+          if (containerText.includes(EEO_KEYWORDS[ek])) {
+            return { ok: false, error: "Skipped EEO field for: " + questionKeyword }
+          }
+        }
+      }
+    }
+    // For long text answers (addresses), also check protected keywords at container level
+    if (isLongTextAnswer) {
+      var ctText = (container.textContent || "").toLowerCase()
+      if (ctText.length < 1000) {
+        for (var pk = 0; pk < PROTECTED_QUESTION_KEYWORDS.length; pk++) {
+          if (ctText.includes(PROTECTED_QUESTION_KEYWORDS[pk])) {
+            return { ok: false, error: "Skipped protected field for address: " + questionKeyword }
+          }
+        }
+      }
+    }
+
+    // Strategy 1: Native <select> — ONLY for short option answers (Yes/No/select values), NOT for long text like addresses
+    if (!isLongTextAnswer) {
+      var searchAreas = [container, el.parentElement, el.nextElementSibling, el.parentElement?.nextElementSibling].filter(Boolean)
+      for (var sa = 0; sa < searchAreas.length; sa++) {
+        var select = searchAreas[sa].querySelector ? searchAreas[sa].querySelector("select") : null
+        if (select && !filledElements.has(select)) {
+          var result = trySelectFill(select, answer, { selector: "", inputType: "select" })
+          if (result.ok) {
+            filledElements.add(el)
+            filledElements.add(container)
+            filledElements.add(select)
+            return result
+          }
+        }
+      }
+    }
+
+    // Strategy 2: Radio buttons — ONLY for short option answers
+    if (!isLongTextAnswer) {
       var radios = container.querySelectorAll('input[type="radio"]')
-      if (radios.length === 0) {
-        // Search wider
-        var wider = container.parentElement
-        if (wider) radios = wider.querySelectorAll('input[type="radio"]')
+      if (radios.length === 0 && container.parentElement) {
+        radios = container.parentElement.querySelectorAll('input[type="radio"]')
       }
       if (radios.length > 0) {
         for (var r = 0; r < radios.length; r++) {
           var radio = radios[r]
+          if (filledElements.has(radio)) continue
           var lbl = radio.closest("label")
           var lblText = (lbl ? lbl.textContent : radio.value || "").trim().toLowerCase()
           if ((answerLower === "yes" && lblText.startsWith("yes")) ||
-              (answerLower === "no" && lblText.startsWith("no")) ||
+              (answerLower === "no" && (lblText.startsWith("no") || lblText === "no")) ||
               lblText === answerLower || lblText.includes(answerLower)) {
             radio.click()
             radio.checked = true
             radio.dispatchEvent(new Event("change", { bubbles: true }))
             highlightField(lbl || radio, "success")
+            filledElements.add(el)
+            filledElements.add(container)
+            filledElements.add(radio)
             return { ok: true, method: "find_and_fill_radio", selected: lblText, question: keyword }
           }
         }
       }
+    }
 
-      // Strategy 3: Find a text input — but NEVER fill name/email/phone fields
-      var input = container.querySelector("input:not([type='radio']):not([type='checkbox']):not([type='hidden']):not([type='file']):not([type='submit'])")
-      if (!input) input = container.querySelector("textarea")
-      if (input) {
-        // Guard: never fill protected identity fields
-        var inputId = ((input.name || "") + (input.id || "") + (input.placeholder || "")).toLowerCase()
-        var isProtected = ["first", "last", "name", "email", "phone", "tel", "fname", "lname"].some(function(w) { return inputId.includes(w) })
-        // Guard: never fill fields that already have a value
-        var alreadyFilled = input.value && input.value.trim().length > 0
+    // Strategy 3: Text input — NEVER fill protected identity fields
+    var input = container.querySelector("input:not([type='radio']):not([type='checkbox']):not([type='hidden']):not([type='file']):not([type='submit'])")
+    if (!input) input = container.querySelector("textarea")
+    if (input && !filledElements.has(input)) {
+      var inputId = ((input.name || "") + (input.id || "") + (input.placeholder || "") + (input.type || "")).toLowerCase()
+      var isProtected = ["first", "last", "name", "email", "phone", "tel", "fname", "lname", "resume", "cv", "linkedin", "github", "website", "portfolio", "url", "city", "state", "zip", "country"].some(function(w) { return inputId.includes(w) })
+      var alreadyFilled = input.value && input.value.trim().length > 0
 
-        if (!isProtected && !alreadyFilled) {
-          var textResult = tryTextFill(input, answer, { selector: getUniqueSelector(input), inputType: input.type || "text" })
-          if (textResult.ok) {
-            tryClickDropdownOption(input, answer)
-            return { ok: true, method: "find_and_fill_text", question: keyword }
-          }
-        }
-      }
-
-      // Strategy 4: Click any clickable option div
-      var clickables = container.querySelectorAll('[role="option"], [role="radio"], [class*="option"], [class*="choice"]')
-      for (var c = 0; c < clickables.length; c++) {
-        var ct = (clickables[c].textContent || "").trim().toLowerCase()
-        if ((answerLower === "yes" && ct.startsWith("yes")) || (answerLower === "no" && ct.startsWith("no")) || ct === answerLower) {
-          clickables[c].click()
-          highlightField(clickables[c], "success")
-          return { ok: true, method: "find_and_fill_click", selected: ct, question: keyword }
+      if (!isProtected && !alreadyFilled) {
+        var textResult = tryTextFill(input, answer, { selector: getUniqueSelector(input), inputType: input.type || "text" })
+        if (textResult.ok) {
+          tryClickDropdownOption(input, answer)
+          filledElements.add(el)
+          filledElements.add(container)
+          filledElements.add(input)
+          return { ok: true, method: "find_and_fill_text", question: keyword }
         }
       }
     }
 
-    return { ok: false, error: "Question not found on page: " + questionKeyword }
+    // Strategy 4: Clickable option divs (custom UI components)
+    var clickables = container.querySelectorAll('[role="option"], [role="radio"], [role="listbox"] [role="option"], [class*="option"], [class*="choice"]')
+    for (var c = 0; c < clickables.length; c++) {
+      if (filledElements.has(clickables[c])) continue
+      var ct = (clickables[c].textContent || "").trim().toLowerCase()
+      if ((answerLower === "yes" && ct.startsWith("yes")) || (answerLower === "no" && (ct.startsWith("no") || ct === "no")) || ct === answerLower || ct.includes(answerLower)) {
+        clickables[c].click()
+        highlightField(clickables[c], "success")
+        filledElements.add(el)
+        filledElements.add(container)
+        filledElements.add(clickables[c])
+        return { ok: true, method: "find_and_fill_click", selected: ct, question: keyword }
+      }
+    }
+
+    return { ok: false, error: "Could not fill: " + questionKeyword }
   }
 
 })()

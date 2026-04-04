@@ -199,61 +199,71 @@ async def add_to_tracker(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a job to the tracker. Duplicate detection by URL or company+title."""
-    # Dedup check
+    # Dedup check using raw SQL
+    from sqlalchemy import text as sql_text
     if data.url:
         result = await db.execute(
-            select(JobApplication).where(
-                JobApplication.user_id == current_user.id,
-                JobApplication.url == data.url,
-            )
+            sql_text("SELECT id FROM job_applications WHERE user_id = :uid AND url = :url LIMIT 1"),
+            {"uid": current_user.id, "url": data.url},
         )
-        if result.scalar_one_or_none():
+        if result.first():
             raise HTTPException(status_code=409, detail="Job already tracked")
     else:
         result = await db.execute(
-            select(JobApplication).where(
-                JobApplication.user_id == current_user.id,
-                JobApplication.role == data.title,
-                JobApplication.company == data.company,
-            )
+            sql_text("SELECT id FROM job_applications WHERE user_id = :uid AND role = :role AND company = :company LIMIT 1"),
+            {"uid": current_user.id, "role": data.title, "company": data.company},
         )
-        if result.scalar_one_or_none():
+        if result.first():
             raise HTTPException(status_code=409, detail="Job already tracked")
 
-    app = JobApplication(
-        user_id=current_user.id,
-        job_id=data.job_id,
-        role=data.title,
-        company=data.company,
-        url=data.url,
-        location=data.location,
-        salary=data.salary,
-        work_type=data.work_type,
-        experience_level=data.experience_level,
-        industry=data.industry,
-        skills_json=json.dumps(data.skills) if data.skills else None,
-        description=data.description,
-        source=data.source or "manual",
-        notes=data.notes,
-        pipeline_stage=data.pipeline_stage or PipelineStage.INTERESTED,
-        status=None,  # Using pipeline_stage instead
+    import uuid
+    app_id = str(uuid.uuid4())
+    stage_val = (data.pipeline_stage or PipelineStage.INTERESTED).value
+    skills_str = json.dumps(data.skills) if data.skills else None
+    now = datetime.now(timezone.utc)
+
+    await db.execute(
+        sql_text("""
+            INSERT INTO job_applications (id, user_id, job_id, role, company, url, location, salary,
+                work_type, experience_level, industry, skills_json, description, source, notes,
+                pipeline_stage, created_at, updated_at)
+            VALUES (:id, :uid, :job_id, :role, :company, :url, :location, :salary,
+                :work_type, :experience_level, :industry, :skills_json, :description, :source, :notes,
+                :pipeline_stage, :now, :now)
+        """),
+        {
+            "id": app_id, "uid": current_user.id, "job_id": data.job_id,
+            "role": data.title, "company": data.company, "url": data.url,
+            "location": data.location, "salary": data.salary,
+            "work_type": data.work_type, "experience_level": data.experience_level,
+            "industry": data.industry, "skills_json": skills_str,
+            "description": data.description, "source": data.source or "manual",
+            "notes": data.notes, "pipeline_stage": stage_val, "now": now,
+        },
     )
-    db.add(app)
-    await db.flush()
-    await db.refresh(app)
 
     # Create initial event
-    event = ApplicationEvent(
-        application_id=app.id,
-        event_type="status_change",
-        new_value=app.pipeline_stage.value,
-        title=f"Added to {app.pipeline_stage.value.replace('_', ' ').title()}",
-        event_date=datetime.now(timezone.utc),
+    event_id = str(uuid.uuid4())
+    await db.execute(
+        sql_text("""
+            INSERT INTO application_events (id, application_id, event_type, new_value, title, event_date, created_at)
+            VALUES (:id, :app_id, 'status_change', :new_value, :title, :now, :now)
+        """),
+        {
+            "id": event_id, "app_id": app_id,
+            "new_value": stage_val,
+            "title": f"Added to {stage_val.replace('_', ' ').title()}",
+            "now": now,
+        },
     )
-    db.add(event)
     await db.commit()
 
-    return _serialize_tracked_job(app)
+    # Return the newly created row
+    result = await db.execute(
+        sql_text("SELECT * FROM job_applications WHERE id = :id"),
+        {"id": app_id},
+    )
+    return _serialize_row(result.mappings().first())
 
 
 class BulkStageChange(BaseModel):
@@ -272,28 +282,41 @@ async def bulk_change_stage(
     db: AsyncSession = Depends(get_db),
 ):
     """Change stage for multiple tracked jobs at once."""
+    from sqlalchemy import text as sql_text
+    import uuid
+    now = datetime.now(timezone.utc)
+    new_stage = data.stage.value
+
+    # Get current stages for events
+    placeholders = ", ".join([f":id_{i}" for i in range(len(data.ids))])
+    params = {"uid": current_user.id}
+    for i, id_val in enumerate(data.ids):
+        params[f"id_{i}"] = id_val
+
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id.in_(data.ids),
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text(f"SELECT id, pipeline_stage FROM job_applications WHERE user_id = :uid AND id IN ({placeholders})"),
+        params,
     )
-    apps = result.scalars().all()
+    rows = result.mappings().all()
+
     updated = 0
-    for app in apps:
-        old = app.pipeline_stage.value if app.pipeline_stage else "INTERESTED"
-        app.pipeline_stage = data.stage
-        if data.stage == PipelineStage.APPLIED and not app.applied_at:
-            app.applied_at = datetime.now(timezone.utc)
-        event = ApplicationEvent(
-            application_id=app.id,
-            event_type="status_change",
-            old_value=old,
-            new_value=data.stage.value,
-            title=f"Bulk moved to {data.stage.value.replace('_', ' ').title()}",
-            event_date=datetime.now(timezone.utc),
+    for row in rows:
+        old = row.get("pipeline_stage") or "INTERESTED"
+        # Update the job
+        update_sql = "UPDATE job_applications SET pipeline_stage = :stage, updated_at = :now"
+        update_params = {"id": row["id"], "stage": new_stage, "now": now}
+        if data.stage == PipelineStage.APPLIED:
+            update_sql += ", applied_at = COALESCE(applied_at, :now)"
+        update_sql += " WHERE id = :id"
+        await db.execute(sql_text(update_sql), update_params)
+
+        # Create event
+        await db.execute(
+            sql_text("""INSERT INTO application_events (id, application_id, event_type, old_value, new_value, title, event_date, created_at)
+                        VALUES (:id, :app_id, 'status_change', :old, :new, :title, :now, :now)"""),
+            {"id": str(uuid.uuid4()), "app_id": row["id"], "old": old, "new": new_stage,
+             "title": f"Bulk moved to {new_stage.replace('_', ' ').title()}", "now": now},
         )
-        db.add(event)
         updated += 1
     await db.commit()
     return {"updated": updated}
@@ -306,18 +329,17 @@ async def bulk_archive(
     db: AsyncSession = Depends(get_db),
 ):
     """Archive multiple tracked jobs at once."""
+    from sqlalchemy import text as sql_text
+    placeholders = ", ".join([f":id_{i}" for i in range(len(data.ids))])
+    params = {"uid": current_user.id}
+    for i, id_val in enumerate(data.ids):
+        params[f"id_{i}"] = id_val
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id.in_(data.ids),
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text(f"UPDATE job_applications SET archived = true, pipeline_stage = 'ARCHIVED', updated_at = NOW() WHERE user_id = :uid AND id IN ({placeholders})"),
+        params,
     )
-    apps = result.scalars().all()
-    for app in apps:
-        app.archived = True
-        app.pipeline_stage = PipelineStage.ARCHIVED
     await db.commit()
-    return {"archived": len(apps)}
+    return {"archived": result.rowcount}
 
 
 @router.post("/bulk/delete")
@@ -327,17 +349,22 @@ async def bulk_delete(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete multiple tracked jobs at once."""
-    result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id.in_(data.ids),
-            JobApplication.user_id == current_user.id,
-        )
+    from sqlalchemy import text as sql_text
+    placeholders = ", ".join([f":id_{i}" for i in range(len(data.ids))])
+    params = {"uid": current_user.id}
+    for i, id_val in enumerate(data.ids):
+        params[f"id_{i}"] = id_val
+    # Delete events first (foreign key)
+    await db.execute(
+        sql_text(f"DELETE FROM application_events WHERE application_id IN ({placeholders})"),
+        {f"id_{i}": data.ids[i] for i in range(len(data.ids))},
     )
-    apps = result.scalars().all()
-    for app in apps:
-        await db.delete(app)
+    result = await db.execute(
+        sql_text(f"DELETE FROM job_applications WHERE user_id = :uid AND id IN ({placeholders})"),
+        params,
+    )
     await db.commit()
-    return {"deleted": len(apps)}
+    return {"deleted": result.rowcount}
 
 
 @router.get("/{tracker_id}/resume-intel")
@@ -347,22 +374,19 @@ async def get_resume_intel(
     db: AsyncSession = Depends(get_db),
 ):
     """Get resume and tailoring intelligence for a tracked job."""
-    from app.models.tailoring import TailoringSession, AtsScore
-    from app.models.resume import Resume, ResumeVersion
+    from sqlalchemy import text as sql_text
 
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT * FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    app = result.scalar_one_or_none()
-    if not app:
+    row = result.mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Not found")
 
     intel = {
-        "resumeUsed": app.resume_used,
-        "resumeVersionId": app.resume_version_id,
+        "resumeUsed": row.get("resume_used"),
+        "resumeVersionId": row.get("resume_version_id"),
         "tailoredResume": None,
         "atsScore": None,
         "missingSkills": [],
@@ -370,47 +394,58 @@ async def get_resume_intel(
         "tailoringStatus": None,
     }
 
-    # Find tailoring sessions for this job's description
-    if app.description or app.url:
-        # Look for tailoring sessions that match
-        sessions_query = select(TailoringSession).where(
-            TailoringSession.user_id == current_user.id,
-        ).order_by(TailoringSession.created_at.desc()).limit(5)
-
-        sessions_result = await db.execute(sessions_query)
-        sessions = sessions_result.scalars().all()
+    # Find tailoring sessions for this job
+    try:
+        sessions_result = await db.execute(
+            sql_text("SELECT * FROM tailoring_sessions WHERE user_id = :uid ORDER BY created_at DESC LIMIT 5"),
+            {"uid": current_user.id},
+        )
+        sessions = sessions_result.mappings().all()
 
         if sessions:
             latest = sessions[0]
-            intel["lastTailoredAt"] = latest.created_at.isoformat() if latest.created_at else None
-            intel["tailoringStatus"] = latest.status.value if latest.status else None
+            intel["lastTailoredAt"] = latest["created_at"].isoformat() if latest.get("created_at") else None
+            intel["tailoringStatus"] = latest.get("status")
 
             # Get ATS score
-            ats_result = await db.execute(
-                select(AtsScore).where(AtsScore.session_id == latest.id)
-            )
-            ats = ats_result.scalar_one_or_none()
-            if ats:
-                intel["atsScore"] = {
-                    "overall": ats.overall_score,
-                    "keywords": ats.keyword_score,
-                    "skills": ats.skills_score,
-                    "experience": ats.experience_score,
-                }
-                intel["missingSkills"] = ats.missing_keywords or []
+            try:
+                ats_result = await db.execute(
+                    sql_text("SELECT * FROM ats_scores WHERE session_id = :sid LIMIT 1"),
+                    {"sid": latest["id"]},
+                )
+                ats = ats_result.mappings().first()
+                if ats:
+                    intel["atsScore"] = {
+                        "overall": ats.get("overall_score"),
+                        "keywords": ats.get("keyword_score"),
+                        "skills": ats.get("skills_score"),
+                        "experience": ats.get("experience_score"),
+                    }
+                    missing = ats.get("missing_keywords")
+                    if missing:
+                        intel["missingSkills"] = json.loads(missing) if isinstance(missing, str) else (missing or [])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # Get resume version if linked
-    if app.resume_version_id:
-        rv_result = await db.execute(
-            select(ResumeVersion).where(ResumeVersion.id == app.resume_version_id)
-        )
-        rv = rv_result.scalar_one_or_none()
-        if rv:
-            intel["tailoredResume"] = {
-                "id": rv.id,
-                "label": rv.label,
-                "createdAt": rv.created_at.isoformat() if rv.created_at else None,
-            }
+    rv_id = row.get("resume_version_id")
+    if rv_id:
+        try:
+            rv_result = await db.execute(
+                sql_text("SELECT id, label, created_at FROM resume_versions WHERE id = :id"),
+                {"id": rv_id},
+            )
+            rv = rv_result.mappings().first()
+            if rv:
+                intel["tailoredResume"] = {
+                    "id": rv["id"],
+                    "label": rv.get("label"),
+                    "createdAt": rv["created_at"].isoformat() if rv.get("created_at") else None,
+                }
+        except Exception:
+            pass
 
     return intel
 
@@ -458,11 +493,6 @@ async def get_tracked_job(
     except Exception as e:
         print(f"[Tracker] get detail error: {e}")
         raise HTTPException(status_code=404, detail="Job not found")
-    events = events_result.scalars().all()
-
-    data = _serialize_tracked_job(app)
-    data["events"] = [_serialize_event(e) for e in events]
-    return data
 
 
 @router.patch("/{tracker_id}")
@@ -529,42 +559,47 @@ async def change_stage(
     db: AsyncSession = Depends(get_db),
 ):
     """Change pipeline stage. Auto-creates a timeline event."""
+    from sqlalchemy import text as sql_text
+    import uuid
+
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT * FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    app = result.scalar_one_or_none()
-    if not app:
+    row = result.mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
-    old_stage = app.pipeline_stage.value if app.pipeline_stage else "INTERESTED"
+    old_stage = row.get("pipeline_stage") or row.get("status") or "INTERESTED"
     new_stage = data.stage.value
+    now = datetime.now(timezone.utc)
 
     if old_stage == new_stage:
-        return _serialize_tracked_job(app)
+        return _serialize_row(row)
 
-    app.pipeline_stage = data.stage
-
-    # Set applied_at when moving to APPLIED
-    if data.stage == PipelineStage.APPLIED and not app.applied_at:
-        app.applied_at = datetime.now(timezone.utc)
+    # Update stage
+    update_sql = "UPDATE job_applications SET pipeline_stage = :stage, updated_at = :now"
+    params = {"id": tracker_id, "stage": new_stage, "now": now}
+    if data.stage == PipelineStage.APPLIED and not row.get("applied_at"):
+        update_sql += ", applied_at = :now"
+    update_sql += " WHERE id = :id"
+    await db.execute(sql_text(update_sql), params)
 
     # Auto-create event
-    event = ApplicationEvent(
-        application_id=app.id,
-        event_type="status_change",
-        old_value=old_stage,
-        new_value=new_stage,
-        title=f"Moved to {new_stage.replace('_', ' ').title()}",
-        event_date=datetime.now(timezone.utc),
+    await db.execute(
+        sql_text("""INSERT INTO application_events (id, application_id, event_type, old_value, new_value, title, event_date, created_at)
+                    VALUES (:id, :app_id, 'status_change', :old, :new, :title, :now, :now)"""),
+        {"id": str(uuid.uuid4()), "app_id": tracker_id, "old": old_stage, "new": new_stage,
+         "title": f"Moved to {new_stage.replace('_', ' ').title()}", "now": now},
     )
-    db.add(event)
-    await db.flush()
     await db.commit()
-    await db.refresh(app)
-    return _serialize_tracked_job(app)
+
+    # Return updated row
+    result = await db.execute(
+        sql_text("SELECT * FROM job_applications WHERE id = :id"),
+        {"id": tracker_id},
+    )
+    return _serialize_row(result.mappings().first())
 
 
 @router.delete("/{tracker_id}", status_code=204)
@@ -574,16 +609,16 @@ async def remove_from_tracker(
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a job from the tracker."""
+    from sqlalchemy import text as sql_text
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    app = result.scalar_one_or_none()
-    if not app:
+    if not result.first():
         raise HTTPException(status_code=404, detail="Tracked job not found")
-    await db.delete(app)
+    # Delete events first, then the job
+    await db.execute(sql_text("DELETE FROM application_events WHERE application_id = :id"), {"id": tracker_id})
+    await db.execute(sql_text("DELETE FROM job_applications WHERE id = :id"), {"id": tracker_id})
     await db.commit()
 
 
@@ -594,22 +629,25 @@ async def archive_job(
     db: AsyncSession = Depends(get_db),
 ):
     """Archive a tracked job."""
+    from sqlalchemy import text as sql_text
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    app = result.scalar_one_or_none()
-    if not app:
+    if not result.first():
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
-    app.archived = True
-    app.pipeline_stage = PipelineStage.ARCHIVED
-    await db.flush()
+    await db.execute(
+        sql_text("UPDATE job_applications SET archived = true, pipeline_stage = 'ARCHIVED', updated_at = NOW() WHERE id = :id"),
+        {"id": tracker_id},
+    )
     await db.commit()
-    await db.refresh(app)
-    return _serialize_tracked_job(app)
+
+    result = await db.execute(
+        sql_text("SELECT * FROM job_applications WHERE id = :id"),
+        {"id": tracker_id},
+    )
+    return _serialize_row(result.mappings().first())
 
 
 # ── Events sub-routes ────────────────────────────────────────────────────────
@@ -620,23 +658,31 @@ async def list_events(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import text as sql_text
     # Verify ownership
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    if not result.scalar_one_or_none():
+    if not result.first():
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
     events_result = await db.execute(
-        select(ApplicationEvent)
-        .where(ApplicationEvent.application_id == tracker_id)
-        .order_by(ApplicationEvent.event_date.desc())
+        sql_text("SELECT * FROM application_events WHERE application_id = :id ORDER BY event_date DESC"),
+        {"id": tracker_id},
     )
-    events = events_result.scalars().all()
-    return [_serialize_event(e) for e in events]
+    events = events_result.mappings().all()
+    return [{
+        "id": e.get("id"),
+        "eventType": e.get("event_type"),
+        "oldValue": e.get("old_value"),
+        "newValue": e.get("new_value"),
+        "title": e.get("title"),
+        "description": e.get("description"),
+        "metadata": e.get("metadata_json") or {},
+        "eventDate": e["event_date"].isoformat() if e.get("event_date") else None,
+        "createdAt": e["created_at"].isoformat() if e.get("created_at") else None,
+    } for e in events]
 
 
 @router.post("/{tracker_id}/events")
@@ -646,14 +692,14 @@ async def add_event(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import text as sql_text
+    import uuid
     # Verify ownership
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    if not result.scalar_one_or_none():
+    if not result.first():
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
     event_date = datetime.now(timezone.utc)
@@ -663,19 +709,27 @@ async def add_event(
         except ValueError:
             pass
 
-    event = ApplicationEvent(
-        application_id=tracker_id,
-        event_type=data.event_type,
-        title=data.title,
-        description=data.description,
-        metadata_json=data.metadata or {},
-        event_date=event_date,
+    event_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    metadata_str = json.dumps(data.metadata) if data.metadata else None
+    await db.execute(
+        sql_text("""INSERT INTO application_events (id, application_id, event_type, title, description, metadata_json, event_date, created_at)
+                    VALUES (:id, :app_id, :event_type, :title, :description, :metadata, :event_date, :now)"""),
+        {"id": event_id, "app_id": tracker_id, "event_type": data.event_type,
+         "title": data.title, "description": data.description,
+         "metadata": metadata_str, "event_date": event_date, "now": now},
     )
-    db.add(event)
-    await db.flush()
     await db.commit()
-    await db.refresh(event)
-    return _serialize_event(event)
+
+    return {
+        "id": event_id,
+        "eventType": data.event_type,
+        "title": data.title,
+        "description": data.description,
+        "metadata": data.metadata or {},
+        "eventDate": event_date.isoformat(),
+        "createdAt": now.isoformat(),
+    }
 
 
 @router.post("/{tracker_id}/tailor")
@@ -685,22 +739,21 @@ async def tailor_from_tracker(
     db: AsyncSession = Depends(get_db),
 ):
     """Get tailor-ready data from a tracked job."""
+    from sqlalchemy import text as sql_text
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT * FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    app = result.scalar_one_or_none()
-    if not app:
+    row = result.mappings().first()
+    if not row:
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
     return {
-        "jobDescription": app.description or "",
-        "company": app.company,
-        "role": app.role,
-        "url": app.url,
-        "trackerId": app.id,
+        "jobDescription": row.get("description") or "",
+        "company": row.get("company", ""),
+        "role": row.get("role", ""),
+        "url": row.get("url"),
+        "trackerId": row.get("id"),
     }
 
 
@@ -763,24 +816,19 @@ async def delete_event(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import text as sql_text
     # Verify ownership
     result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
-        )
+        sql_text("SELECT id FROM job_applications WHERE id = :id AND user_id = :uid"),
+        {"id": tracker_id, "uid": current_user.id},
     )
-    if not result.scalar_one_or_none():
+    if not result.first():
         raise HTTPException(status_code=404, detail="Tracked job not found")
 
-    event_result = await db.execute(
-        select(ApplicationEvent).where(
-            ApplicationEvent.id == event_id,
-            ApplicationEvent.application_id == tracker_id,
-        )
+    del_result = await db.execute(
+        sql_text("DELETE FROM application_events WHERE id = :eid AND application_id = :app_id"),
+        {"eid": event_id, "app_id": tracker_id},
     )
-    event = event_result.scalar_one_or_none()
-    if not event:
+    if del_result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Event not found")
-    await db.delete(event)
     await db.commit()

@@ -66,6 +66,39 @@
         <input id="manual-company" class="form-input" placeholder="Company" />
       </div>
 
+      <!-- Tailor section (inline results) -->
+      <div id="tailor-section" class="tailor-section hidden">
+        <div class="section-header">
+          <span class="section-title">Resume Tailoring</span>
+          <button id="tailor-close" class="close-btn">&times;</button>
+        </div>
+        <div id="tailor-resume-select" class="hidden">
+          <select id="resume-select" class="form-input">
+            <option value="">Select resume...</option>
+          </select>
+          <button id="start-tailor-btn" class="btn btn-primary" style="margin-top:6px;width:100%">Start Tailoring</button>
+        </div>
+        <div id="tailor-progress" class="hidden">
+          <div class="spinner-small"></div>
+          <p class="tailor-status-text">AI is tailoring your resume...</p>
+          <div class="progress-bar"><div id="tailor-progress-bar" class="progress-fill"></div></div>
+        </div>
+        <div id="tailor-results" class="hidden">
+          <div class="ats-score-card">
+            <div class="ats-score-big" id="ats-score-value">--</div>
+            <div class="ats-label">ATS Score</div>
+          </div>
+          <div class="score-breakdown" id="score-breakdown"></div>
+          <div class="download-buttons">
+            <button id="dl-pdf-btn" class="btn btn-primary btn-sm">Download PDF</button>
+            <button id="dl-docx-btn" class="btn btn-outline btn-sm">Download Word</button>
+          </div>
+          <button id="open-tailor-dashboard" class="btn btn-outline btn-sm" style="width:100%;margin-top:6px">
+            View Full Results in Dashboard
+          </button>
+        </div>
+      </div>
+
       <!-- Copilot panel -->
       <div id="copilot-section" class="copilot-section hidden">
         <div class="copilot-tabs">

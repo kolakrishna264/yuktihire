@@ -173,6 +173,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (result.ok) {
       btn.innerHTML = "✓ Saved"
       showStatus("Job saved to dashboard!", "success")
+
+      // If we have a full description, ensure it's stored as JD for tailoring
+      if (desc && desc.length > 100 && result.data?.trackerId) {
+        sendMessage({
+          type: "UPDATE_JD",
+          data: { tracker_id: result.data.trackerId, description: desc.slice(0, 10000) }
+        }).catch(() => {})
+      }
     } else {
       btn.disabled = false
       btn.innerHTML = "💾 Save Job"
@@ -201,45 +209,69 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Step 2: Fill questions by searching the page
+    // Order matters: EEO first (to claim those fields), then specific questions, then generic
+    // Each question is tried ONCE — if it fills a field, that field is locked from future fills
     showStatus("Filling dropdowns & questions...", "info")
     const pd = profile?.data || {}
-    const questionAnswers = [
-      // Authorization & sponsorship
+
+    // Phase A: EEO / Demographic — fill FIRST so no other value can contaminate these
+    const eeoQuestions = [
+      { q: "are you hispanic/latino", a: pd.hispanicLatino || "No" },
+      { q: "hispanic or latino", a: pd.hispanicLatino || "No" },
+      { q: "hispanic/latino", a: pd.hispanicLatino || "No" },
+      { q: "race & ethnicity", a: pd.race || "Asian" },
+      { q: "race", a: pd.race || "Asian" },
+      { q: "gender", a: pd.gender || "Male" },
+      { q: "veteran status", a: pd.veteranStatus || "I am not a protected veteran" },
+      { q: "disability status", a: pd.disabilityStatus || "I do not want to answer" },
+    ]
+
+    for (const qa of eeoQuestions) {
+      try {
+        const r = await chrome.tabs.sendMessage(currentTabId, {
+          type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
+        }).catch(() => null)
+        if (r?.ok) logs.push(`✓ ${qa.q}: ${qa.a}`)
+      } catch {}
+    }
+
+    // Phase B: Application-specific questions (non-EEO)
+    const appQuestions = [
+      // Visa / sponsorship
+      { q: "do you require visa sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "require employment visa sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "require sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "visa sponsorship", a: pd.sponsorship || "Yes" },
+      // Work authorization
       { q: "authorized to work", a: pd.workAuthorization || "Yes" },
       { q: "legally authorized", a: pd.workAuthorization || "Yes" },
       { q: "right to work", a: pd.workAuthorization || "Yes" },
-      { q: "sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "employment visa", a: pd.sponsorship || "Yes" },
-      { q: "h-1b", a: pd.sponsorship || "Yes" },
-      { q: "visa sponsorship", a: pd.sponsorship || "Yes" },
-      // Location
-      { q: "located in the dfw", a: "Yes" },
-      { q: "dfw area", a: "Yes" },
-      { q: "your address", a: pd.address || "Arlington, Texas, United States" },
-      { q: "address from which", a: pd.address || "Arlington, Texas, United States" },
+      // Relocation — match the exact question text from common forms
       { q: "open to relocation", a: pd.relocation || "Yes" },
+      { q: "willing to relocate", a: pd.relocation || "Yes" },
+      // In-person / office
       { q: "open to working in-person", a: "Yes" },
-      // Personal
-      { q: "pronouns", a: pd.pronouns || "He/him/his" },
-      { q: "gender", a: pd.gender || "Male" },
-      { q: "hispanic", a: pd.hispanicLatino || "No" },
-      { q: "veteran", a: pd.veteranStatus || "I am not a protected veteran" },
-      { q: "disability", a: pd.disabilityStatus || "I do not want to answer" },
-      // Application specific
+      { q: "work on-site", a: "Yes" },
+      { q: "work in office", a: "Yes" },
+      // Timeline
+      { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
+      { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
+      { q: "when can you start", a: pd.earliestStart || "2 weeks from offer" },
+      // Interview history
       { q: "interviewed at", a: pd.interviewedBefore || "No" },
       { q: "interviewed before", a: pd.interviewedBefore || "No" },
-      { q: "ai policy", a: pd.aiPolicyAcknowledge || "Yes" },
-      { q: "earliest", a: pd.earliestStart || "2 weeks from offer" },
-      { q: "start working", a: pd.earliestStart || "2 weeks from offer" },
-      { q: "deadlines", a: "No specific deadlines" },
-      { q: "timeline consideration", a: "No specific timeline constraints" },
-      // Consent
+      { q: "ever interviewed", a: pd.interviewedBefore || "No" },
+      // Policy / consent
+      { q: "ai policy", a: "Yes" },
+      { q: "confirm your understanding", a: "Yes" },
+      { q: "acknowledge", a: "Yes" },
       { q: "text message", a: "Yes" },
       { q: "consent to receiving", a: "Yes" },
-      { q: "sms", a: "Yes" },
+      // Address (ONLY if there's a text input — findAndFillQuestion handles this)
+      { q: "address from which you plan", a: pd.address || pd.location || "Arlington, Texas, United States" },
     ]
 
-    for (const qa of questionAnswers) {
+    for (const qa of appQuestions) {
       try {
         const r = await chrome.tabs.sendMessage(currentTabId, {
           type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
@@ -292,7 +324,142 @@ document.addEventListener("DOMContentLoaded", () => {
   })
 
   // ── TAILOR RESUME ─────────────────────────────────────────────────────
-  $("#tailor-btn")?.addEventListener("click", () => {
+  let tailorResumeId = null
+  let tailorSessionId = null
+
+  $("#tailor-btn")?.addEventListener("click", async () => {
+    const section = $("#tailor-section")
+    section.classList.remove("hidden")
+    $("#tailor-resume-select").classList.remove("hidden")
+    $("#tailor-progress").classList.add("hidden")
+    $("#tailor-results").classList.add("hidden")
+
+    // Load resumes
+    const r = await sendMessage({ type: "GET_RESUMES" })
+    if (r.ok && r.data?.resumes?.length) {
+      const sel = $("#resume-select")
+      sel.innerHTML = r.data.resumes.map(res =>
+        `<option value="${res.id}" ${res.isDefault ? "selected" : ""}>${res.name}${res.isDefault ? " (default)" : ""}</option>`
+      ).join("")
+      tailorResumeId = r.data.resumes.find(r => r.isDefault)?.id || r.data.resumes[0]?.id
+      sel.onchange = () => { tailorResumeId = sel.value }
+    } else {
+      showStatus("No resumes found. Upload one first.", "error")
+    }
+  })
+
+  $("#tailor-close")?.addEventListener("click", () => {
+    $("#tailor-section").classList.add("hidden")
+  })
+
+  $("#start-tailor-btn")?.addEventListener("click", async () => {
+    if (!tailorResumeId) { showStatus("Select a resume", "error"); return }
+
+    // Get JD from page
+    let jd = pageData?.description || ""
+    if ((!jd || jd.length < 50) && currentTabId) {
+      try {
+        const r = await chrome.scripting.executeScript({
+          target: { tabId: currentTabId },
+          func: () => document.body?.innerText?.slice(0, 15000) || "",
+        })
+        if (r?.[0]?.result) jd = r[0].result
+      } catch {}
+    }
+
+    if (!jd || jd.length < 50) {
+      showStatus("Could not extract job description from this page", "error")
+      return
+    }
+
+    // Show progress
+    $("#tailor-resume-select").classList.add("hidden")
+    $("#tailor-progress").classList.remove("hidden")
+    const progressBar = $("#tailor-progress-bar")
+    progressBar.style.width = "10%"
+
+    // Start tailoring
+    const result = await sendMessage({
+      type: "QUICK_TAILOR",
+      data: { job_description: jd, resume_id: tailorResumeId },
+    })
+
+    if (!result.ok) {
+      showStatus(result.error || "Tailoring failed", "error")
+      $("#tailor-resume-select").classList.remove("hidden")
+      $("#tailor-progress").classList.add("hidden")
+      return
+    }
+
+    tailorSessionId = result.data?.sessionId
+    tailorResumeId = result.data?.resumeId || tailorResumeId
+    progressBar.style.width = "30%"
+
+    // Poll for completion
+    let attempts = 0
+    const poll = setInterval(async () => {
+      attempts++
+      progressBar.style.width = `${Math.min(30 + attempts * 5, 90)}%`
+
+      const status = await sendMessage({ type: "TAILOR_STATUS", sessionId: tailorSessionId })
+      if (!status.ok) {
+        if (attempts > 30) {
+          clearInterval(poll)
+          showStatus("Tailoring timed out", "error")
+          $("#tailor-progress").classList.add("hidden")
+          $("#tailor-resume-select").classList.remove("hidden")
+        }
+        return
+      }
+
+      if (status.data?.status === "COMPLETED") {
+        clearInterval(poll)
+        progressBar.style.width = "100%"
+
+        // Show results
+        setTimeout(() => {
+          $("#tailor-progress").classList.add("hidden")
+          $("#tailor-results").classList.remove("hidden")
+
+          const ats = status.data.atsScore
+          if (ats) {
+            $("#ats-score-value").textContent = ats.overall || "--"
+            $("#score-breakdown").innerHTML = `
+              <div class="score-row"><span>Keywords</span><span>${ats.keywords || "--"}%</span></div>
+              <div class="score-row"><span>Skills</span><span>${ats.skills || "--"}%</span></div>
+              <div class="score-row"><span>Experience</span><span>${ats.experience || "--"}%</span></div>
+            `
+          }
+        }, 500)
+      } else if (status.data?.status === "FAILED" || status.data?.status === "ERROR") {
+        clearInterval(poll)
+        showStatus("Tailoring failed. Try in dashboard.", "error")
+        $("#tailor-progress").classList.add("hidden")
+        $("#tailor-resume-select").classList.remove("hidden")
+      }
+    }, 2000)
+  })
+
+  // Download buttons
+  $("#dl-pdf-btn")?.addEventListener("click", async () => {
+    if (!tailorResumeId) return
+    const btn = $("#dl-pdf-btn")
+    btn.disabled = true; btn.textContent = "Generating..."
+    const r = await sendMessage({ type: "DOWNLOAD_RESUME", resumeId: tailorResumeId, format: "pdf" })
+    btn.disabled = false; btn.textContent = "Download PDF"
+    if (!r.ok) showStatus(r.error || "PDF download failed", "error")
+  })
+
+  $("#dl-docx-btn")?.addEventListener("click", async () => {
+    if (!tailorResumeId) return
+    const btn = $("#dl-docx-btn")
+    btn.disabled = true; btn.textContent = "Generating..."
+    const r = await sendMessage({ type: "DOWNLOAD_RESUME", resumeId: tailorResumeId, format: "docx" })
+    btn.disabled = false; btn.textContent = "Download Word"
+    if (!r.ok) showStatus(r.error || "Word download failed", "error")
+  })
+
+  $("#open-tailor-dashboard")?.addEventListener("click", () => {
     chrome.tabs.create({ url: `${APP_URL}/dashboard/tailor` })
   })
 
