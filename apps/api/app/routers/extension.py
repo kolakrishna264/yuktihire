@@ -83,13 +83,13 @@ async def capture_job(
         title = data.extracted_title or data.page_title or "Untitled Position"
         company = data.extracted_company or _extract_domain(data.source_domain or data.url)
 
-        # Insert using raw SQL to avoid column-missing issues
+        # Insert using only columns that exist in the original table
         import uuid
         job_id = str(uuid.uuid4())
         await db.execute(
             text("""
-                INSERT INTO job_applications (id, user_id, role, company, url, description, source, status, created_at, updated_at)
-                VALUES (:id, :uid, :role, :company, :url, :desc, :source, 'SAVED', NOW(), NOW())
+                INSERT INTO job_applications (id, user_id, role, company, url, notes, source, status, created_at, updated_at)
+                VALUES (:id, :uid, :role, :company, :url, :notes, :source, 'SAVED', NOW(), NOW())
             """),
             {
                 "id": job_id,
@@ -97,7 +97,7 @@ async def capture_job(
                 "role": title,
                 "company": company,
                 "url": data.url,
-                "desc": (data.extracted_description or "")[:10000] if data.extracted_description else None,
+                "notes": (data.extracted_description or "")[:5000] if data.extracted_description else None,
                 "source": f"Extension ({data.source_domain or 'web'})",
             },
         )
