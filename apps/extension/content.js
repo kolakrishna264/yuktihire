@@ -1,26 +1,44 @@
-// YuktiHire Content Script — Universal job extraction + Auth callback
+// YuktiHire Content Script — Universal job extraction + Auth
 
-// ── Auth callback handler ────────────────────────────────────────────────
-if (document.location.pathname === "/auth/extension-callback") {
-  window.addEventListener("yuktihire-auth", (e) => {
-    const detail = e.detail
-    if (detail && detail.access_token) {
-      chrome.runtime.sendMessage({
-        type: "SET_TOKEN",
-        token: detail.access_token,
-        refresh: detail.refresh_token || "",
-        expires: detail.expires_at || 0,
-      })
-    }
-  })
-  const _authPoll = setInterval(() => {
-    const token = window.__YUKTIHIRE_TOKEN__
-    if (token) {
-      chrome.runtime.sendMessage({ type: "SET_TOKEN", token, refresh: window.__YUKTIHIRE_REFRESH__ || "", expires: 0 })
-      clearInterval(_authPoll)
-    }
-  }, 500)
-  setTimeout(() => clearInterval(_authPoll), 30000)
+// ── Auto-auth: on ANY yuktihire.com page, send token to extension ────────
+if (document.location.hostname.includes("yuktihire.com")) {
+  // Read token from cookie and send to background
+  function _sendTokenFromCookie() {
+    try {
+      var cookie = document.cookie
+      var match = cookie.match(/sb-[^=]+-auth-token=base64-([^;]+)/)
+      if (match) {
+        var decoded = JSON.parse(atob(match[1]))
+        if (decoded.access_token) {
+          chrome.runtime.sendMessage({
+            type: "SET_TOKEN",
+            token: decoded.access_token,
+            refresh: decoded.refresh_token || "",
+            expires: decoded.expires_at || 0,
+          })
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Send immediately and every 30 seconds (to refresh before expiry)
+  _sendTokenFromCookie()
+  setInterval(_sendTokenFromCookie, 30000)
+
+  // Also handle the extension-callback page event
+  if (document.location.pathname === "/auth/extension-callback") {
+    window.addEventListener("yuktihire-auth", function(e) {
+      var detail = e.detail
+      if (detail && detail.access_token) {
+        chrome.runtime.sendMessage({
+          type: "SET_TOKEN",
+          token: detail.access_token,
+          refresh: detail.refresh_token || "",
+          expires: detail.expires_at || 0,
+        })
+      }
+    })
+  }
 }
 
 // ── Persistent Floating Widget ───────────────────────────────────────────
