@@ -22,22 +22,17 @@
     <div id="login-state" class="state hidden">
       <p class="msg">Sign in to save jobs</p>
       <button id="login-btn" class="btn btn-primary">Sign in to YuktiHire</button>
-    </div>
-
-    <div id="no-job-state" class="state hidden">
-      <p class="msg">No job detected</p>
-      <p class="sub" id="no-job-reason">We couldn't find job content on this page.</p>
-      <div class="manual-form">
-        <p style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:6px">Save manually:</p>
-        <input id="manual-title" class="form-input" placeholder="Job title" />
-        <input id="manual-company" class="form-input" placeholder="Company" />
-        <button id="manual-save-btn" class="btn btn-primary" style="margin-top:4px">Save Job</button>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f3f4f6">
+        <p style="font-size:10px;color:#9ca3af;margin-bottom:6px">Or paste access token:</p>
+        <input id="token-input" class="form-input" placeholder="Paste token" style="font-size:11px" />
+        <button id="token-save-btn" class="btn btn-outline" style="margin-top:4px;font-size:11px;padding:6px">Connect</button>
       </div>
     </div>
 
-    <div id="job-detected-state" class="state hidden">
-      <div id="detection-info" class="detection-badge"></div>
-      <div class="job-card">
+    <!-- Main Panel — ALWAYS visible when authenticated -->
+    <div id="main-panel" class="state hidden">
+      <!-- Job info -->
+      <div id="job-info" class="job-card hidden">
         <div class="job-header">
           <div class="job-logo" id="job-logo">?</div>
           <div style="flex:1;min-width:0">
@@ -49,86 +44,50 @@
           <span class="meta-tag" id="job-location"></span>
           <span class="meta-tag source" id="job-source"></span>
         </div>
-        <p class="job-desc-preview" id="job-desc-preview"></p>
       </div>
-      <div class="actions">
-        <button id="save-btn" class="btn btn-primary">Save & Tailor</button>
-        <button id="apply-btn" class="btn btn-outline">Mark Applied</button>
-      </div>
-      <div class="secondary-actions">
-        <a id="dashboard-link" class="link" target="_blank">Dashboard</a>
-        <a id="tailor-link" class="link" target="_blank">Tailor Resume</a>
-      </div>
-      <div class="auto-tailor-section">
-        <button id="auto-tailor-btn" class="btn btn-outline" style="width:100%;margin-top:6px;font-size:11px">
-          ⚡ Auto-Tailor Resume for This Job
-        </button>
-        <p id="auto-tailor-status" class="sub" style="text-align:center;margin-top:3px;font-size:10px"></p>
-      </div>
-      <div id="autofill-section" class="autofill-section hidden">
-        <button id="autofill-btn" class="btn btn-outline" style="width:100%;margin-top:8px">
-          Autofill Application Form
-        </button>
-        <p id="autofill-status" class="sub" style="text-align:center;margin-top:4px"></p>
-      </div>
-    </div>
 
-    <div id="copilot-state" class="state hidden">
-      <div class="copilot-header">
-        <h3 class="copilot-title">Apply Copilot</h3>
+      <div id="saved-badge-area" class="hidden" style="margin-bottom:8px">
+        <div class="saved-badge">✓ Already Saved</div>
+      </div>
+
+      <!-- ALL actions always visible -->
+      <div class="action-grid">
+        <button id="save-btn" class="action-btn"><span class="action-icon">💾</span><span>Save Job</span></button>
+        <button id="autofill-btn" class="action-btn"><span class="action-icon">⚡</span><span>Fill Form</span></button>
+        <button id="tailor-btn" class="action-btn"><span class="action-icon">✨</span><span>Tailor</span></button>
+        <button id="dashboard-btn" class="action-btn"><span class="action-icon">📊</span><span>Dashboard</span></button>
+      </div>
+
+      <div id="status-msg" class="status-msg hidden"></div>
+
+      <!-- Manual save -->
+      <div id="manual-section" class="hidden" style="margin-top:8px">
+        <input id="manual-title" class="form-input" placeholder="Job title" />
+        <input id="manual-company" class="form-input" placeholder="Company" />
+      </div>
+
+      <!-- Copilot panel -->
+      <div id="copilot-section" class="copilot-section hidden">
         <div class="copilot-tabs">
           <button class="copilot-tab active" data-tab="fields">Fields</button>
-          <button class="copilot-tab" data-tab="answers">Answers</button>
-          <button class="copilot-tab" data-tab="resume">Resume</button>
           <button class="copilot-tab" data-tab="logs">Logs</button>
         </div>
-      </div>
-
-      <!-- Fields tab -->
-      <div id="copilot-fields" class="copilot-content">
-        <div id="field-summary" class="field-summary"></div>
-        <div id="field-list" class="field-list"></div>
-        <div class="copilot-actions">
-          <button id="fill-safe-btn" class="btn btn-primary">Fill Safe Fields</button>
-          <button id="fill-all-btn" class="btn btn-outline">Fill Everything</button>
+        <div id="copilot-fields" class="copilot-content">
+          <div id="field-summary" class="field-summary"></div>
+          <div id="field-list" class="field-list"></div>
         </div>
-      </div>
-
-      <!-- Answers tab -->
-      <div id="copilot-answers" class="copilot-content hidden">
-        <div id="ai-questions-list"></div>
-      </div>
-
-      <!-- Resume tab -->
-      <div id="copilot-resume" class="copilot-content hidden">
-        <p class="sub">Select resume for this application:</p>
-        <div id="resume-options"></div>
-      </div>
-
-      <!-- Logs tab -->
-      <div id="copilot-logs" class="copilot-content hidden">
-        <div id="fill-logs"></div>
-      </div>
-    </div>
-
-    <div id="already-saved-state" class="state hidden">
-      <div class="saved-badge">&#10003; Already Saved</div>
-      <div class="job-card">
-        <p class="job-title" id="saved-title"></p>
-        <p class="job-company" id="saved-company"></p>
-        <p class="job-stage" id="saved-stage"></p>
-      </div>
-      <div class="actions">
-        <a id="saved-dashboard-link" class="btn btn-outline" target="_blank">View in Dashboard</a>
-        <a id="saved-tailor-link" class="btn btn-outline" target="_blank">Tailor Resume</a>
+        <div id="copilot-logs" class="copilot-content hidden">
+          <div id="fill-logs"></div>
+        </div>
       </div>
     </div>
 
     <div id="success-state" class="state hidden">
-      <div class="success-icon">&#10003;</div>
-      <p class="msg">Job saved!</p>
-      <p class="sub">Open your dashboard to tailor your resume.</p>
+      <div class="success-icon">✓</div>
+      <p class="msg">Done!</p>
+      <p class="sub" id="success-msg">Job saved to dashboard.</p>
       <a id="success-link" class="btn btn-primary" target="_blank">Open Dashboard</a>
+      <button id="back-btn" class="btn btn-outline" style="margin-top:6px">Back</button>
     </div>
 
     <div id="error-state" class="state hidden">

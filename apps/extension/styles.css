@@ -455,5 +455,54 @@ body {
   border-top: 1px solid #f3f4f6;
 }
 
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  transition: all 0.15s;
+}
+
+.action-btn:hover {
+  border-color: #c4b5fd;
+  background: #faf9ff;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn .action-icon {
+  font-size: 16px;
+}
+
+.status-msg {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.status-msg.success { background: #ecfdf5; color: #059669; }
+.status-msg.info { background: #ede9fe; color: #6c63ff; }
+.status-msg.error { background: #fef2f2; color: #dc2626; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
