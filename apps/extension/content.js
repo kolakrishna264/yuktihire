@@ -1167,6 +1167,15 @@ if (document.location.hostname.includes("yuktihire.com")) {
       })
     }
 
+    // Pass 4: Country code normalization (United States → US, +1, etc.)
+    if (!match && (valueLower === "united states" || valueLower === "us" || valueLower === "+1")) {
+      match = options.find(function (o) {
+        var t = o.text.toLowerCase().trim()
+        var v = o.value.toLowerCase().trim()
+        return t.includes("united states") || t.includes("+1") || v === "us" || v === "usa" || v === "+1" || t === "us"
+      })
+    }
+
     if (match) {
       // Use native setter approach for React compatibility
       var setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
@@ -2424,10 +2433,14 @@ if (document.location.hostname.includes("yuktihire.com")) {
       "linkedin": pd.linkedin, "linkedin url": pd.linkedin, "linkedin profile": pd.linkedin,
       "github": pd.github, "github url": pd.github, "github profile": pd.github,
       "portfolio": pd.portfolio, "website": pd.portfolio, "personal website": pd.portfolio, "personal site": pd.portfolio,
+      // Links — only fill if user actually has data
+      "publication": pd.publications || "", "publications": pd.publications || "",
+      "google scholar": pd.publications || "", "semantic scholar": pd.publications || "",
       // Location
       "location": pd.location, "city": pd.location,
       "address": pd.address || pd.location, "street address": pd.address || pd.location,
-      "country": "United States", "state": "",
+      "country": "United States", "country code": "United States",
+      "state": "",
       // Work
       "current company": pd.headline, "current employer": pd.headline,
       "headline": pd.headline, "summary": pd.summary,
@@ -2483,9 +2496,21 @@ if (document.location.hostname.includes("yuktihire.com")) {
   function matchLabelToAnswer(label, answers, controlType) {
     var labelLower = label.toLowerCase()
 
-    // Skip file uploads
+    // Skip file uploads entirely
     if (labelLower.includes("resume") || labelLower.includes("cv") || labelLower.includes("cover letter")) {
-      if (controlType === "file") return null
+      return null
+    }
+
+    // Skip fields that should only be filled if user has specific data
+    var optionalFields = ["publication", "publications", "google scholar", "semantic scholar"]
+    for (var of2 = 0; of2 < optionalFields.length; of2++) {
+      if (labelLower.includes(optionalFields[of2]) && !answers[optionalFields[of2]]) return null
+    }
+
+    // Special handling: phone country code (label often just says "Country" near phone)
+    if ((labelLower === "country" || labelLower.includes("country code") || labelLower.includes("phone country")) &&
+        (controlType === "select" || controlType === "custom-select")) {
+      return { key: "phone_country", value: "United States" }
     }
 
     // Exact key match
@@ -2499,9 +2524,23 @@ if (document.location.hostname.includes("yuktihire.com")) {
       var key = keys[k]
       if (!answers[key]) continue
       if (labelLower.includes(key)) {
-        // Guard: don't put address into select/radio/custom-select fields
-        var isAddressAnswer = key === "address" || key === "location" || key === "city" || key === "street address" || key === "country" || key === "state"
+        // Guard: don't put address/location text into select/radio/custom-select fields
+        var isAddressAnswer = key === "address" || key === "location" || key === "city" || key === "street address" || key === "state"
         if (isAddressAnswer && (controlType === "select" || controlType === "radio" || controlType === "custom-select")) continue
+
+        // Guard: don't put empty/blank answers
+        if (!answers[key] || String(answers[key]).trim() === "") continue
+
+        // Guard: validate answer makes sense for the field context
+        // Don't put EEO answers into non-EEO fields and vice versa
+        var isEEOKey = ["gender", "sex", "hispanic", "latino", "race", "ethnicity", "veteran", "disability", "pronouns"].indexOf(key) !== -1
+        var isEEOLabel = ["gender", "hispanic", "latino", "race", "ethnicity", "veteran", "disability", "pronouns", "self-identification"].some(function(w) { return labelLower.includes(w) })
+
+        // EEO answers should only go to EEO labels
+        if (isEEOKey && !isEEOLabel) continue
+        // Non-EEO labels that look like EEO shouldn't get non-EEO answers
+        if (isEEOLabel && !isEEOKey) continue
+
         return { key: key, value: answers[key] }
       }
     }
@@ -2533,20 +2572,37 @@ if (document.location.hostname.includes("yuktihire.com")) {
         ]
         var allOptions = document.querySelectorAll(optionSelectors.join(", "))
 
+        // Score each option and pick the best match
+        var bestOpt = null
+        var bestOptScore = 0
         for (var oi = 0; oi < allOptions.length; oi++) {
           var opt = allOptions[oi]
-          if (!opt.offsetParent && !opt.getBoundingClientRect().height) continue  // Skip invisible
+          if (!opt.offsetParent && !opt.getBoundingClientRect().height) continue
           var optText = (opt.textContent || "").trim().toLowerCase()
-          if (optText === answerLower ||
-              optText.startsWith(answerLower) ||
-              answerLower.startsWith(optText) ||
-              optText.includes(answerLower) ||
-              answerLower.includes(optText)) {
-            opt.click()
-            highlightField(triggerEl, "success")
-            resolve(true)
-            return
+          var optValue = (opt.getAttribute("value") || opt.getAttribute("data-value") || "").toLowerCase()
+          var matchScore = 0
+
+          if (optText === answerLower) matchScore = 100
+          else if (optValue === answerLower) matchScore = 95
+          else if (optText.startsWith(answerLower)) matchScore = 80
+          else if (answerLower.startsWith(optText) && optText.length > 2) matchScore = 70
+          else if (optText.includes(answerLower)) matchScore = 60
+          else if (answerLower.includes(optText) && optText.length > 3) matchScore = 50
+          // Country code matching: "United States" matches "+1", "US (+1)", "US", etc.
+          else if (answerLower === "united states" && (optText.includes("united states") || optText.includes("us") || optText.includes("+1"))) matchScore = 85
+          else if (answerLower === "+1" && (optText.includes("+1") || optText.includes("united states") || optText === "us")) matchScore = 85
+
+          if (matchScore > bestOptScore) {
+            bestOptScore = matchScore
+            bestOpt = opt
           }
+        }
+
+        if (bestOpt && bestOptScore >= 50) {
+          bestOpt.click()
+          highlightField(triggerEl, "success")
+          resolve(true)
+          return
         }
 
         // No match — try typing into the search input (some custom selects have search)
