@@ -200,6 +200,38 @@ export function TailorWorkspace() {
         <div className="ml-auto flex items-center gap-2">
           {step === "results" && (
             <>
+              {/* Re-score button */}
+              {insertedKeywords.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleStartTailoring}>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Re-score
+                </Button>
+              )}
+              {/* Download buttons */}
+              {isComplete && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      window.open(`${window.location.origin}/api/v1/exports?format=pdf&resume_id=${selectedResumeId}`, "_blank")
+                      toast.info("PDF export — use the Resumes page to download")
+                    }}
+                  >
+                    Download PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      window.open(`${window.location.origin}/api/v1/exports?format=docx&resume_id=${selectedResumeId}`, "_blank")
+                      toast.info("DOCX export — use the Resumes page to download")
+                    }}
+                  >
+                    Download Word
+                  </Button>
+                </>
+              )}
               <Button variant="outline" size="sm" onClick={handleReset}>
                 <RotateCcw className="w-3.5 h-3.5" />
                 New
