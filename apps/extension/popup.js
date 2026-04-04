@@ -208,12 +208,81 @@ document.addEventListener("DOMContentLoaded", () => {
       return
     }
 
-    // Step 2: Universal fill — scans ALL form controls, matches labels, fills everything
+    // Step 2: Universal fill — try all frames (forms are often in iframes)
     showStatus("Filling all fields...", "info")
     btn.innerHTML = "⚡ Filling fields..."
-    const universalResult = await chrome.tabs.sendMessage(currentTabId, {
-      type: "UNIVERSAL_FILL", data: profile.data
-    }).catch(() => ({ filled: [], skipped: [], failed: [] }))
+
+    // Try sending to all frames — collect results from whichever frame has the form
+    let universalResult = { filled: [], skipped: [], failed: [] }
+    try {
+      // Method 1: sendMessage (goes to first responding frame)
+      universalResult = await chrome.tabs.sendMessage(currentTabId, {
+        type: "UNIVERSAL_FILL", data: profile.data
+      }).catch(() => ({ filled: [], skipped: [], failed: [] }))
+    } catch {}
+
+    // If main frame found 0 fields, the form is likely in an iframe
+    // Use executeScript with allFrames to reach it
+    if (!universalResult?.filled?.length) {
+      try {
+        btn.innerHTML = "⚡ Scanning iframes..."
+        const iframeResults = await chrome.scripting.executeScript({
+          target: { tabId: currentTabId, allFrames: true },
+          func: (profileData) => {
+            // This runs in EVERY frame — only the frame with form controls will fill
+            if (typeof universalFill === "function") {
+              return universalFill(profileData)
+            }
+            // Fallback: directly find and fill inputs in this frame
+            const inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), select, textarea')
+            if (inputs.length < 3) return { filled: [], skipped: [], failed: [] }
+
+            const filled = []
+            const answers = {
+              "first name": profileData.firstName, "last name": profileData.lastName,
+              "email": profileData.email, "phone": profileData.phone,
+              "linkedin": profileData.linkedin, "location": profileData.location,
+              "github": profileData.github,
+            }
+
+            inputs.forEach(inp => {
+              if (inp.value && inp.value.trim()) return  // Skip filled
+              const label = (
+                inp.getAttribute("aria-label") ||
+                inp.placeholder ||
+                (inp.closest("label")?.textContent || "").trim() ||
+                (document.querySelector(`label[for="${inp.id}"]`)?.textContent || "").trim() ||
+                inp.name || ""
+              ).toLowerCase()
+
+              for (const [key, val] of Object.entries(answers)) {
+                if (val && label.includes(key)) {
+                  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+                  if (setter) setter.call(inp, val)
+                  else inp.value = val
+                  inp.dispatchEvent(new Event("input", { bubbles: true }))
+                  inp.dispatchEvent(new Event("change", { bubbles: true }))
+                  filled.push({ label: label.slice(0, 40), value: String(val).slice(0, 30), key })
+                  break
+                }
+              }
+            })
+            return { filled, skipped: [], failed: [] }
+          },
+          args: [profile.data],
+        })
+
+        // Merge results from all frames
+        for (const frame of (iframeResults || [])) {
+          if (frame.result?.filled?.length) {
+            universalResult = frame.result
+            break
+          }
+        }
+      } catch (e) {
+        console.log("[YuktiHire] iframe fill error:", e)
+      }
+    }
 
     universalResult?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
     universalResult?.failed?.forEach(f => logs.push(`✗ ${f}`))

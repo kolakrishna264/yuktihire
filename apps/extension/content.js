@@ -1648,6 +1648,9 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     if (msg.type === "FIND_AND_FILL_QUESTION") {
+      // Only respond from frames that have form inputs
+      var fqqCheck = document.querySelectorAll('input, select, textarea')
+      if (fqqCheck.length < 2) return false
       findAndFillQuestionAsync(msg.question, msg.answer).then(function(result) {
         sendResponse(result)
       })
@@ -1655,7 +1658,17 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     if (msg.type === "UNIVERSAL_FILL") {
-      // Universal autofill — works on ANY job portal
+      // Check if THIS frame has form controls before responding
+      // This lets iframe frames respond instead of the top frame stealing the response
+      var quickCheck = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), select, textarea')
+      var visibleInputs = 0
+      for (var qi = 0; qi < quickCheck.length; qi++) {
+        if (quickCheck[qi].offsetParent || quickCheck[qi].type === "hidden") visibleInputs++
+      }
+      if (visibleInputs < 2) {
+        // This frame has almost no inputs — don't respond, let another frame handle it
+        return false
+      }
       universalFill(msg.data).then(function(result) {
         sendResponse(result)
       })
