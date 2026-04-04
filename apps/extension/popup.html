@@ -67,6 +67,44 @@
       </div>
     </div>
 
+    <div id="copilot-state" class="state hidden">
+      <div class="copilot-header">
+        <h3 class="copilot-title">Apply Copilot</h3>
+        <div class="copilot-tabs">
+          <button class="copilot-tab active" data-tab="fields">Fields</button>
+          <button class="copilot-tab" data-tab="answers">Answers</button>
+          <button class="copilot-tab" data-tab="resume">Resume</button>
+          <button class="copilot-tab" data-tab="logs">Logs</button>
+        </div>
+      </div>
+
+      <!-- Fields tab -->
+      <div id="copilot-fields" class="copilot-content">
+        <div id="field-summary" class="field-summary"></div>
+        <div id="field-list" class="field-list"></div>
+        <div class="copilot-actions">
+          <button id="fill-safe-btn" class="btn btn-primary">Fill Safe Fields</button>
+          <button id="fill-all-btn" class="btn btn-outline">Fill Everything</button>
+        </div>
+      </div>
+
+      <!-- Answers tab -->
+      <div id="copilot-answers" class="copilot-content hidden">
+        <div id="ai-questions-list"></div>
+      </div>
+
+      <!-- Resume tab -->
+      <div id="copilot-resume" class="copilot-content hidden">
+        <p class="sub">Select resume for this application:</p>
+        <div id="resume-options"></div>
+      </div>
+
+      <!-- Logs tab -->
+      <div id="copilot-logs" class="copilot-content hidden">
+        <div id="fill-logs"></div>
+      </div>
+    </div>
+
     <div id="already-saved-state" class="state hidden">
       <div class="saved-badge">&#10003; Already Saved</div>
       <div class="job-card">

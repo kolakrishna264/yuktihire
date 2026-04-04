@@ -455,28 +455,206 @@ if (document.location.pathname === "/auth/extension-callback") {
     return tmp.textContent?.trim().replace(/\s+/g, " ") || ""
   }
 
+  // ── Apply Copilot Functions ──────────────────────────────────────────
+
+  function getFormAnalysis() {
+    /**
+     * Full copilot analysis of the current page.
+     * Returns fields with fill status and confidence.
+     */
+    const { fields, formCount } = detectFormFields()
+
+    const analysis = fields.map(field => {
+      let fillStatus = "needs_input"  // default
+      let confidence = "low"
+
+      // Fields we can always fill from profile
+      const autoFillable = ["firstName", "lastName", "fullName", "email", "phone", "linkedin", "github", "portfolio", "location"]
+      if (autoFillable.includes(field.fieldType)) {
+        fillStatus = "ready"
+        confidence = "high"
+      }
+
+      // Fields that need AI
+      if (field.fieldType === "customQuestion") {
+        fillStatus = "needs_ai"
+        confidence = "medium"
+      }
+
+      // File uploads
+      if (field.type === "file" || field.fieldType === "resume" || field.fieldType === "coverLetter") {
+        fillStatus = "file_upload"
+        confidence = "medium"
+      }
+
+      // Yes/no type questions
+      if (["authorization", "sponsorship"].includes(field.fieldType)) {
+        fillStatus = "needs_input"
+        confidence = "medium"
+      }
+
+      return {
+        ...field,
+        fillStatus,
+        confidence,
+        filled: false,
+      }
+    })
+
+    // Detect form steps
+    const hasNextButton = !!document.querySelector("button[type='submit'], [data-testid*='next'], .btn-next, input[type='submit']")
+    const hasSubmitButton = !!document.querySelector("input[value*='Submit'], input[value*='Apply']")
+    const stepIndicators = document.querySelectorAll("[class*='step'], [class*='progress'], [aria-label*='step']")
+
+    return {
+      fields: analysis,
+      formCount,
+      totalFields: analysis.length,
+      readyCount: analysis.filter(f => f.fillStatus === "ready").length,
+      needsAiCount: analysis.filter(f => f.fillStatus === "needs_ai").length,
+      needsInputCount: analysis.filter(f => f.fillStatus === "needs_input").length,
+      fileUploadCount: analysis.filter(f => f.fillStatus === "file_upload").length,
+      hasNextButton,
+      hasSubmitButton,
+      currentStep: stepIndicators.length > 0 ? "multi-step" : "single",
+      pageType: classifyPage(),
+    }
+  }
+
+  function fillSafeFields(profileData) {
+    /**
+     * Fill only high-confidence fields (name, email, phone, etc.)
+     * Returns detailed results.
+     */
+    const results = { filled: [], failed: [], skipped: [] }
+    const { fields } = detectFormFields()
+
+    const safeMap = {
+      firstName: profileData.firstName,
+      lastName: profileData.lastName,
+      fullName: profileData.fullName,
+      email: profileData.email,
+      phone: profileData.phone,
+      linkedin: profileData.linkedin,
+      github: profileData.github,
+      portfolio: profileData.portfolio,
+      location: profileData.location,
+    }
+
+    for (const field of fields) {
+      const value = safeMap[field.fieldType]
+      if (!value) {
+        results.skipped.push({ label: field.label, type: field.fieldType, reason: "no value" })
+        continue
+      }
+
+      try {
+        const el = document.querySelector(field.selector)
+        if (!el) {
+          results.failed.push({ label: field.label, reason: "not found" })
+          continue
+        }
+
+        _setFieldValue(el, value)
+        _highlightField(el, "success")
+        results.filled.push({ label: field.label, type: field.fieldType, value: value.slice(0, 30) })
+      } catch (e) {
+        results.failed.push({ label: field.label, reason: e.message })
+      }
+    }
+
+    return results
+  }
+
+  function fillSingleField(selector, value) {
+    /**
+     * Fill a specific field by selector.
+     */
+    try {
+      const el = document.querySelector(selector)
+      if (!el) return { ok: false, error: "Element not found" }
+      _setFieldValue(el, value)
+      _highlightField(el, "success")
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+  }
+
+  function _setFieldValue(el, value) {
+    // Use native setter for React compatibility
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+      "value"
+    )?.set
+
+    if (nativeSetter) {
+      nativeSetter.call(el, value)
+    } else {
+      el.value = value
+    }
+
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+    el.dispatchEvent(new Event("blur", { bubbles: true }))
+  }
+
+  function _highlightField(el, status) {
+    const color = status === "success" ? "#22c55e" : status === "error" ? "#ef4444" : "#6c63ff"
+    el.style.outline = `2px solid ${color}`
+    el.style.outlineOffset = "2px"
+    setTimeout(() => {
+      el.style.outline = ""
+      el.style.outlineOffset = ""
+    }, 3000)
+  }
+
+  function detectSubmissionSuccess() {
+    /**
+     * Check if the page shows a submission success indicator.
+     */
+    const bodyText = (document.body?.innerText || "").toLowerCase()
+    const successSignals = [
+      "application submitted",
+      "thank you for applying",
+      "application received",
+      "successfully submitted",
+      "your application has been",
+      "we received your application",
+      "application complete",
+    ]
+
+    return successSignals.some(s => bodyText.includes(s))
+  }
+
   // ── Message listener ───────────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "EXTRACT_JOB") {
       const data = extractJobData()
-      // Always include full body text as fallback description
       if (!data.description || data.description.length < 50) {
         data.description = (document.body?.innerText || "").slice(0, 10000)
       }
       sendResponse(data)
     }
-
     if (msg.type === "DETECT_FORM") {
-      const fields = detectFormFields()
-      sendResponse(fields)
+      sendResponse(detectFormFields())
     }
-
     if (msg.type === "AUTOFILL_FORM") {
-      const result = autofillForm(msg.data)
-      sendResponse(result)
+      sendResponse(autofillForm(msg.data))
     }
-
+    if (msg.type === "GET_FORM_ANALYSIS") {
+      sendResponse(getFormAnalysis())
+    }
+    if (msg.type === "FILL_SAFE_FIELDS") {
+      sendResponse(fillSafeFields(msg.data))
+    }
+    if (msg.type === "FILL_SINGLE_FIELD") {
+      sendResponse(fillSingleField(msg.selector, msg.value))
+    }
+    if (msg.type === "CHECK_SUBMISSION") {
+      sendResponse({ submitted: detectSubmissionSuccess() })
+    }
     return false
   })
 

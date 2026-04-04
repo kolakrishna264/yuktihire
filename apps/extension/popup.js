@@ -40,7 +40,10 @@ async function init() {
   try {
     const jobData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_JOB" })
 
-    if (jobData && jobData.title && jobData.confidence > 0) {
+    if (jobData && jobData.pageType === "application") {
+      // Application form detected → show copilot
+      await showCopilot(tab.id)
+    } else if (jobData && jobData.title && jobData.confidence > 0) {
       showJobDetected(jobData, tab.url)
     } else if (jobData && jobData.pageType === "job") {
       // Page looks like a job but couldn't extract title — show manual with hints
@@ -169,6 +172,105 @@ async function showJobDetected(data, url) {
       btn.textContent = `✓ ${fillResult.filled} fields filled`
     })
   }
+}
+
+async function showCopilot(tabId) {
+  showState("#copilot-state")
+
+  // Get form analysis
+  let analysis
+  try {
+    analysis = await chrome.tabs.sendMessage(tabId, { type: "GET_FORM_ANALYSIS" })
+  } catch {
+    analysis = { fields: [], totalFields: 0, readyCount: 0, needsAiCount: 0, needsInputCount: 0, fileUploadCount: 0 }
+  }
+
+  // Show summary
+  const summaryEl = document.getElementById("field-summary")
+  summaryEl.innerHTML = `
+    <span class="stat ready">${analysis.readyCount} ready</span>
+    <span class="stat ai">${analysis.needsAiCount} need AI</span>
+    <span class="stat input">${analysis.needsInputCount} need input</span>
+    ${analysis.fileUploadCount > 0 ? `<span class="stat file">${analysis.fileUploadCount} uploads</span>` : ""}
+  `
+
+  // Show field list
+  const listEl = document.getElementById("field-list")
+  listEl.innerHTML = analysis.fields.map(f => `
+    <div class="field-item">
+      <div class="dot ${f.fillStatus === 'ready' ? 'ready' : f.fillStatus === 'needs_ai' ? 'ai' : f.fillStatus === 'file_upload' ? 'file' : 'input'}"></div>
+      <span class="label">${f.label || f.fieldType}</span>
+      <span class="badge ${f.confidence}">${f.confidence}</span>
+    </div>
+  `).join("")
+
+  // Tab switching
+  document.querySelectorAll(".copilot-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".copilot-tab").forEach(t => t.classList.remove("active"))
+      tab.classList.add("active")
+      document.querySelectorAll(".copilot-content").forEach(c => c.classList.add("hidden"))
+      document.getElementById(`copilot-${tab.dataset.tab}`)?.classList.remove("hidden")
+    })
+  })
+
+  // Fill safe fields button
+  document.getElementById("fill-safe-btn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("fill-safe-btn")
+    btn.disabled = true
+    btn.textContent = "Filling..."
+
+    const profileResult = await sendMessage({ type: "GET_AUTOFILL_DATA" })
+    if (!profileResult.ok) {
+      btn.textContent = "Failed — no profile"
+      return
+    }
+
+    const result = await chrome.tabs.sendMessage(tabId, { type: "FILL_SAFE_FIELDS", data: profileResult.data })
+
+    btn.textContent = `✓ ${result.filled.length} filled`
+
+    // Show logs
+    const logsEl = document.getElementById("fill-logs")
+    logsEl.innerHTML = [
+      ...result.filled.map(f => `<div class="log-item"><span class="status-icon">✓</span> ${f.label}: ${f.value}</div>`),
+      ...result.skipped.map(f => `<div class="log-item"><span class="status-icon">—</span> ${f.label}: ${f.reason}</div>`),
+      ...result.failed.map(f => `<div class="log-item"><span class="status-icon">✗</span> ${f.label}: ${f.reason}</div>`),
+    ].join("")
+  })
+
+  // Fill everything button
+  document.getElementById("fill-all-btn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("fill-all-btn")
+    btn.disabled = true
+    btn.textContent = "Filling all..."
+
+    // First fill safe fields
+    const profileResult = await sendMessage({ type: "GET_AUTOFILL_DATA" })
+    if (profileResult.ok) {
+      await chrome.tabs.sendMessage(tabId, { type: "FILL_SAFE_FIELDS", data: profileResult.data })
+    }
+
+    // Then generate AI answers for custom questions
+    const customFields = analysis.fields.filter(f => f.fillStatus === "needs_ai")
+    for (const field of customFields) {
+      try {
+        const answerResult = await sendMessage({
+          type: "GENERATE_ANSWER",
+          data: { question: field.label || field.placeholder }
+        })
+        if (answerResult.ok && answerResult.data?.answer) {
+          await chrome.tabs.sendMessage(tabId, {
+            type: "FILL_SINGLE_FIELD",
+            selector: field.selector,
+            value: answerResult.data.answer,
+          })
+        }
+      } catch {}
+    }
+
+    btn.textContent = "✓ All fields processed"
+  })
 }
 
 function showAlreadySaved(data) {
