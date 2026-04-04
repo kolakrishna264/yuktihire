@@ -27,12 +27,14 @@ async function getToken() {
 }
 
 async function storeTokens(accessToken, refreshToken, expiresAt) {
+  // Always clean the token — remove surrounding quotes, whitespace
+  const clean = (accessToken || "").replace(/^['"`\s]+|['"`\s]+$/g, "")
   await chrome.storage.local.set({
-    yuktihire_token: accessToken,
-    yuktihire_refresh: refreshToken || "",
+    yuktihire_token: clean,
+    yuktihire_refresh: (refreshToken || "").replace(/^['"`\s]+|['"`\s]+$/g, ""),
     yuktihire_expires: expiresAt || 0,
   })
-  console.log("[YuktiHire] Tokens stored")
+  console.log("[YuktiHire] Token stored:", clean.slice(0, 20) + "...")
 }
 
 async function clearTokens() {
@@ -138,7 +140,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "SET_TOKEN") {
-    storeTokens(msg.token, msg.refresh, msg.expires)
+    // Strip quotes that may wrap the token from console paste
+    const cleanToken = (msg.token || "").replace(/^['"`]+|['"`]+$/g, "").trim()
+    storeTokens(cleanToken, msg.refresh, msg.expires)
       .then(() => sendResponse({ ok: true }))
     return true
   }
