@@ -59,7 +59,22 @@ function showNoJob(reason) {
   showState("#no-job-state")
 }
 
-function showJobDetected(data, url) {
+async function showJobDetected(data, url) {
+  // Capture full page text as description fallback
+  let fullDesc = data.description || ""
+  if (!fullDesc || fullDesc.length < 50) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.id) {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => document.body?.innerText?.slice(0, 10000) || "",
+        })
+        if (results?.[0]?.result) fullDesc = results[0].result
+      }
+    } catch {}
+  }
+
   // Title & company
   $("#job-title").textContent = data.title || "Untitled"
   $("#job-company").textContent = data.company || "Unknown"
@@ -100,6 +115,7 @@ function showJobDetected(data, url) {
   $("#save-btn").onclick = async () => {
     $("#save-btn").disabled = true
     $("#save-btn").textContent = "Saving..."
+
     const result = await sendMessage({
       type: "CAPTURE_JOB",
       data: {
@@ -107,7 +123,7 @@ function showJobDetected(data, url) {
         page_title: data.pageTitle,
         extracted_title: data.title,
         extracted_company: data.company,
-        extracted_description: data.description?.slice(0, 10000),
+        extracted_description: fullDesc.slice(0, 10000),
         source_domain: data.source_domain,
       },
     })
@@ -124,7 +140,7 @@ function showJobDetected(data, url) {
         page_title: data.pageTitle,
         extracted_title: data.title,
         extracted_company: data.company,
-        extracted_description: data.description?.slice(0, 10000),
+        extracted_description: fullDesc.slice(0, 10000),
         source_domain: data.source_domain,
       },
     })
