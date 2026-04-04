@@ -2579,16 +2579,19 @@ if (document.location.hostname.includes("yuktihire.com")) {
       if (labelLower.includes(optionalFields[of2]) && !answers[optionalFields[of2]]) return null
     }
 
-    // Special handling: "Country" label — ONLY fill as phone country code for selects
-    // This prevents ANY other value (disability, race, etc.) from going into the Country field
-    if (labelLower.includes("country")) {
+    // Special handling: "Country" as a SHORT label (phone country code selector)
+    // ONLY match when "country" IS the main label — not inside a long sentence like
+    // "require visa sponsorship to work in the country in which..."
+    if (labelLower.length < 30 && (labelLower === "country" || labelLower === "country *" ||
+        labelLower === "country code" || labelLower === "phone country" ||
+        labelLower.startsWith("country") && !labelLower.includes("work") && !labelLower.includes("visa"))) {
       if (controlType === "select" || controlType === "custom-select") {
         return { key: "phone_country", value: "United States" }
       }
       if (controlType === "text") {
         return { key: "country_text", value: "United States" }
       }
-      return null  // Don't match country to anything else
+      return null
     }
 
     // Exact key match
