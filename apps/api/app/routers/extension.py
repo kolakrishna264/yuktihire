@@ -130,6 +130,50 @@ async def quick_save(
     return await capture_job(data, current_user, db)
 
 
+@router.get("/autofill-data")
+async def get_autofill_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return structured profile data for form autofill."""
+    try:
+        profile = await db.execute(
+            text("SELECT * FROM profiles WHERE user_id = :uid"),
+            {"uid": current_user.id},
+        )
+        p = profile.mappings().first()
+
+        # Get user email
+        user_result = await db.execute(
+            text("SELECT email, full_name FROM users WHERE id = :uid"),
+            {"uid": current_user.id},
+        )
+        user = user_result.mappings().first()
+
+        # Parse name
+        full_name = (user.get("full_name") or user.get("email", "").split("@")[0]) if user else ""
+        name_parts = full_name.split(" ", 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        return {
+            "firstName": first_name,
+            "lastName": last_name,
+            "fullName": full_name,
+            "email": user.get("email", "") if user else "",
+            "phone": p.get("phone", "") if p else "",
+            "location": p.get("location", "") if p else "",
+            "linkedin": p.get("linkedin", "") if p else "",
+            "github": p.get("github", "") if p else "",
+            "portfolio": p.get("portfolio", "") if p else "",
+            "headline": p.get("headline", "") if p else "",
+            "summary": p.get("summary", "") if p else "",
+        }
+    except Exception as e:
+        print(f"[Extension] autofill-data error: {e}")
+        return {"firstName": "", "lastName": "", "email": current_user.email or ""}
+
+
 def _extract_domain(url_or_domain: str) -> str:
     """Extract a company-ish name from a URL or domain."""
     domain = url_or_domain.replace("https://", "").replace("http://", "").split("/")[0]

@@ -140,6 +140,35 @@ async function showJobDetected(data, url) {
   $("#tailor-link").href = `${APP_URL}/dashboard/tailor`
 
   showState("#job-detected-state")
+
+  // Show autofill button if on application page
+  if (data.pageType === "application") {
+    const afSection = document.getElementById("autofill-section")
+    if (afSection) afSection.classList.remove("hidden")
+
+    document.getElementById("autofill-btn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("autofill-btn")
+      btn.disabled = true
+      btn.textContent = "Filling..."
+
+      // Get profile data from API
+      const profileResult = await sendMessage({ type: "GET_AUTOFILL_DATA" })
+      if (!profileResult.ok) {
+        document.getElementById("autofill-status").textContent = "Failed to load profile"
+        btn.disabled = false
+        btn.textContent = "Autofill Application Form"
+        return
+      }
+
+      // Send to content script to fill
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      const fillResult = await chrome.tabs.sendMessage(tab.id, { type: "AUTOFILL_FORM", data: profileResult.data })
+
+      document.getElementById("autofill-status").textContent =
+        `Filled ${fillResult.filled} fields, skipped ${fillResult.skipped}`
+      btn.textContent = `✓ ${fillResult.filled} fields filled`
+    })
+  }
 }
 
 function showAlreadySaved(data) {

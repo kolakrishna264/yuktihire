@@ -466,6 +466,163 @@ if (document.location.pathname === "/auth/extension-callback") {
       }
       sendResponse(data)
     }
+
+    if (msg.type === "DETECT_FORM") {
+      const fields = detectFormFields()
+      sendResponse(fields)
+    }
+
+    if (msg.type === "AUTOFILL_FORM") {
+      const result = autofillForm(msg.data)
+      sendResponse(result)
+    }
+
     return false
   })
+
+  // ── Form Detection & Autofill ─────────────────────────────────────────
+
+  function detectFormFields() {
+    const fields = []
+    const inputs = document.querySelectorAll("input, textarea, select")
+
+    for (const input of inputs) {
+      if (input.type === "hidden" || input.type === "submit" || input.type === "button") continue
+      if (input.offsetParent === null) continue // not visible
+
+      const label = _getFieldLabel(input)
+      const fieldType = _classifyField(input, label)
+
+      if (fieldType) {
+        fields.push({
+          selector: _getUniqueSelector(input),
+          type: input.type || input.tagName.toLowerCase(),
+          fieldType: fieldType,
+          label: label,
+          name: input.name || input.id || "",
+          value: input.value || "",
+          placeholder: input.placeholder || "",
+          required: input.required,
+        })
+      }
+    }
+
+    return { fields, formCount: document.querySelectorAll("form").length }
+  }
+
+  function _getFieldLabel(input) {
+    // Try label element
+    if (input.id) {
+      const label = document.querySelector(`label[for="${input.id}"]`)
+      if (label) return label.textContent.trim()
+    }
+    // Try parent label
+    const parentLabel = input.closest("label")
+    if (parentLabel) return parentLabel.textContent.trim()
+    // Try aria-label
+    if (input.getAttribute("aria-label")) return input.getAttribute("aria-label")
+    // Try placeholder
+    if (input.placeholder) return input.placeholder
+    // Try preceding text
+    const prev = input.previousElementSibling
+    if (prev && prev.tagName === "LABEL") return prev.textContent.trim()
+    return input.name || input.id || ""
+  }
+
+  function _classifyField(input, label) {
+    const l = (label + " " + (input.name || "") + " " + (input.id || "") + " " + (input.placeholder || "")).toLowerCase()
+
+    if (l.includes("first name") || l.includes("firstname") || l.includes("first_name")) return "firstName"
+    if (l.includes("last name") || l.includes("lastname") || l.includes("last_name") || l.includes("surname")) return "lastName"
+    if ((l.includes("full name") || l.includes("your name") || l.includes("name")) && !l.includes("company") && !l.includes("user")) return "fullName"
+    if (l.includes("email") || input.type === "email") return "email"
+    if (l.includes("phone") || l.includes("mobile") || l.includes("tel") || input.type === "tel") return "phone"
+    if (l.includes("linkedin")) return "linkedin"
+    if (l.includes("github")) return "github"
+    if (l.includes("portfolio") || l.includes("website") || l.includes("personal site")) return "portfolio"
+    if (l.includes("address") || l.includes("location") || l.includes("city")) return "location"
+    if (l.includes("resume") || l.includes("cv")) return "resume"
+    if (l.includes("cover letter")) return "coverLetter"
+    if (l.includes("salary") || l.includes("compensation") || l.includes("expected pay")) return "salary"
+    if (l.includes("sponsor") || l.includes("visa")) return "sponsorship"
+    if (l.includes("authoriz") || l.includes("eligible to work") || l.includes("legally")) return "authorization"
+    if (l.includes("start date") || l.includes("available") || l.includes("notice period")) return "availability"
+    if (l.includes("experience") || l.includes("years")) return "experience"
+
+    // Check if it's a textarea (likely a custom question)
+    if (input.tagName === "TEXTAREA") return "customQuestion"
+
+    return null  // Unknown field — skip
+  }
+
+  function _getUniqueSelector(el) {
+    if (el.id) return `#${el.id}`
+    if (el.name) return `[name="${el.name}"]`
+    // Fallback: generate path
+    const path = []
+    let current = el
+    while (current && current !== document.body) {
+      let sel = current.tagName.toLowerCase()
+      if (current.id) { sel = `#${current.id}`; path.unshift(sel); break }
+      if (current.className) sel += `.${current.className.split(" ")[0]}`
+      path.unshift(sel)
+      current = current.parentElement
+    }
+    return path.join(" > ")
+  }
+
+  function autofillForm(profileData) {
+    const results = { filled: 0, failed: 0, skipped: 0, details: [] }
+
+    const fieldMap = {
+      firstName: profileData.firstName,
+      lastName: profileData.lastName,
+      fullName: profileData.fullName,
+      email: profileData.email,
+      phone: profileData.phone,
+      linkedin: profileData.linkedin,
+      github: profileData.github,
+      portfolio: profileData.portfolio,
+      location: profileData.location,
+    }
+
+    const fields = detectFormFields().fields
+
+    for (const field of fields) {
+      const value = fieldMap[field.fieldType]
+      if (!value) {
+        results.skipped++
+        results.details.push({ field: field.label, status: "skipped", reason: "no value" })
+        continue
+      }
+
+      try {
+        const el = document.querySelector(field.selector)
+        if (!el) {
+          results.failed++
+          results.details.push({ field: field.label, status: "failed", reason: "element not found" })
+          continue
+        }
+
+        // Set value and trigger events
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
+        if (nativeInputValueSetter) {
+          nativeInputValueSetter.call(el, value)
+        } else {
+          el.value = value
+        }
+        el.dispatchEvent(new Event("input", { bubbles: true }))
+        el.dispatchEvent(new Event("change", { bubbles: true }))
+        el.dispatchEvent(new Event("blur", { bubbles: true }))
+
+        results.filled++
+        results.details.push({ field: field.label, status: "filled", value: value.slice(0, 30) })
+      } catch (e) {
+        results.failed++
+        results.details.push({ field: field.label, status: "failed", reason: e.message })
+      }
+    }
+
+    return results
+  }
 })()
