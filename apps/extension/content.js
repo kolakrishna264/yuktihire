@@ -455,115 +455,739 @@ if (document.location.pathname === "/auth/extension-callback") {
     return tmp.textContent?.trim().replace(/\s+/g, " ") || ""
   }
 
-  // ── Apply Copilot Functions ──────────────────────────────────────────
+  // ── Form Detection & Autofill Engine ────────────────────────────────────
+  // Block-based form analyzer with multi-strategy fill
+
+  // ── Utility: pattern matching helper ──────────────────────────────────
+
+  function matches(text, patterns) {
+    return patterns.some(function (p) { return text.includes(p) })
+  }
+
+  // ── 1. Form Block Analyzer ────────────────────────────────────────────
+
+  function scanFormBlocks() {
+    const blocks = []
+    const seen = new Set()
+
+    // Scan all visible interactive elements
+    const inputs = document.querySelectorAll("input, textarea, select")
+    for (const input of inputs) {
+      if (input.type === "hidden" || input.type === "submit" || input.type === "button" || input.type === "reset") continue
+      if (input.offsetParent === null && input.type !== "file") continue // skip invisible (allow file inputs that may be hidden behind a button)
+      const uid = getUniqueSelector(input)
+      if (seen.has(uid)) continue
+      seen.add(uid)
+
+      // Skip radio buttons — we handle them as groups below
+      if (input.type === "radio") continue
+
+      const block = analyzeBlock(input)
+      if (block) blocks.push(block)
+    }
+
+    // Scan radio groups separately
+    const radioGroups = new Map()
+    document.querySelectorAll('input[type="radio"]').forEach(function (radio) {
+      if (radio.offsetParent === null) return
+      const groupName = radio.name || radio.getAttribute("aria-labelledby") || getUniqueSelector(radio)
+      if (!radioGroups.has(groupName)) radioGroups.set(groupName, [])
+      radioGroups.get(groupName).push(radio)
+    })
+
+    radioGroups.forEach(function (radios, groupName) {
+      if (radios.length === 0) return
+      const block = analyzeRadioGroup(radios, groupName)
+      if (block) blocks.push(block)
+    })
+
+    return { blocks: blocks, formCount: document.querySelectorAll("form").length }
+  }
+
+  function analyzeBlock(input) {
+    // Find the container div — walk up to a reasonable wrapper
+    var container = findBlockContainer(input)
+
+    // Extract question text from all available sources
+    var questionText = extractQuestionText(input, container)
+
+    // Determine input type
+    var inputType = detectInputType(input)
+
+    // Extract options for select elements
+    var options = []
+    if (inputType === "select" && input.tagName === "SELECT") {
+      options = Array.from(input.options).map(function (o) { return o.text.trim() }).filter(function (t) { return t.length > 0 })
+    }
+
+    // Check for file input in the container (some forms wrap file inputs)
+    var hasFileInput = inputType === "file" || (container && container.querySelector('input[type="file"]') !== null)
+
+    var block = {
+      selector: getUniqueSelector(input),
+      container: container,
+      questionText: questionText,
+      inputName: input.name || "",
+      inputId: input.id || "",
+      placeholder: input.placeholder || "",
+      inputType: inputType,
+      options: options,
+      hasFileInput: hasFileInput,
+      required: input.required || input.getAttribute("aria-required") === "true" || (container && container.textContent.includes("*")),
+      currentValue: input.value || "",
+      isFilled: !!(input.value && input.value.trim().length > 0),
+      tagName: input.tagName,
+    }
+
+    block.fieldType = classifyBlock(block)
+    return block
+  }
+
+  function analyzeRadioGroup(radios, groupName) {
+    var firstRadio = radios[0]
+    var container = findBlockContainer(firstRadio)
+
+    // For radio groups, the question text is usually above or in the container, not on the radio itself
+    var questionText = ""
+    if (container) {
+      // Look for a legend, heading, label, or prominent text
+      var legend = container.querySelector("legend, h3, h4, h5, h6, label, [class*='label'], [class*='question'], [class*='title']")
+      if (legend) questionText = legend.textContent.trim()
+      if (!questionText) {
+        // Use the container text minus option text
+        var optionTexts = radios.map(function (r) { return (r.closest("label")?.textContent || r.value || "").trim() })
+        var fullText = container.textContent.trim()
+        optionTexts.forEach(function (t) { fullText = fullText.replace(t, "") })
+        questionText = fullText.replace(/\s+/g, " ").trim()
+      }
+    }
+    if (!questionText) questionText = groupName
+
+    // Extract option labels
+    var options = radios.map(function (r) {
+      var label = r.closest("label")
+      return label ? label.textContent.trim() : r.value || ""
+    }).filter(Boolean)
+
+    var block = {
+      selector: getUniqueSelector(firstRadio),
+      container: container,
+      questionText: questionText,
+      inputName: groupName,
+      inputId: firstRadio.id || "",
+      placeholder: "",
+      inputType: "radio",
+      options: options,
+      hasFileInput: false,
+      required: firstRadio.required || firstRadio.getAttribute("aria-required") === "true",
+      currentValue: radios.find(function (r) { return r.checked })?.value || "",
+      isFilled: radios.some(function (r) { return r.checked }),
+      tagName: "INPUT",
+      radioElements: radios,
+    }
+
+    block.fieldType = classifyBlock(block)
+    return block
+  }
+
+  function findBlockContainer(input) {
+    // Walk up the DOM looking for a reasonable container
+    // Typically a div, fieldset, or li that wraps label + input
+    var el = input.parentElement
+    var depth = 0
+    while (el && depth < 6) {
+      var tag = el.tagName
+      if (tag === "FORM" || tag === "BODY" || tag === "HTML") break
+      // A good container has a label or text and an input
+      if ((tag === "DIV" || tag === "FIELDSET" || tag === "LI" || tag === "SECTION" || tag === "ARTICLE") &&
+          el.querySelector("input, textarea, select") &&
+          el.textContent.trim().length > el.querySelector("input, textarea, select")?.value?.length + 5) {
+        return el
+      }
+      el = el.parentElement
+      depth++
+    }
+    // Fallback: parent element
+    return input.parentElement
+  }
+
+  function extractQuestionText(input, container) {
+    var parts = []
+
+    // 1. Explicit label via for attribute
+    if (input.id) {
+      var label = document.querySelector('label[for="' + CSS.escape(input.id) + '"]')
+      if (label) parts.push(label.textContent.trim())
+    }
+
+    // 2. Wrapping label
+    var parentLabel = input.closest("label")
+    if (parentLabel) {
+      var labelText = parentLabel.textContent.trim()
+      // Remove the input value from the label text
+      if (input.value) labelText = labelText.replace(input.value, "").trim()
+      if (labelText) parts.push(labelText)
+    }
+
+    // 3. aria-label and aria-labelledby
+    var ariaLabel = input.getAttribute("aria-label")
+    if (ariaLabel) parts.push(ariaLabel)
+    var ariaLabelledby = input.getAttribute("aria-labelledby")
+    if (ariaLabelledby) {
+      var ids = ariaLabelledby.split(/\s+/)
+      ids.forEach(function (id) {
+        var el = document.getElementById(id)
+        if (el) parts.push(el.textContent.trim())
+      })
+    }
+
+    // 4. Preceding sibling label or text element
+    var prev = input.previousElementSibling
+    if (prev) {
+      if (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "P" || prev.tagName === "DIV") {
+        parts.push(prev.textContent.trim())
+      }
+    }
+
+    // 5. Container heading or label (if container exists)
+    if (container) {
+      var heading = container.querySelector("h1, h2, h3, h4, h5, h6, legend, [class*='label'], [class*='question'], [class*='title'], [data-testid*='label']")
+      if (heading && heading !== parentLabel) {
+        parts.push(heading.textContent.trim())
+      }
+    }
+
+    // 6. Placeholder as last resort
+    if (input.placeholder) parts.push(input.placeholder)
+
+    // Deduplicate and join
+    var unique = []
+    var seenLower = new Set()
+    parts.forEach(function (p) {
+      var clean = p.replace(/\s+/g, " ").slice(0, 500)
+      var lower = clean.toLowerCase()
+      if (clean && !seenLower.has(lower)) {
+        seenLower.add(lower)
+        unique.push(clean)
+      }
+    })
+    return unique.join(" | ")
+  }
+
+  function detectInputType(input) {
+    var tag = input.tagName
+    if (tag === "SELECT") return "select"
+    if (tag === "TEXTAREA") return "textarea"
+    var type = (input.type || "text").toLowerCase()
+    if (type === "checkbox") return "checkbox"
+    if (type === "radio") return "radio"
+    if (type === "file") return "file"
+    if (type === "email") return "email"
+    if (type === "tel") return "tel"
+    if (type === "number") return "number"
+    if (type === "url") return "url"
+    if (type === "date") return "date"
+    return "text"
+  }
+
+  // ── 2. Field Classifier ───────────────────────────────────────────────
+
+  function classifyBlock(block) {
+    var text = (block.questionText + " " + block.inputName + " " + block.inputId + " " + block.placeholder).toLowerCase()
+
+    // Identity
+    if (matches(text, ["first name", "firstname", "first_name", "fname", "given name", "given_name"])) return "firstName"
+    if (matches(text, ["last name", "lastname", "last_name", "lname", "surname", "family name", "family_name"])) return "lastName"
+    if (matches(text, ["full name", "your name", "candidate name", "fullname", "applicant name"]) && !text.includes("company")) return "fullName"
+
+    // Contact
+    if (matches(text, ["email"]) || block.inputType === "email") return "email"
+    if (matches(text, ["phone", "mobile", "tel", "cell", "contact number"]) || block.inputType === "tel") return "phone"
+
+    // Links
+    if (text.includes("linkedin")) return "linkedin"
+    if (text.includes("github")) return "github"
+    if (matches(text, ["portfolio", "website", "personal site", "personal url", "personal website", "home page", "homepage"])) return "portfolio"
+
+    // Location
+    if (matches(text, ["street address", "address line"])) return "address"
+    if (matches(text, ["city", "location", "where are you", "located", "based in"])) return "location"
+    if (matches(text, ["state", "province", "region"])) return "state"
+    if (matches(text, ["zip", "postal", "postcode", "zip code"])) return "zip"
+    if (matches(text, ["country"])) return "country"
+
+    // Work
+    if (matches(text, ["current company", "current employer", "company name", "employer name"])) return "currentCompany"
+    if (matches(text, ["current title", "current role", "job title", "current position"])) return "currentTitle"
+
+    // Authorization — must come before generic work keywords
+    if (matches(text, ["authorized to work", "authorised to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"])) return "workAuthorization"
+    if (matches(text, ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "immigration", "require sponsorship", "need sponsorship", "require visa"])) return "sponsorship"
+    if (matches(text, ["relocat"])) return "relocation"
+
+    // Compensation
+    if (matches(text, ["salary", "compensation", "expected pay", "desired salary", "pay expectation", "salary expectation"])) return "salary"
+    if (matches(text, ["start date", "earliest start", "when can you start", "availability", "notice period", "available to start", "date available"])) return "availability"
+
+    // Experience
+    if (matches(text, ["years of experience", "how many years", "years experience", "total experience"])) return "yearsExperience"
+    if (matches(text, ["education", "highest degree", "degree", "university", "school", "academic"])) return "education"
+    if (matches(text, ["gender"]) && !text.includes("transgender")) return "gender"
+    if (matches(text, ["race", "ethnicity", "ethnic"])) return "ethnicity"
+    if (matches(text, ["veteran"])) return "veteran"
+    if (matches(text, ["disability", "disabled"])) return "disability"
+    if (matches(text, ["pronouns"])) return "pronouns"
+
+    // Files
+    if (matches(text, ["resume", "cv", "résumé"]) && (block.inputType === "file" || block.hasFileInput)) return "resumeUpload"
+    if (matches(text, ["cover letter"]) && (block.inputType === "file" || block.hasFileInput)) return "coverLetterUpload"
+
+    // Consent / checkboxes
+    if (matches(text, ["agree", "consent", "acknowledge", "terms", "privacy", "opt in", "opt-in", "sms", "text message", "subscribe", "mailing list", "marketing"])) return "consent"
+
+    // Open-ended
+    if (matches(text, ["why do you want", "why are you interested", "why this", "what interests"])) return "motivation"
+    if (matches(text, ["tell us about", "describe your", "relevant experience", "briefly describe", "background"])) return "experience"
+    if (matches(text, ["anything else", "additional information", "is there anything", "comments"])) return "openEnded"
+
+    // Textarea = custom question
+    if (block.inputType === "textarea") return "customQuestion"
+
+    // Select or radio with yes/no options = likely authorization/sponsorship style question
+    if ((block.inputType === "select" || block.inputType === "radio") && block.options && block.options.some(function (o) { return o.toLowerCase() === "yes" || o.toLowerCase() === "no" })) return "yesNoQuestion"
+
+    return "unknown"
+  }
+
+  // ── 3. Unique Selector Generator ──────────────────────────────────────
+
+  function getUniqueSelector(el) {
+    // Strategy 1: ID
+    if (el.id) {
+      try { if (document.querySelectorAll("#" + CSS.escape(el.id)).length === 1) return "#" + CSS.escape(el.id) } catch (e) {}
+    }
+    // Strategy 2: name attribute
+    if (el.name) {
+      var sel = el.tagName.toLowerCase() + '[name="' + el.name + '"]'
+      try { if (document.querySelectorAll(sel).length === 1) return sel } catch (e) {}
+    }
+    // Strategy 3: data-testid or data-automation-id
+    var testId = el.getAttribute("data-testid") || el.getAttribute("data-automation-id") || el.getAttribute("data-qa")
+    if (testId) {
+      var sel2 = '[data-testid="' + testId + '"]'
+      try { if (document.querySelectorAll(sel2).length === 1) return sel2 } catch (e) {}
+    }
+    // Strategy 4: aria-label
+    var ariaLabel = el.getAttribute("aria-label")
+    if (ariaLabel) {
+      var sel3 = el.tagName.toLowerCase() + '[aria-label="' + ariaLabel.replace(/"/g, '\\"') + '"]'
+      try { if (document.querySelectorAll(sel3).length === 1) return sel3 } catch (e) {}
+    }
+    // Strategy 5: Build a path with nth-child
+    var path = []
+    var current = el
+    while (current && current !== document.body && current !== document.documentElement) {
+      var tag = current.tagName.toLowerCase()
+      if (current.id) {
+        path.unshift("#" + CSS.escape(current.id))
+        break
+      }
+      var parent = current.parentElement
+      if (parent) {
+        var siblings = Array.from(parent.children).filter(function (c) { return c.tagName === current.tagName })
+        if (siblings.length > 1) {
+          var idx = siblings.indexOf(current) + 1
+          tag += ":nth-of-type(" + idx + ")"
+        }
+      }
+      path.unshift(tag)
+      current = current.parentElement
+    }
+    return path.join(" > ")
+  }
+
+  // ── 4. Multi-Strategy Fill Functions ──────────────────────────────────
+
+  function fillField(block, value) {
+    try {
+      var el = document.querySelector(block.selector)
+      if (!el) return { ok: false, method: "none", error: "Element not found for selector: " + block.selector }
+
+      // Strategy A: Text / email / tel / textarea / number / url / date
+      if (["text", "email", "tel", "textarea", "number", "url", "date"].indexOf(block.inputType) !== -1) {
+        return tryTextFill(el, value, block)
+      }
+
+      // Strategy B: Select dropdown
+      if (block.inputType === "select") {
+        return trySelectFill(el, value, block)
+      }
+
+      // Strategy C: Radio buttons
+      if (block.inputType === "radio") {
+        return tryRadioFill(block.container, value, block)
+      }
+
+      // Strategy D: Checkbox
+      if (block.inputType === "checkbox") {
+        return tryCheckboxFill(el, value, block)
+      }
+
+      return { ok: false, method: "unsupported", error: "Input type " + block.inputType + " not supported" }
+    } catch (e) {
+      return { ok: false, method: "exception", error: e.message }
+    }
+  }
+
+  function tryTextFill(el, value, block) {
+    var strVal = String(value)
+
+    // Strategy 1: Native value setter (works with React, Angular, Vue)
+    var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    var setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+    if (setter) {
+      setter.call(el, strVal)
+    } else {
+      el.value = strVal
+    }
+
+    el.dispatchEvent(new Event("focus", { bubbles: true }))
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+    el.dispatchEvent(new Event("blur", { bubbles: true }))
+
+    // Verify
+    if (el.value === strVal) {
+      highlightField(el, "success")
+      return { ok: true, method: "native_setter" }
+    }
+
+    // Strategy 2: Direct assignment with InputEvent
+    el.value = strVal
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, data: strVal, inputType: "insertText" }))
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+
+    if (el.value === strVal) {
+      highlightField(el, "success")
+      return { ok: true, method: "direct_assign" }
+    }
+
+    // Strategy 3: Key-by-key simulation
+    el.focus()
+    el.value = ""
+    for (var i = 0; i < strVal.length; i++) {
+      var char = strVal[i]
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: char, bubbles: true }))
+      el.value += char
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }))
+      el.dispatchEvent(new KeyboardEvent("keyup", { key: char, bubbles: true }))
+    }
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+    el.dispatchEvent(new Event("blur", { bubbles: true }))
+
+    if (el.value && el.value.includes(strVal.slice(0, Math.min(5, strVal.length)))) {
+      highlightField(el, "success")
+      return { ok: true, method: "key_simulation" }
+    }
+
+    // Strategy 4: execCommand (for contenteditable-like fields)
+    try {
+      el.focus()
+      el.select()
+      document.execCommand("insertText", false, strVal)
+      if (el.value === strVal) {
+        highlightField(el, "success")
+        return { ok: true, method: "execCommand" }
+      }
+    } catch (e) {}
+
+    highlightField(el, "error")
+    return { ok: false, method: "all_failed", error: "Value not applied after 4 strategies" }
+  }
+
+  function trySelectFill(el, value, block) {
+    var valueLower = String(value).toLowerCase().trim()
+    var options = Array.from(el.options)
+
+    // Find best matching option — exact match first, then partial
+    var match = null
+
+    // Pass 1: exact text or value match
+    match = options.find(function (o) {
+      var t = o.text.toLowerCase().trim()
+      var v = o.value.toLowerCase().trim()
+      return t === valueLower || v === valueLower
+    })
+
+    // Pass 2: partial match
+    if (!match) {
+      match = options.find(function (o) {
+        var t = o.text.toLowerCase().trim()
+        return t.includes(valueLower) || valueLower.includes(t)
+      })
+    }
+
+    // Pass 3: yes/no normalization
+    if (!match) {
+      match = options.find(function (o) {
+        var t = o.text.toLowerCase().trim()
+        var v = o.value.toLowerCase().trim()
+        return (valueLower === "yes" && (t === "yes" || v === "yes" || v === "true" || t === "true")) ||
+               (valueLower === "no" && (t === "no" || v === "no" || v === "false" || t === "false"))
+      })
+    }
+
+    if (match) {
+      // Use native setter approach for React compatibility
+      var setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
+      if (setter) {
+        setter.call(el, match.value)
+      } else {
+        el.value = match.value
+      }
+      el.dispatchEvent(new Event("change", { bubbles: true }))
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+      highlightField(el, "success")
+      return { ok: true, method: "select_option", selected: match.text }
+    }
+
+    highlightField(el, "error")
+    return { ok: false, method: "select_no_match", error: 'No matching option for "' + value + '"', availableOptions: options.map(function (o) { return o.text }).slice(0, 10) }
+  }
+
+  function tryRadioFill(container, value, block) {
+    var valueLower = String(value).toLowerCase().trim()
+    // Find all radio inputs in the container or by name
+    var radios = block.radioElements
+    if (!radios || radios.length === 0) {
+      radios = container
+        ? Array.from(container.querySelectorAll('input[type="radio"]'))
+        : Array.from(document.querySelectorAll('input[type="radio"][name="' + block.inputName + '"]'))
+    }
+
+    for (var i = 0; i < radios.length; i++) {
+      var radio = radios[i]
+      var labelEl = radio.closest("label")
+      var labelText = labelEl ? labelEl.textContent.trim().toLowerCase() : (radio.value || "").toLowerCase()
+
+      if (labelText === valueLower || labelText.includes(valueLower) || radio.value.toLowerCase() === valueLower ||
+          (valueLower === "yes" && (labelText === "yes" || radio.value.toLowerCase() === "yes")) ||
+          (valueLower === "no" && (labelText === "no" || radio.value.toLowerCase() === "no"))) {
+        radio.checked = true
+        radio.click()
+        radio.dispatchEvent(new Event("change", { bubbles: true }))
+        radio.dispatchEvent(new Event("input", { bubbles: true }))
+        highlightField(labelEl || radio, "success")
+        return { ok: true, method: "radio_click", selected: labelText }
+      }
+    }
+
+    return { ok: false, method: "radio_no_match", error: 'No matching radio for "' + value + '"', availableOptions: radios.map(function (r) { return r.closest("label")?.textContent?.trim() || r.value }).slice(0, 10) }
+  }
+
+  function tryCheckboxFill(el, value, block) {
+    var shouldCheck = value === true || value === "true" || value === "yes" || value === "Yes" || value === "1" || value === true
+    if (el.checked !== shouldCheck) {
+      el.click()
+      el.dispatchEvent(new Event("change", { bubbles: true }))
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+    highlightField(el, "success")
+    return { ok: true, method: "checkbox_click", checked: el.checked }
+  }
+
+  // ── 5. Visual Feedback ────────────────────────────────────────────────
+
+  function highlightField(el, status) {
+    if (!el || !el.style) return
+    var color = status === "success" ? "#22c55e" : status === "error" ? "#ef4444" : "#eab308"
+    el.style.outline = "2px solid " + color
+    el.style.outlineOffset = "2px"
+    el.style.transition = "outline-color 0.3s ease"
+    setTimeout(function () {
+      if (el && el.style) {
+        el.style.outline = ""
+        el.style.outlineOffset = ""
+      }
+    }, 4000)
+  }
+
+  // ── 6. High-Level Functions (called by message listener) ──────────────
+
+  function detectFormFields() {
+    // Legacy-compatible wrapper around the block scanner
+    var result = scanFormBlocks()
+    var fields = result.blocks.map(function (block) {
+      return {
+        selector: block.selector,
+        type: block.inputType,
+        fieldType: block.fieldType,
+        label: block.questionText,
+        name: block.inputName || block.inputId || "",
+        value: block.currentValue || "",
+        placeholder: block.placeholder || "",
+        required: block.required,
+        options: block.options || [],
+      }
+    }).filter(function (f) { return f.fieldType && f.fieldType !== "unknown" })
+
+    return { fields: fields, formCount: result.formCount }
+  }
 
   function getFormAnalysis() {
-    /**
-     * Full copilot analysis of the current page.
-     * Returns fields with fill status and confidence.
-     */
-    const { fields, formCount } = detectFormFields()
+    var result = scanFormBlocks()
 
-    const analysis = fields.map(field => {
-      let fillStatus = "needs_input"  // default
-      let confidence = "low"
+    var analysis = result.blocks.map(function (block) {
+      var fillStatus = "needs_input"
+      var confidence = "low"
 
       // Fields we can always fill from profile
-      const autoFillable = ["firstName", "lastName", "fullName", "email", "phone", "linkedin", "github", "portfolio", "location"]
-      if (autoFillable.includes(field.fieldType)) {
+      var autoFillable = ["firstName", "lastName", "fullName", "email", "phone", "linkedin", "github", "portfolio", "location", "address", "currentCompany", "currentTitle"]
+      if (autoFillable.indexOf(block.fieldType) !== -1) {
         fillStatus = "ready"
         confidence = "high"
       }
 
+      // Fields that can be filled with known preferences
+      var prefillable = ["workAuthorization", "sponsorship", "relocation", "salary", "availability", "yearsExperience", "education", "country", "state", "zip"]
+      if (prefillable.indexOf(block.fieldType) !== -1) {
+        fillStatus = "ready"
+        confidence = "medium"
+      }
+
+      // Yes/No questions need user input or preferences
+      if (block.fieldType === "yesNoQuestion") {
+        fillStatus = "needs_input"
+        confidence = "medium"
+      }
+
       // Fields that need AI
-      if (field.fieldType === "customQuestion") {
+      var aiFields = ["customQuestion", "motivation", "experience", "openEnded"]
+      if (aiFields.indexOf(block.fieldType) !== -1) {
         fillStatus = "needs_ai"
         confidence = "medium"
       }
 
       // File uploads
-      if (field.type === "file" || field.fieldType === "resume" || field.fieldType === "coverLetter") {
+      if (block.fieldType === "resumeUpload" || block.fieldType === "coverLetterUpload" || block.inputType === "file") {
         fillStatus = "file_upload"
         confidence = "medium"
       }
 
-      // Yes/no type questions
-      if (["authorization", "sponsorship"].includes(field.fieldType)) {
+      // Consent checkboxes
+      if (block.fieldType === "consent") {
         fillStatus = "needs_input"
-        confidence = "medium"
+        confidence = "low"
+      }
+
+      // EEO / demographic fields — skip by default
+      var eeoFields = ["gender", "ethnicity", "veteran", "disability"]
+      if (eeoFields.indexOf(block.fieldType) !== -1) {
+        fillStatus = "eeo_optional"
+        confidence = "low"
       }
 
       return {
-        ...field,
-        fillStatus,
-        confidence,
-        filled: false,
+        selector: block.selector,
+        type: block.inputType,
+        fieldType: block.fieldType,
+        label: block.questionText,
+        name: block.inputName || block.inputId || "",
+        value: block.currentValue || "",
+        placeholder: block.placeholder || "",
+        required: block.required,
+        options: block.options || [],
+        fillStatus: fillStatus,
+        confidence: confidence,
+        filled: block.isFilled,
       }
     })
 
+    // Filter out truly unknown fields with no question text
+    analysis = analysis.filter(function (a) { return a.fieldType !== "unknown" || a.label.length > 0 })
+
     // Detect form steps
-    const hasNextButton = !!document.querySelector("button[type='submit'], [data-testid*='next'], .btn-next, input[type='submit']")
-    const hasSubmitButton = !!document.querySelector("input[value*='Submit'], input[value*='Apply']")
-    const stepIndicators = document.querySelectorAll("[class*='step'], [class*='progress'], [aria-label*='step']")
+    var hasNextButton = !!document.querySelector("button[type='submit'], [data-testid*='next'], .btn-next, input[type='submit'], button[class*='next'], a[class*='next']")
+    var hasSubmitButton = !!document.querySelector("input[value*='Submit'], input[value*='Apply'], button[type='submit']:last-of-type")
+    var stepIndicators = document.querySelectorAll("[class*='step'], [class*='progress'], [aria-label*='step'], [class*='wizard'], [data-testid*='step']")
 
     return {
       fields: analysis,
-      formCount,
+      formCount: result.formCount,
       totalFields: analysis.length,
-      readyCount: analysis.filter(f => f.fillStatus === "ready").length,
-      needsAiCount: analysis.filter(f => f.fillStatus === "needs_ai").length,
-      needsInputCount: analysis.filter(f => f.fillStatus === "needs_input").length,
-      fileUploadCount: analysis.filter(f => f.fillStatus === "file_upload").length,
-      hasNextButton,
-      hasSubmitButton,
+      readyCount: analysis.filter(function (f) { return f.fillStatus === "ready" }).length,
+      needsAiCount: analysis.filter(function (f) { return f.fillStatus === "needs_ai" }).length,
+      needsInputCount: analysis.filter(function (f) { return f.fillStatus === "needs_input" }).length,
+      fileUploadCount: analysis.filter(function (f) { return f.fillStatus === "file_upload" }).length,
+      eeoCount: analysis.filter(function (f) { return f.fillStatus === "eeo_optional" }).length,
+      hasNextButton: hasNextButton,
+      hasSubmitButton: hasSubmitButton,
       currentStep: stepIndicators.length > 0 ? "multi-step" : "single",
       pageType: classifyPage(),
     }
   }
 
   function fillSafeFields(profileData) {
-    /**
-     * Fill only high-confidence fields (name, email, phone, etc.)
-     * Returns detailed results.
-     */
-    const results = { filled: [], failed: [], skipped: [] }
-    const { fields } = detectFormFields()
+    var results = { filled: [], failed: [], skipped: [] }
+    var scanResult = scanFormBlocks()
 
-    const safeMap = {
+    // Build value map from profile data
+    var safeMap = {
       firstName: profileData.firstName,
       lastName: profileData.lastName,
-      fullName: profileData.fullName,
+      fullName: profileData.fullName || ((profileData.firstName || "") + " " + (profileData.lastName || "")).trim(),
       email: profileData.email,
       phone: profileData.phone,
       linkedin: profileData.linkedin,
       github: profileData.github,
       portfolio: profileData.portfolio,
-      location: profileData.location,
+      location: profileData.location || profileData.city,
       address: profileData.address || profileData.location,
-      authorization: profileData.workAuthorization || "Yes",
-      sponsorship: profileData.sponsorship || "",
-      company: profileData.headline || "",
+      state: profileData.state,
+      zip: profileData.zip || profileData.zipCode || profileData.postalCode,
+      country: profileData.country,
+      currentCompany: profileData.currentCompany || profileData.company || profileData.headline,
+      currentTitle: profileData.currentTitle || profileData.title || profileData.jobTitle,
+      workAuthorization: profileData.workAuthorization || profileData.authorized,
+      sponsorship: profileData.sponsorship,
+      relocation: profileData.relocation,
+      salary: profileData.salary || profileData.desiredSalary,
+      availability: profileData.availability || profileData.startDate,
+      yearsExperience: profileData.yearsExperience || profileData.experience,
+      education: profileData.education || profileData.degree,
+      pronouns: profileData.pronouns,
     }
 
-    for (const field of fields) {
-      const value = safeMap[field.fieldType]
-      if (!value) {
-        results.skipped.push({ label: field.label, type: field.fieldType, reason: "no value" })
+    for (var i = 0; i < scanResult.blocks.length; i++) {
+      var block = scanResult.blocks[i]
+      var value = safeMap[block.fieldType]
+
+      // Skip unknown, consent, EEO, file uploads, AI-needed fields
+      if (!value || block.fieldType === "unknown" || block.fieldType === "consent" ||
+          block.fieldType === "resumeUpload" || block.fieldType === "coverLetterUpload" ||
+          block.fieldType === "customQuestion" || block.fieldType === "motivation" ||
+          block.fieldType === "experience" || block.fieldType === "openEnded" ||
+          block.fieldType === "gender" || block.fieldType === "ethnicity" ||
+          block.fieldType === "veteran" || block.fieldType === "disability") {
+        if (!value) {
+          results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "no value in profile" })
+        } else {
+          results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "field type requires manual input" })
+        }
         continue
       }
 
-      try {
-        const el = document.querySelector(field.selector)
-        if (!el) {
-          results.failed.push({ label: field.label, reason: "not found" })
-          continue
-        }
+      // Skip already filled fields
+      if (block.isFilled && block.currentValue.trim().length > 0) {
+        results.skipped.push({ label: block.questionText, type: block.fieldType, reason: "already filled" })
+        continue
+      }
 
-        _setFieldValue(el, value)
-        _highlightField(el, "success")
-        results.filled.push({ label: field.label, type: field.fieldType, value: value.slice(0, 30) })
-      } catch (e) {
-        results.failed.push({ label: field.label, reason: e.message })
+      var fillResult = fillField(block, value)
+      if (fillResult.ok) {
+        results.filled.push({ label: block.questionText, type: block.fieldType, value: String(value).slice(0, 30), method: fillResult.method })
+      } else {
+        results.failed.push({ label: block.questionText, type: block.fieldType, reason: fillResult.error, method: fillResult.method })
       }
     }
 
@@ -571,69 +1195,104 @@ if (document.location.pathname === "/auth/extension-callback") {
   }
 
   function fillSingleField(selector, value) {
-    /**
-     * Fill a specific field by selector.
-     */
     try {
-      const el = document.querySelector(selector)
+      var el = document.querySelector(selector)
       if (!el) return { ok: false, error: "Element not found" }
-      _setFieldValue(el, value)
-      _highlightField(el, "success")
-      return { ok: true }
+
+      // Build a minimal block for the fill function
+      var block = analyzeBlock(el) || {
+        selector: selector,
+        inputType: detectInputType(el),
+        container: el.parentElement,
+        inputName: el.name || "",
+        inputId: el.id || "",
+        questionText: "",
+        placeholder: el.placeholder || "",
+      }
+      block.selector = selector // ensure the exact selector is used
+
+      return fillField(block, value)
     } catch (e) {
       return { ok: false, error: e.message }
     }
   }
 
-  function _setFieldValue(el, value) {
-    if (el.tagName === "SELECT") {
-      // For dropdowns: find the best matching option
-      const options = [...el.options]
-      const valueLower = value.toLowerCase()
-      const match = options.find(o =>
-        o.value.toLowerCase() === valueLower ||
-        o.text.toLowerCase() === valueLower ||
-        o.text.toLowerCase().includes(valueLower) ||
-        (valueLower === "yes" && (o.value === "Yes" || o.value === "true" || o.text.toLowerCase() === "yes")) ||
-        (valueLower === "no" && (o.value === "No" || o.value === "false" || o.text.toLowerCase() === "no"))
-      )
-      if (match) {
-        el.value = match.value
-      } else {
-        el.value = value
+  function autofillForm(profileData) {
+    var results = { filled: 0, failed: 0, skipped: 0, details: [] }
+    var scanResult = scanFormBlocks()
+
+    // Comprehensive value map — profile fields + options + AI answers
+    var fieldMap = {
+      firstName: profileData.firstName,
+      lastName: profileData.lastName,
+      fullName: profileData.fullName || ((profileData.firstName || "") + " " + (profileData.lastName || "")).trim(),
+      email: profileData.email,
+      phone: profileData.phone,
+      linkedin: profileData.linkedin,
+      github: profileData.github,
+      portfolio: profileData.portfolio,
+      location: profileData.location || profileData.city,
+      address: profileData.address || profileData.location,
+      state: profileData.state,
+      zip: profileData.zip || profileData.zipCode || profileData.postalCode,
+      country: profileData.country,
+      currentCompany: profileData.currentCompany || profileData.company || profileData.headline,
+      currentTitle: profileData.currentTitle || profileData.title || profileData.jobTitle,
+      workAuthorization: profileData.workAuthorization || profileData.authorized,
+      sponsorship: profileData.sponsorship,
+      relocation: profileData.relocation,
+      salary: profileData.salary || profileData.desiredSalary,
+      availability: profileData.availability || profileData.startDate,
+      yearsExperience: profileData.yearsExperience || profileData.experience,
+      education: profileData.education || profileData.degree,
+      pronouns: profileData.pronouns,
+    }
+
+    // Also accept per-field overrides from AI answers passed in profileData.fieldAnswers
+    var fieldAnswers = profileData.fieldAnswers || {}
+
+    for (var i = 0; i < scanResult.blocks.length; i++) {
+      var block = scanResult.blocks[i]
+
+      // Check for a direct answer keyed by selector or field type
+      var value = fieldAnswers[block.selector] || fieldAnswers[block.fieldType] || fieldMap[block.fieldType]
+
+      // Skip file uploads
+      if (block.inputType === "file" || block.fieldType === "resumeUpload" || block.fieldType === "coverLetterUpload") {
+        results.skipped++
+        results.details.push({ field: block.questionText, fieldType: block.fieldType, status: "skipped", reason: "file upload — handle separately" })
+        continue
       }
-    } else {
-      // Use native setter for React compatibility
-      const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
-      const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set
-      if (nativeSetter) {
-        nativeSetter.call(el, value)
+
+      if (!value) {
+        results.skipped++
+        results.details.push({ field: block.questionText, fieldType: block.fieldType, status: "skipped", reason: "no value available" })
+        continue
+      }
+
+      // Skip already filled unless we have an explicit override
+      if (block.isFilled && block.currentValue.trim().length > 0 && !fieldAnswers[block.selector]) {
+        results.skipped++
+        results.details.push({ field: block.questionText, fieldType: block.fieldType, status: "skipped", reason: "already filled" })
+        continue
+      }
+
+      var fillResult = fillField(block, value)
+      if (fillResult.ok) {
+        results.filled++
+        results.details.push({ field: block.questionText, fieldType: block.fieldType, status: "filled", value: String(value).slice(0, 50), method: fillResult.method })
       } else {
-        el.value = value
+        results.failed++
+        results.details.push({ field: block.questionText, fieldType: block.fieldType, status: "failed", reason: fillResult.error, method: fillResult.method, availableOptions: fillResult.availableOptions })
       }
     }
 
-    el.dispatchEvent(new Event("input", { bubbles: true }))
-    el.dispatchEvent(new Event("change", { bubbles: true }))
-    el.dispatchEvent(new Event("blur", { bubbles: true }))
-  }
-
-  function _highlightField(el, status) {
-    const color = status === "success" ? "#22c55e" : status === "error" ? "#ef4444" : "#6c63ff"
-    el.style.outline = `2px solid ${color}`
-    el.style.outlineOffset = "2px"
-    setTimeout(() => {
-      el.style.outline = ""
-      el.style.outlineOffset = ""
-    }, 3000)
+    return results
   }
 
   function detectSubmissionSuccess() {
-    /**
-     * Check if the page shows a submission success indicator.
-     */
-    const bodyText = (document.body?.innerText || "").toLowerCase()
-    const successSignals = [
+    var bodyText = (document.body?.innerText || "").toLowerCase()
+    var successSignals = [
       "application submitted",
       "thank you for applying",
       "application received",
@@ -641,16 +1300,20 @@ if (document.location.pathname === "/auth/extension-callback") {
       "your application has been",
       "we received your application",
       "application complete",
+      "thank you for your interest",
+      "thanks for applying",
+      "your submission has been received",
+      "you have successfully applied",
+      "application confirmation",
     ]
-
-    return successSignals.some(s => bodyText.includes(s))
+    return successSignals.some(function (s) { return bodyText.includes(s) })
   }
 
-  // ── Message listener ───────────────────────────────────────────────────
+  // ── Message Listener ──────────────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === "EXTRACT_JOB") {
-      const data = extractJobData()
+      var data = extractJobData()
       if (!data.description || data.description.length < 50) {
         data.description = (document.body?.innerText || "").slice(0, 10000)
       }
@@ -677,175 +1340,4 @@ if (document.location.pathname === "/auth/extension-callback") {
     return false
   })
 
-  // ── Form Detection & Autofill ─────────────────────────────────────────
-
-  function detectFormFields() {
-    const fields = []
-    const inputs = document.querySelectorAll("input, textarea, select")
-
-    for (const input of inputs) {
-      if (input.type === "hidden" || input.type === "submit" || input.type === "button") continue
-      if (input.offsetParent === null) continue // not visible
-
-      const label = _getFieldLabel(input)
-      const fieldType = _classifyField(input, label)
-
-      if (fieldType) {
-        fields.push({
-          selector: _getUniqueSelector(input),
-          type: input.type || input.tagName.toLowerCase(),
-          fieldType: fieldType,
-          label: label,
-          name: input.name || input.id || "",
-          value: input.value || "",
-          placeholder: input.placeholder || "",
-          required: input.required,
-        })
-      }
-    }
-
-    return { fields, formCount: document.querySelectorAll("form").length }
-  }
-
-  function _getFieldLabel(input) {
-    // Try label element
-    if (input.id) {
-      const label = document.querySelector(`label[for="${input.id}"]`)
-      if (label) return label.textContent.trim()
-    }
-    // Try parent label
-    const parentLabel = input.closest("label")
-    if (parentLabel) return parentLabel.textContent.trim()
-    // Try aria-label
-    if (input.getAttribute("aria-label")) return input.getAttribute("aria-label")
-    // Try placeholder
-    if (input.placeholder) return input.placeholder
-    // Try preceding text
-    const prev = input.previousElementSibling
-    if (prev && prev.tagName === "LABEL") return prev.textContent.trim()
-    return input.name || input.id || ""
-  }
-
-  function _classifyField(input, label) {
-    const l = (label + " " + (input.name || "") + " " + (input.id || "") + " " + (input.placeholder || "")).toLowerCase()
-
-    // Name fields — check multiple variants
-    if (l.includes("first name") || l.includes("firstname") || l.includes("first_name") || l.includes("fname") || l.includes("given_name") || l.includes("given name")) return "firstName"
-    if (l.includes("last name") || l.includes("lastname") || l.includes("last_name") || l.includes("lname") || l.includes("surname") || l.includes("family_name") || l.includes("family name")) return "lastName"
-    if ((l.includes("full name") || l.includes("your name") || l.includes("fullname")) && !l.includes("company") && !l.includes("user")) return "fullName"
-
-    // Contact
-    if (l.includes("email") || input.type === "email") return "email"
-    if (l.includes("phone") || l.includes("mobile") || l.includes("tel") || input.type === "tel") return "phone"
-
-    // Links
-    if (l.includes("linkedin")) return "linkedin"
-    if (l.includes("github")) return "github"
-    if (l.includes("portfolio") || l.includes("website") || l.includes("personal site") || l.includes("personal url")) return "portfolio"
-
-    // Location/Address
-    if (l.includes("address") || l.includes("street")) return "address"
-    if (l.includes("location") || l.includes("city") || l.includes("where are you")) return "location"
-
-    // Company
-    if (l.includes("current company") || l.includes("current employer")) return "company"
-
-    // Files
-    if (l.includes("resume") || l.includes("cv") || l.includes("résumé")) return "resume"
-    if (l.includes("cover letter")) return "coverLetter"
-
-    // Compensation
-    if (l.includes("salary") || l.includes("compensation") || l.includes("expected pay")) return "salary"
-
-    // Authorization / Sponsorship (including dropdowns/selects)
-    if (l.includes("sponsor") || l.includes("visa") || l.includes("h-1b") || l.includes("h1b") || l.includes("immigration")) return "sponsorship"
-    if (l.includes("authoriz") || l.includes("eligible to work") || l.includes("legally") || l.includes("right to work") || l.includes("work in the u.s")) return "authorization"
-
-    // Timing
-    if (l.includes("start date") || l.includes("available") || l.includes("notice period") || l.includes("when can you")) return "availability"
-    if (l.includes("experience") || l.includes("years of")) return "experience"
-    if (l.includes("relocat")) return "relocation"
-
-    // Detect select/radio with Yes/No options as authorization or sponsorship
-    if (input.tagName === "SELECT") {
-      const options = [...input.options].map(o => o.text.toLowerCase())
-      if (options.some(o => o === "yes" || o === "no")) return "customQuestion"
-    }
-
-    // Textareas = custom questions
-    if (input.tagName === "TEXTAREA") return "customQuestion"
-
-    return null
-  }
-
-  function _getUniqueSelector(el) {
-    if (el.id) return `#${el.id}`
-    if (el.name) return `[name="${el.name}"]`
-    // Fallback: generate path
-    const path = []
-    let current = el
-    while (current && current !== document.body) {
-      let sel = current.tagName.toLowerCase()
-      if (current.id) { sel = `#${current.id}`; path.unshift(sel); break }
-      if (current.className) sel += `.${current.className.split(" ")[0]}`
-      path.unshift(sel)
-      current = current.parentElement
-    }
-    return path.join(" > ")
-  }
-
-  function autofillForm(profileData) {
-    const results = { filled: 0, failed: 0, skipped: 0, details: [] }
-
-    const fieldMap = {
-      firstName: profileData.firstName,
-      lastName: profileData.lastName,
-      fullName: profileData.fullName,
-      email: profileData.email,
-      phone: profileData.phone,
-      linkedin: profileData.linkedin,
-      github: profileData.github,
-      portfolio: profileData.portfolio,
-      location: profileData.location,
-    }
-
-    const fields = detectFormFields().fields
-
-    for (const field of fields) {
-      const value = fieldMap[field.fieldType]
-      if (!value) {
-        results.skipped++
-        results.details.push({ field: field.label, status: "skipped", reason: "no value" })
-        continue
-      }
-
-      try {
-        const el = document.querySelector(field.selector)
-        if (!el) {
-          results.failed++
-          results.details.push({ field: field.label, status: "failed", reason: "element not found" })
-          continue
-        }
-
-        // Set value and trigger events
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set
-        if (nativeInputValueSetter) {
-          nativeInputValueSetter.call(el, value)
-        } else {
-          el.value = value
-        }
-        el.dispatchEvent(new Event("input", { bubbles: true }))
-        el.dispatchEvent(new Event("change", { bubbles: true }))
-        el.dispatchEvent(new Event("blur", { bubbles: true }))
-
-        results.filled++
-        results.details.push({ field: field.label, status: "filled", value: value.slice(0, 30) })
-      } catch (e) {
-        results.failed++
-        results.details.push({ field: field.label, status: "failed", reason: e.message })
-      }
-    }
-
-    return results
-  }
 })()
