@@ -58,7 +58,7 @@ async function init() {
 
   // 4. Try to extract job data (non-blocking for the UI)
   try {
-    pageData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_JOB" })
+    pageData = await chrome.tabs.sendMessage(tab.id, { type: "EXTRACT_JOB" }).catch(() => null)
     if (pageData?.title && pageData.confidence > 0) {
       // Show job info
       $("#job-info").classList.remove("hidden")
@@ -87,7 +87,7 @@ async function init() {
 
   // 6. If page has forms, show copilot analysis
   try {
-    const analysis = await chrome.tabs.sendMessage(tab.id, { type: "GET_FORM_ANALYSIS" })
+    const analysis = await chrome.tabs.sendMessage(tab.id, { type: "GET_FORM_ANALYSIS" }).catch(() => null)
     if (analysis?.totalFields > 0) {
       $("#copilot-section").classList.remove("hidden")
       $("#field-summary").innerHTML = `
@@ -195,7 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
     showStatus("Filling profile fields...", "info")
     const profile = await sendMessage({ type: "GET_AUTOFILL_DATA" })
     if (profile.ok) {
-      const r = await chrome.tabs.sendMessage(currentTabId, { type: "FILL_SAFE_FIELDS", data: profile.data })
+      const r = await chrome.tabs.sendMessage(currentTabId, { type: "FILL_SAFE_FIELDS", data: profile.data }).catch(() => ({ filled: [], skipped: [], failed: [] }))
       r?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
       r?.skipped?.forEach(f => logs.push(`— ${f.label}: ${f.reason}`))
     }
@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Step 3: AI answers for open questions
     showStatus("Generating AI answers...", "info")
     try {
-      const analysis = await chrome.tabs.sendMessage(currentTabId, { type: "GET_FORM_ANALYSIS" })
+      const analysis = await chrome.tabs.sendMessage(currentTabId, { type: "GET_FORM_ANALYSIS" }).catch(() => ({ fields: [] }))
       const aiFields = (analysis?.fields || []).filter(f =>
         f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" ||
         f.fieldType === "motivation" || f.fieldType === "openEnded"
@@ -264,7 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (answer.ok && answer.data?.answer) {
           await chrome.tabs.sendMessage(currentTabId, {
             type: "FILL_SINGLE_FIELD", selector: field.selector, value: answer.data.answer
-          })
+          }).catch(() => null)
           logs.push(`✓ AI: ${(field.label || "").slice(0, 30)}`)
         }
       }
