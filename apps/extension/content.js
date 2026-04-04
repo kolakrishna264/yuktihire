@@ -23,6 +23,45 @@ if (document.location.pathname === "/auth/extension-callback") {
   setTimeout(() => clearInterval(_authPoll), 30000)
 }
 
+// ── Persistent Floating Widget ───────────────────────────────────────────
+;(function() {
+  // Only inject on job/application pages (not on yuktihire.com itself)
+  if (location.hostname.includes("yuktihire.com")) return
+
+  // Auto-detect if this is a relevant page
+  setTimeout(function() {
+    var bodyText = (document.body?.innerText || "").toLowerCase()
+    var url = location.href.toLowerCase()
+    var jobSignals = ["job description", "responsibilities", "qualifications", "apply now", "apply for this", "submit application", "about the role", "what you'll do"]
+    var isJobPage = jobSignals.filter(function(s) { return bodyText.includes(s) }).length >= 2
+    var isCareerPage = url.includes("/jobs") || url.includes("/career") || url.includes("/apply") || url.includes("greenhouse") || url.includes("lever.co") || url.includes("workday")
+    var hasForms = document.querySelectorAll("form").length > 0 || document.querySelectorAll("input[type='text'], input[type='email'], textarea").length >= 3
+
+    if (isJobPage || isCareerPage || hasForms) {
+      injectFloatingWidget()
+    }
+  }, 1500) // Wait for page to load
+
+  function injectFloatingWidget() {
+    if (document.getElementById("yuktihire-widget")) return // Already injected
+
+    var widget = document.createElement("div")
+    widget.id = "yuktihire-widget"
+    widget.innerHTML = `
+      <div id="yh-chip" style="position:fixed;bottom:20px;right:20px;z-index:999999;cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;border-radius:14px;font-family:system-ui,sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(108,99,255,0.4);transition:transform 0.15s,box-shadow 0.15s" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform=''">
+        <span style="font-size:18px">Y</span>
+        YuktiHire
+      </div>
+    `
+    document.body.appendChild(widget)
+
+    document.getElementById("yh-chip").addEventListener("click", function() {
+      // Open the extension popup via chrome.runtime
+      chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+    })
+  }
+})()
+
 // ── Universal Job Extraction Engine ──────────────────────────────────────
 ;(function () {
   "use strict"

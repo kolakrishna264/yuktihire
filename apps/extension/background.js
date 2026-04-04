@@ -190,6 +190,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "OPEN_POPUP") {
+    // Can't open popup programmatically in MV3, but we can open the side panel or a new window
+    chrome.action.openPopup().catch(() => {
+      // Fallback: open as a small window
+      chrome.windows.create({
+        url: chrome.runtime.getURL("popup.html"),
+        type: "popup",
+        width: 400,
+        height: 600,
+        top: 100,
+        left: screen.width - 420,
+      })
+    })
+    sendResponse({ ok: true })
+    return false
+  }
+
   if (msg.type === "QUICK_TAILOR") {
     apiCall("/tailor/quick", {
       method: "POST",
