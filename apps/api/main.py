@@ -150,7 +150,7 @@ async def debug_jobs(db: AsyncSession = Depends(get_db)):
     try:
         result = await db.execute(text("SELECT COUNT(*) FROM job_applications"))
         total = result.scalar() or 0
-        result2 = await db.execute(text("SELECT id, user_id, role, company, status, source, created_at FROM job_applications ORDER BY created_at DESC LIMIT 10"))
+        result2 = await db.execute(text("SELECT id, user_id, role, company, status, source, created_at, LENGTH(notes) as notes_len FROM job_applications ORDER BY created_at DESC LIMIT 10"))
         rows = [dict(r) for r in result2.mappings().all()]
         # Also get distinct user_ids
         result3 = await db.execute(text("SELECT DISTINCT user_id FROM job_applications"))
