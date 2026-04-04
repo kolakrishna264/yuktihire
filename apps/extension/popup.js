@@ -334,29 +334,106 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch {}
     }
 
-    // Step 4: AI answers for open-ended questions (Why this company? etc.)
-    showStatus("AI answering open questions...", "info")
+    // Step 4: Find ALL remaining empty fields and fill with AI
+    showStatus("Finding remaining empty fields...", "info")
+    btn.innerHTML = "⚡ AI scanning..."
+
+    let emptyFields = []
     try {
-      const analysis = await chrome.tabs.sendMessage(currentTabId, { type: "GET_FORM_ANALYSIS" }).catch(() => ({ fields: [] }))
-      const aiFields = (analysis?.fields || []).filter(f =>
-        (f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" ||
-         f.fieldType === "motivation" || f.fieldType === "openEnded") &&
-        // Only fill empty textareas
-        !f.isFilled
-      )
-      for (const field of aiFields) {
-        btn.innerHTML = `⚡ AI: ${(field.label || "").slice(0, 15)}...`
-        const answer = await sendMessage({
-          type: "GENERATE_ANSWER", data: { question: field.label || field.placeholder || "" }
+      emptyFields = await chrome.tabs.sendMessage(currentTabId, { type: "GET_EMPTY_FIELDS" }).catch(() => [])
+      if (!Array.isArray(emptyFields)) emptyFields = []
+    } catch { emptyFields = [] }
+
+    // If no empty fields from main frame, try iframes
+    if (emptyFields.length === 0) {
+      try {
+        const ifrResults = await chrome.scripting.executeScript({
+          target: { tabId: currentTabId, allFrames: true },
+          func: () => {
+            if (typeof getEmptyFields === "function") return getEmptyFields()
+            return []
+          },
         })
-        if (answer.ok && answer.data?.answer) {
-          await chrome.tabs.sendMessage(currentTabId, {
-            type: "FILL_SINGLE_FIELD", selector: field.selector, value: answer.data.answer
-          }).catch(() => null)
-          logs.push(`✓ AI: ${(field.label || "").slice(0, 30)}`)
+        for (const fr of (ifrResults || [])) {
+          if (fr.result?.length) { emptyFields = fr.result; break }
         }
+      } catch {}
+    }
+
+    if (emptyFields.length > 0) {
+      showStatus(`Filling ${emptyFields.length} remaining fields with AI...`, "info")
+
+      for (const field of emptyFields) {
+        const label = field.label || field.placeholder || ""
+        if (!label) continue
+        btn.innerHTML = `⚡ AI: ${label.slice(0, 18)}...`
+
+        // For select fields with options, pick the best option
+        if (field.inputType === "select" && field.options?.length > 0) {
+          // Use AI to pick the best option
+          const optionsStr = field.options.join(", ")
+          const answer = await sendMessage({
+            type: "GENERATE_ANSWER",
+            data: {
+              question: `For the field "${label}", which option should I select? Options: ${optionsStr}. Reply with ONLY the exact option text, nothing else.`
+            }
+          })
+          if (answer.ok && answer.data?.answer) {
+            const picked = answer.data.answer.trim()
+            const r = await chrome.tabs.sendMessage(currentTabId, {
+              type: "FILL_BY_SELECTOR", selector: field.selector, value: picked, inputType: "select"
+            }).catch(() => null)
+            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)} → ${picked.slice(0, 20)}`)
+          }
+        }
+        // For custom-select (dropdown), use targeted question fill
+        else if (field.inputType === "custom-select") {
+          const answer = await sendMessage({
+            type: "GENERATE_ANSWER",
+            data: {
+              question: `For the field "${label}", what should the answer be? Reply with ONLY the answer, nothing else. If it's a yes/no question, reply "Yes" or "No".`
+            }
+          })
+          if (answer.ok && answer.data?.answer) {
+            const r = await chrome.tabs.sendMessage(currentTabId, {
+              type: "FIND_AND_FILL_QUESTION", question: label.slice(0, 60), answer: answer.data.answer.trim()
+            }).catch(() => null)
+            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
+          }
+        }
+        // For text/textarea, generate AI answer
+        else {
+          const answer = await sendMessage({
+            type: "GENERATE_ANSWER",
+            data: { question: label }
+          })
+          if (answer.ok && answer.data?.answer) {
+            const r = await chrome.tabs.sendMessage(currentTabId, {
+              type: "FILL_BY_SELECTOR", selector: field.selector, value: answer.data.answer
+            }).catch(() => null)
+            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
+          }
+        }
+
+        // For radio/checkbox, try AI
+        if (field.inputType === "radio" || field.inputType === "checkbox") {
+          const answer = await sendMessage({
+            type: "GENERATE_ANSWER",
+            data: {
+              question: `For the question "${label}", should the answer be Yes or No? Reply with ONLY "Yes" or "No".`
+            }
+          })
+          if (answer.ok && answer.data?.answer) {
+            const r = await chrome.tabs.sendMessage(currentTabId, {
+              type: "FIND_AND_FILL_QUESTION", question: label.slice(0, 60), answer: answer.data.answer.trim()
+            }).catch(() => null)
+            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
+          }
+        }
+
+        await new Promise(res => setTimeout(res, 200))
       }
-    } catch {}
+    }
 
     // Done
     const filledCount = logs.filter(l => l.startsWith("✓")).length

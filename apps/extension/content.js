@@ -1658,21 +1658,38 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     if (msg.type === "UNIVERSAL_FILL") {
-      // Check if THIS frame has form controls before responding
-      // This lets iframe frames respond instead of the top frame stealing the response
       var quickCheck = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), select, textarea')
       var visibleInputs = 0
       for (var qi = 0; qi < quickCheck.length; qi++) {
         if (quickCheck[qi].offsetParent || quickCheck[qi].type === "hidden") visibleInputs++
       }
-      if (visibleInputs < 2) {
-        // This frame has almost no inputs — don't respond, let another frame handle it
-        return false
-      }
+      if (visibleInputs < 2) return false
       universalFill(msg.data).then(function(result) {
         sendResponse(result)
       })
       return true
+    }
+
+    if (msg.type === "GET_EMPTY_FIELDS") {
+      // Return ALL empty fields on the page — for AI to fill
+      var emptyFields = getEmptyFields()
+      sendResponse(emptyFields)
+    }
+
+    if (msg.type === "FILL_BY_SELECTOR") {
+      // Fill a specific element by selector with a value
+      try {
+        var target = document.querySelector(msg.selector)
+        if (!target) { sendResponse({ ok: false }); return }
+        if (msg.inputType === "select" || target.tagName === "SELECT") {
+          var sr = trySelectFill(target, msg.value, { selector: msg.selector, inputType: "select" })
+          sendResponse(sr)
+        } else {
+          var tr = tryTextFill(target, msg.value, { selector: msg.selector, inputType: target.type || "text" })
+          if (tr.ok) tryClickDropdownOption(target, msg.value)
+          sendResponse(tr)
+        }
+      } catch(e) { sendResponse({ ok: false, error: e.message }) }
     }
     return false
   })
@@ -2711,6 +2728,71 @@ if (document.location.hostname.includes("yuktihire.com")) {
         }
       }, 400)
     })
+  }
+
+  // ── Get ALL empty fields for AI filling ──
+  function getEmptyFields() {
+    var fields = []
+    var controls = findAllFormControls()
+
+    for (var i = 0; i < controls.length; i++) {
+      var ctrl = controls[i]
+      var el = ctrl.element
+      var label = ctrl.label || ""
+      if (!label || label.length < 2) continue
+
+      // Skip file inputs
+      if (ctrl.type === "file") continue
+      if (label.toLowerCase().includes("resume") || label.toLowerCase().includes("cv") ||
+          label.toLowerCase().includes("cover letter") || label.toLowerCase().includes("attach")) continue
+
+      // Check if empty
+      var isEmpty = false
+      if (ctrl.type === "text" || ctrl.type === "email" || ctrl.type === "tel" ||
+          ctrl.type === "url" || ctrl.type === "textarea" || ctrl.type === "number" || ctrl.type === "date") {
+        isEmpty = !el.value || el.value.trim().length === 0
+      } else if (ctrl.type === "select") {
+        var selectedText = (el.options[el.selectedIndex]?.text || "").toLowerCase().trim()
+        isEmpty = !selectedText || selectedText === "select" || selectedText === "select..." ||
+                  selectedText === "choose..." || selectedText === "-- select --" ||
+                  selectedText === "" || el.selectedIndex <= 0
+      } else if (ctrl.type === "custom-select") {
+        var displayText = (el.textContent || "").toLowerCase().trim()
+        isEmpty = !displayText || displayText === "select" || displayText === "select..." ||
+                  displayText === "choose..." || displayText.includes("select")
+      } else if (ctrl.type === "radio") {
+        var groupName = el.name
+        var radios = document.querySelectorAll('input[type="radio"][name="' + groupName + '"]')
+        var anyChecked = false
+        for (var r = 0; r < radios.length; r++) { if (radios[r].checked) anyChecked = true }
+        isEmpty = !anyChecked
+      } else if (ctrl.type === "checkbox") {
+        isEmpty = !el.checked
+      }
+
+      if (!isEmpty) continue
+
+      // Build a selector for this element
+      var selector = getUniqueSelector(el)
+
+      // Get available options for selects
+      var options = []
+      if (ctrl.type === "select") {
+        options = Array.from(el.options).map(function(o) { return o.text.trim() }).filter(function(t) {
+          return t && t.toLowerCase() !== "select" && t.toLowerCase() !== "select..." && t !== ""
+        })
+      }
+
+      fields.push({
+        selector: selector,
+        label: label.slice(0, 200),
+        inputType: ctrl.type,
+        options: options.slice(0, 20),
+        placeholder: el.placeholder || "",
+      })
+    }
+
+    return fields
   }
 
 })()
