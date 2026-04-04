@@ -38,6 +38,54 @@ QUESTION_TEMPLATES = {
 }
 
 
+def _classify_question(question: str) -> str:
+    """Classify application question type for better answer generation."""
+    q = question.lower()
+    if any(w in q for w in ["authorize", "authorized", "eligible to work", "legally", "work permit"]):
+        return "authorization"
+    if any(w in q for w in ["sponsor", "visa", "h1b", "h-1b", "immigration"]):
+        return "sponsorship"
+    if any(w in q for w in ["salary", "compensation", "pay", "expected"]):
+        return "salary"
+    if any(w in q for w in ["start date", "available", "notice period", "when can you"]):
+        return "availability"
+    if any(w in q for w in ["relocat", "willing to move"]):
+        return "relocation"
+    if any(w in q for w in ["why", "interest", "motivat", "what attracts"]):
+        return "motivation"
+    if any(w in q for w in ["experience with", "proficien", "familiar", "skill"]):
+        return "technical"
+    if any(w in q for w in ["project", "built", "developed", "created", "designed"]):
+        return "project"
+    if any(w in q for w in ["lead", "manage", "team", "mentor"]):
+        return "leadership"
+    if any(w in q for w in ["challenge", "difficult", "conflict", "disagree", "mistake"]):
+        return "behavioral"
+    if any(w in q for w in ["strength", "weakness", "best quality"]):
+        return "self_assessment"
+    if any(w in q for w in ["anything else", "additional", "share with us"]):
+        return "open_ended"
+    return "general"
+
+
+# Specialized instructions per question type
+_TYPE_INSTRUCTIONS = {
+    "authorization": "Give a clear yes/no answer about work authorization status. Use profile data only -- do NOT guess.",
+    "sponsorship": "Give a clear answer about sponsorship needs. Use profile data only -- do NOT guess.",
+    "salary": "Suggest a reasonable salary range based on the role, location, and experience level. Be diplomatic.",
+    "availability": "Give a clear answer about availability. If unknown, say 'available to start within 2 weeks of offer acceptance.'",
+    "relocation": "Answer honestly about relocation. If unknown, say 'open to discussing relocation.'",
+    "motivation": "Connect the candidate's actual background to the specific company and role. Be genuine, not generic.",
+    "technical": "Reference specific technologies and experiences from the resume. Give concrete examples.",
+    "project": "Describe a real project from the resume. Include specific impact, technologies, and outcomes.",
+    "leadership": "Use a real example from the resume showing leadership or teamwork.",
+    "behavioral": "Use STAR format (Situation, Task, Action, Result) with real experience from the resume.",
+    "self_assessment": "Give an honest strength or weakness. For weaknesses, show self-awareness and improvement.",
+    "open_ended": "Share something relevant and genuine that hasn't been covered. Keep it positive and relevant.",
+    "general": "Give a thoughtful, specific answer grounded in the resume.",
+}
+
+
 @router.post("/generate")
 async def generate_answer(
     data: AnswerRequest,
@@ -67,6 +115,10 @@ async def generate_answer(
     except:
         profile = None
 
+    # Classify question type for specialized prompts
+    question_type = _classify_question(data.question)
+    type_instruction = _TYPE_INSTRUCTIONS.get(question_type, _TYPE_INSTRUCTIONS["general"])
+
     from anthropic import AsyncAnthropic
     from app.core.config import get_settings
     settings = get_settings()
@@ -75,13 +127,16 @@ async def generate_answer(
     prompt = f"""Answer this job application question. Give a direct, {data.tone} answer.
 
 Question: {data.question}
+Question Type: {question_type}
+
+Special Instructions: {type_instruction}
 
 {f'Company: {data.company}' if data.company else ''}
 {f'Role: {data.role}' if data.role else ''}
 {f'Job Description: {data.job_description[:2000]}' if data.job_description else ''}
 
 Applicant's Resume/Background:
-{resume_text[:2000] if resume_text else 'No resume provided — give a general professional answer.'}
+{resume_text[:2000] if resume_text else 'No resume provided -- give a general professional answer.'}
 
 Rules:
 - Answer in first person
@@ -91,6 +146,7 @@ Rules:
 - Be {data.tone} in tone
 - For yes/no questions (authorization, sponsorship), give a clear direct answer
 - For salary questions, suggest a reasonable range based on the role
+- Follow the Special Instructions above for this question type
 
 Return ONLY the answer text."""
 
@@ -106,6 +162,7 @@ Return ONLY the answer text."""
 
     return {
         "question": data.question,
+        "questionType": question_type,
         "answer": answer,
         "tone": data.tone,
         "company": data.company,

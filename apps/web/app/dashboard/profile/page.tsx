@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/Skeleton"
 import { Progress } from "@/components/ui/Progress"
 import { EmptyState } from "@/components/EmptyState"
 import { User, Briefcase, GraduationCap, Zap, Plus, Trash2, Save, X } from "lucide-react"
+import { ProfileAutoSetup } from "@/components/ProfileAutoSetup"
 
 type Tab = "basics" | "experience" | "education" | "skills"
 
@@ -54,6 +55,8 @@ export default function ProfilePage() {
           Your career data used for tailoring
         </p>
       </div>
+
+      <ProfileAutoSetup />
 
       {/* Completeness bar */}
       {profile && (

@@ -24,11 +24,11 @@ const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/jobs", label: "My Jobs", icon: Briefcase },
   { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
-  { href: "/dashboard/tailor", label: "Tailor Resume", icon: Wand2, highlight: true },
+  { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
   { href: "/dashboard/answers", label: "AI Answers", icon: MessageSquare },
-  { href: "/dashboard/resumes", label: "My Resumes", icon: FileText },
-  { href: "/dashboard/extension", label: "Get Extension", icon: Chrome },
+  { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
   { href: "/dashboard/profile", label: "Profile", icon: User },
+  { href: "/dashboard/extension", label: "Extension", icon: Chrome },
   { href: "/dashboard/settings/billing", label: "Settings", icon: Settings },
 ]
 
