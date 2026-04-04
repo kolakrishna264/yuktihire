@@ -1167,13 +1167,23 @@ if (document.location.hostname.includes("yuktihire.com")) {
       })
     }
 
-    // Pass 4: Country code normalization (United States → US, +1, etc.)
+    // Pass 4: Country code normalization (United States → US, +1, 1, etc.)
     if (!match && (valueLower === "united states" || valueLower === "us" || valueLower === "+1")) {
       match = options.find(function (o) {
         var t = o.text.toLowerCase().trim()
         var v = o.value.toLowerCase().trim()
-        return t.includes("united states") || t.includes("+1") || v === "us" || v === "usa" || v === "+1" || t === "us"
+        return t.includes("united states") || t.includes("+1") ||
+               v === "us" || v === "usa" || v === "+1" || v === "1" || t === "us" ||
+               t === "us (+1)" || t === "+1 (us)" || t.includes("united states") ||
+               (v === "1" && t.includes("us"))
       })
+      // If still no match, try to find option with value "US" or "1" (common in Greenhouse)
+      if (!match) {
+        match = options.find(function(o) {
+          var v = o.value.trim()
+          return v === "US" || v === "1" || v === "+1" || v === "us"
+        })
+      }
     }
 
     if (match) {
@@ -1775,6 +1785,22 @@ if (document.location.hostname.includes("yuktihire.com")) {
         var selLabel = getSelectLabel(sel)
 
         if (selLabel.includes(keyword)) {
+          // For EEO keywords, verify this select is in the EEO section
+          if (isEEOQuestion) {
+            var inEEO = false
+            var checkNode = sel
+            for (var chk = 0; chk < 15; chk++) {
+              if (!checkNode) break
+              var chkText = (checkNode.textContent || "").toLowerCase()
+              if (chkText.includes("self-identification") || chkText.includes("equal employment") ||
+                  chkText.includes("eeo") || chkText.includes("government reporting") || chkText.includes("voluntary")) {
+                inEEO = true; break
+              }
+              checkNode = checkNode.parentElement
+            }
+            if (!inEEO) continue  // Skip — this select is NOT in the EEO section
+          }
+
           var fillResult = trySelectFill(sel, answer, { selector: "", inputType: "select" })
           if (fillResult.ok) {
             filledElements.add(sel)
@@ -2100,6 +2126,27 @@ if (document.location.hostname.includes("yuktihire.com")) {
 
       if (!targetLabel) { resolve(result); return }
 
+      // GUARD: For EEO questions, verify the label is in the EEO section of the form
+      // (not near phone/address/name fields at the top)
+      var isEEO = EEO_KEYWORDS.some(function(k) { return keyword.includes(k) })
+      if (isEEO) {
+        // Check if the label's parent section contains EEO section markers
+        var sectionNode = targetLabel
+        var inEEOSection = false
+        for (var s = 0; s < 15; s++) {
+          if (!sectionNode) break
+          var sText = (sectionNode.textContent || "").toLowerCase()
+          if (sText.includes("self-identification") || sText.includes("equal employment") ||
+              sText.includes("equal opportunity") || sText.includes("eeo") ||
+              sText.includes("government reporting") || sText.includes("voluntary")) {
+            inEEOSection = true
+            break
+          }
+          sectionNode = sectionNode.parentElement
+        }
+        if (!inEEOSection) { resolve(result); return }
+      }
+
       // Walk up from label to find a field container
       var container = targetLabel.parentElement
       for (var up = 0; up < 5; up++) {
@@ -2245,6 +2292,11 @@ if (document.location.hostname.includes("yuktihire.com")) {
         if (ctrl.type === "select") {
           var sr = trySelectFill(ctrl.element, match.value, { selector: "", inputType: "select" })
           if (sr.ok) filled = true
+          // Even if fill failed, mark country/phone selects as claimed so nothing else touches them
+          if (match.key === "phone_country" || match.key === "country" || match.key === "country code") {
+            filledElements.add(ctrl.element)
+            if (ctrl.container) filledElements.add(ctrl.container)
+          }
         }
 
         // Radio buttons
