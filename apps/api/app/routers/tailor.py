@@ -544,7 +544,7 @@ Return ONLY the cover letter text, nothing else."""
 
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-6-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )

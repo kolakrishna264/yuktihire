@@ -62,7 +62,7 @@ async def _call_ai(prompt: str) -> str:
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-6-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )

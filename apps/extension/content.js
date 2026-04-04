@@ -1309,7 +1309,8 @@ if (document.location.pathname === "/auth/extension-callback") {
     var results = { filled: [], failed: [], skipped: [] }
     var scanResult = scanFormBlocks()
 
-    // Build value map from profile data
+    // ONLY safe text fields from profile — NO yes/no/option values here
+    // Option-based fields (authorization, sponsorship) are handled by FIND_AND_FILL_QUESTION
     var safeMap = {
       firstName: profileData.firstName,
       lastName: profileData.lastName,
@@ -1321,20 +1322,10 @@ if (document.location.pathname === "/auth/extension-callback") {
       portfolio: profileData.portfolio,
       location: profileData.location || profileData.city,
       address: profileData.address || profileData.location,
-      state: profileData.state,
-      zip: profileData.zip || profileData.zipCode || profileData.postalCode,
-      country: profileData.country,
       currentCompany: profileData.currentCompany || profileData.company || profileData.headline,
-      currentTitle: profileData.currentTitle || profileData.title || profileData.jobTitle,
-      workAuthorization: profileData.workAuthorization || profileData.authorized,
-      sponsorship: profileData.sponsorship,
-      relocation: profileData.relocation,
-      salary: profileData.salary || profileData.desiredSalary,
-      availability: profileData.availability || profileData.startDate,
-      yearsExperience: profileData.yearsExperience || profileData.experience,
-      education: profileData.education || profileData.degree,
-      pronouns: profileData.pronouns,
     }
+    // DO NOT include: workAuthorization, sponsorship, relocation, consent, pronouns
+    // Those are option-based and handled separately to avoid filling "Yes" into text fields
 
     for (var i = 0; i < scanResult.blocks.length; i++) {
       var block = scanResult.blocks[i]
@@ -1597,30 +1588,43 @@ if (document.location.pathname === "/auth/extension-callback") {
     var keyword = questionKeyword.toLowerCase()
     var answerLower = answer.toLowerCase()
 
-    // Search all text nodes on the page for the question
-    var allElements = document.querySelectorAll("p, span, div, label, h1, h2, h3, h4, h5, h6, strong, legend")
+    // Search for question text — only match SHORT text elements (actual labels, not large containers)
+    var allElements = document.querySelectorAll("p, span, label, h3, h4, h5, h6, strong, legend, div")
 
     for (var i = 0; i < allElements.length; i++) {
       var el = allElements[i]
-      var text = (el.textContent || "").toLowerCase()
+      var text = (el.textContent || "").toLowerCase().trim()
       if (!text.includes(keyword)) continue
-      // Skip if this element contains too many child elements (it's a container, not a question)
-      if (el.children.length > 10) continue
+      // Skip large containers — only match elements with <300 chars of text
+      if (text.length > 300) continue
+      // Skip if too many children (it's a container)
+      if (el.children.length > 8) continue
+      // Skip if this is inside a name/email/phone field area
+      var nearbyInput = el.closest("label")?.querySelector("input")
+      if (nearbyInput) {
+        var inputType = (nearbyInput.name + nearbyInput.id + nearbyInput.type).toLowerCase()
+        if (inputType.includes("name") || inputType.includes("email") || inputType.includes("phone")) continue
+      }
 
-      // Found a matching question text! Now find the nearest form control
-      var container = el.closest("[class*='question'], [class*='field'], [class*='form-group'], [class*='block']") || el.parentElement
-
+      // Found a matching question! Search ONLY in the immediate vicinity
+      // Walk up max 3 levels to find the question block container
+      var container = el.parentElement
+      for (var up = 0; up < 3; up++) {
+        if (!container) break
+        var inputs = container.querySelectorAll("select, input[type='radio'], input:not([type='hidden']):not([type='submit']):not([type='file']), textarea")
+        if (inputs.length > 0 && inputs.length <= 5) break // Found a reasonable container
+        container = container.parentElement
+      }
       if (!container) continue
 
-      // Strategy 1: Find a native <select> nearby
+      // Strategy 1: Find a native <select> in this block
       var select = container.querySelector("select")
-      if (!select) select = el.parentElement?.querySelector("select") || el.parentElement?.parentElement?.querySelector("select")
       if (select) {
         var result = trySelectFill(select, answer, { selector: "", inputType: "select" })
         if (result.ok) return result
       }
 
-      // Strategy 2: Find radio buttons nearby
+      // Strategy 2: Find radio buttons in this block
       var radios = container.querySelectorAll('input[type="radio"]')
       if (radios.length === 0) {
         // Search wider
