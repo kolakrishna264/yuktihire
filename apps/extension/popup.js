@@ -243,7 +243,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const r = await chrome.tabs.sendMessage(currentTabId, {
           type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
-        })
+        }).catch(() => null)
         if (r?.ok) logs.push(`✓ ${qa.q}: ${qa.a}`)
       } catch {}
     }

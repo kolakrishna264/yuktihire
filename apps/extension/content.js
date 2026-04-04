@@ -1648,14 +1648,22 @@ if (document.location.pathname === "/auth/extension-callback") {
         }
       }
 
-      // Strategy 3: Find a text input and type the answer
+      // Strategy 3: Find a text input — but NEVER fill name/email/phone fields
       var input = container.querySelector("input:not([type='radio']):not([type='checkbox']):not([type='hidden']):not([type='file']):not([type='submit'])")
       if (!input) input = container.querySelector("textarea")
       if (input) {
-        var textResult = tryTextFill(input, answer, { selector: getUniqueSelector(input), inputType: input.type || "text" })
-        if (textResult.ok) {
-          tryClickDropdownOption(input, answer)
-          return { ok: true, method: "find_and_fill_text", question: keyword }
+        // Guard: never fill protected identity fields
+        var inputId = ((input.name || "") + (input.id || "") + (input.placeholder || "")).toLowerCase()
+        var isProtected = ["first", "last", "name", "email", "phone", "tel", "fname", "lname"].some(function(w) { return inputId.includes(w) })
+        // Guard: never fill fields that already have a value
+        var alreadyFilled = input.value && input.value.trim().length > 0
+
+        if (!isProtected && !alreadyFilled) {
+          var textResult = tryTextFill(input, answer, { selector: getUniqueSelector(input), inputType: input.type || "text" })
+          if (textResult.ok) {
+            tryClickDropdownOption(input, answer)
+            return { ok: true, method: "find_and_fill_text", question: keyword }
+          }
         }
       }
 
