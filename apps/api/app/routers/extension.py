@@ -82,6 +82,8 @@ async def capture_job(
 
         title = data.extracted_title or data.page_title or "Untitled Position"
         company = data.extracted_company or _extract_domain(data.source_domain or data.url)
+        desc_text = (data.extracted_description or "")[:5000]
+        print(f"[Extension] Saving: {title} @ {company} | desc length: {len(desc_text)} | url: {data.url}")
 
         # Insert using only columns that exist in the original table
         import uuid
@@ -97,7 +99,7 @@ async def capture_job(
                 "role": title,
                 "company": company,
                 "url": data.url,
-                "notes": (data.extracted_description or "")[:5000] if data.extracted_description else None,
+                "notes": desc_text if desc_text else None,
                 "source": f"Extension ({data.source_domain or 'web'})",
             },
         )

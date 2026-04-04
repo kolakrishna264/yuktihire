@@ -460,6 +460,10 @@ if (document.location.pathname === "/auth/extension-callback") {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "EXTRACT_JOB") {
       const data = extractJobData()
+      // Always include full body text as fallback description
+      if (!data.description || data.description.length < 50) {
+        data.description = (document.body?.innerText || "").slice(0, 10000)
+      }
       sendResponse(data)
     }
     return false

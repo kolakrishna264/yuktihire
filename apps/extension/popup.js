@@ -60,20 +60,8 @@ function showNoJob(reason) {
 }
 
 async function showJobDetected(data, url) {
-  // Capture full page text as description fallback
-  let fullDesc = data.description || ""
-  if (!fullDesc || fullDesc.length < 50) {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (tab?.id) {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => document.body?.innerText?.slice(0, 10000) || "",
-        })
-        if (results?.[0]?.result) fullDesc = results[0].result
-      }
-    } catch {}
-  }
+  // Description comes from content script (includes body text fallback)
+  const fullDesc = data.description || ""
 
   // Title & company
   $("#job-title").textContent = data.title || "Untitled"
