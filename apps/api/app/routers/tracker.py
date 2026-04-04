@@ -421,22 +421,38 @@ async def get_tracked_job(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a tracked job with its events."""
-    result = await db.execute(
-        select(JobApplication).where(
-            JobApplication.id == tracker_id,
-            JobApplication.user_id == current_user.id,
+    from sqlalchemy import text as sql_text
+    try:
+        result = await db.execute(
+            sql_text("SELECT * FROM job_applications WHERE id = :id AND user_id = :uid"),
+            {"id": tracker_id, "uid": current_user.id},
         )
-    )
-    app = result.scalar_one_or_none()
-    if not app:
-        raise HTTPException(status_code=404, detail="Tracked job not found")
+        row = result.mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Tracked job not found")
 
-    # Load events
-    events_result = await db.execute(
-        select(ApplicationEvent)
-        .where(ApplicationEvent.application_id == tracker_id)
-        .order_by(ApplicationEvent.event_date.desc())
-    )
+        data = _serialize_row(row)
+
+        # Load events
+        events_result = await db.execute(
+            sql_text("SELECT * FROM application_events WHERE application_id = :id ORDER BY created_at DESC"),
+            {"id": tracker_id},
+        )
+        events = [dict(e) for e in events_result.mappings().all()]
+        data["events"] = [{
+            "id": e.get("id"),
+            "eventType": e.get("event_type"),
+            "title": e.get("title"),
+            "description": e.get("description"),
+            "createdAt": e["created_at"].isoformat() if e.get("created_at") else None,
+        } for e in events]
+
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Tracker] get detail error: {e}")
+        raise HTTPException(status_code=404, detail="Job not found")
     events = events_result.scalars().all()
 
     data = _serialize_tracked_job(app)
