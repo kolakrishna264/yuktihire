@@ -33,7 +33,12 @@ async def parse_resume(content: bytes, filename: str) -> dict:
 RESUME TEXT:
 {text[:10000]}
 
-CRITICAL: You MUST extract education. Most resumes have education near the bottom — look for degree, university, college, bachelor, master, PhD.
+CRITICAL: You MUST extract education completely. Look for:
+- Degree names: B.S., B.Tech, M.S., M.Tech, MBA, PhD, Bachelor, Master
+- University/college names
+- Fields: Computer Science, Data Science, Engineering, etc.
+- Graduation years
+Education is often at the bottom of the resume. Extract ALL education entries with full details. Never return "Not specified" — look carefully at the resume text.
 
 Return ONLY this JSON (education MUST be included):
 {{
@@ -106,12 +111,77 @@ IMPORTANT: Education section is REQUIRED. Extract ALL degrees. Do not skip educa
     parsed.setdefault("certifications", [])
     parsed.setdefault("projects", [])
 
+    # Fix education entries with "Not specified" — try to extract from raw text
+    for edu in parsed.get("educations", []):
+        if edu.get("degree", "") in ["", "Not specified", "not specified"]:
+            edu_text = _extract_education_from_text(text)
+            if edu_text:
+                parsed["educations"] = edu_text
+                break
+
     # Log what was extracted
     print(f"[ResumeParser] Extracted: {parsed.get('name','?')} | {len(parsed.get('experiences',[]))} exp | {len(parsed.get('educations',[]))} edu | {len(parsed.get('skills',[]))} skills")
 
     parsed["confidence"] = 0.85
     parsed["raw_text"] = text
     return parsed
+
+
+def _extract_education_from_text(text: str) -> list[dict]:
+    """Fallback: extract education from raw resume text using pattern matching."""
+    import re
+    educations = []
+    lines = text.split("\n")
+
+    degree_patterns = [
+        r"(Master(?:'s)?|M\.?S\.?|M\.?Tech|MBA|Ph\.?D\.?|Doctor)",
+        r"(Bachelor(?:'s)?|B\.?S\.?|B\.?Tech|B\.?E\.?|B\.?A\.?)",
+        r"(Associate(?:'s)?|A\.?S\.?|A\.?A\.?)",
+    ]
+
+    for i, line in enumerate(lines):
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+
+        for pattern in degree_patterns:
+            match = re.search(pattern, line_clean, re.IGNORECASE)
+            if match:
+                degree = match.group(0)
+
+                # Try to find field of study
+                field = ""
+                field_match = re.search(r"(?:in|of)\s+(.+?)(?:\s*[,|•\-]|\s*$)", line_clean, re.IGNORECASE)
+                if field_match:
+                    field = field_match.group(1).strip()
+
+                # Try to find school from same line or next line
+                school = ""
+                # Check if university name is on the same line
+                uni_match = re.search(r"(University|College|Institute|School|Academy)[\w\s,]+", line_clean, re.IGNORECASE)
+                if uni_match:
+                    school = uni_match.group(0).strip()
+                elif i + 1 < len(lines) and lines[i + 1].strip():
+                    next_line = lines[i + 1].strip()
+                    if re.search(r"(University|College|Institute|School|Academy)", next_line, re.IGNORECASE):
+                        school = next_line
+
+                # Try to find year
+                year_match = re.findall(r"20\d{2}", line_clean)
+                end_date = year_match[-1] if year_match else None
+                start_date = year_match[0] if len(year_match) > 1 else None
+
+                educations.append({
+                    "degree": degree,
+                    "field": field or "Not specified",
+                    "school": school or "Not specified",
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "gpa": None,
+                })
+                break  # Don't match same line with multiple patterns
+
+    return educations if educations else []
 
 
 def extract_text(content: bytes, filename: str) -> str:
