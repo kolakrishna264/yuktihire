@@ -128,15 +128,30 @@ export function ProfileAutoSetup() {
 
   if (parsed) {
     const extractedFields: string[] = []
-    if (parsed.full_name || parsed.name) extractedFields.push("Name")
-    if (parsed.email) extractedFields.push("Email")
-    if (parsed.phone) extractedFields.push("Phone")
-    if (parsed.location) extractedFields.push("Location")
-    if (parsed.linkedin) extractedFields.push("LinkedIn")
-    if (parsed.github) extractedFields.push("GitHub")
+    if (parsed.full_name || parsed.name) extractedFields.push(`Name: ${parsed.full_name || parsed.name}`)
+    if (parsed.email) extractedFields.push(`Email: ${parsed.email}`)
+    if (parsed.phone) extractedFields.push(`Phone: ${parsed.phone}`)
+    if (parsed.location) extractedFields.push(`Location: ${parsed.location}`)
+    if (parsed.linkedin) extractedFields.push("LinkedIn ✓")
+    if (parsed.github) extractedFields.push("GitHub ✓")
+    if (parsed.headline) extractedFields.push(`Headline: ${parsed.headline}`)
     if (parsed.skills?.length) extractedFields.push(`${parsed.skills.length} Skills`)
-    if (parsed.experiences?.length) extractedFields.push(`${parsed.experiences.length} Experiences`)
-    if ((parsed.educations || parsed.education)?.length) extractedFields.push("Education")
+
+    const expCount = parsed.experiences?.length || 0
+    if (expCount > 0) {
+      extractedFields.push(`${expCount} Experiences`)
+    }
+
+    const eduCount = (parsed.educations || parsed.education || []).length
+    if (eduCount > 0) {
+      extractedFields.push(`${eduCount} Education entries`)
+    }
+
+    const certCount = (parsed.certifications || []).length
+    if (certCount > 0) extractedFields.push(`${certCount} Certifications`)
+
+    const projCount = (parsed.projects || []).length
+    if (projCount > 0) extractedFields.push(`${projCount} Projects`)
     if (parsed.summary) extractedFields.push("Summary")
 
     return (
@@ -154,8 +169,43 @@ export function ProfileAutoSetup() {
               <Badge key={f} variant="secondary" className="text-xs bg-white">{f}</Badge>
             ))}
           </div>
+
+          {/* Detailed preview */}
+          <div className="space-y-3 text-xs">
+            {/* Experiences */}
+            {expCount > 0 && (
+              <div>
+                <p className="font-semibold text-gray-700 mb-1">Work Experience ({expCount})</p>
+                {(parsed.experiences || []).map((exp: any, i: number) => (
+                  <div key={i} className="ml-2 mb-1 text-gray-500">
+                    • <span className="font-medium text-gray-700">{exp.title || exp.role}</span> at {exp.company}
+                    {exp.start_date && <span className="text-gray-400"> ({exp.start_date} – {exp.end_date || "Present"})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Education */}
+            {eduCount > 0 && (
+              <div>
+                <p className="font-semibold text-gray-700 mb-1">Education ({eduCount})</p>
+                {(parsed.educations || parsed.education || []).map((edu: any, i: number) => (
+                  <div key={i} className="ml-2 mb-1 text-gray-500">
+                    • <span className="font-medium text-gray-700">{edu.degree}</span> in {edu.field} — {edu.school}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Skills preview */}
+            {parsed.skills?.length > 0 && (
+              <div>
+                <p className="font-semibold text-gray-700 mb-1">Skills ({parsed.skills.length})</p>
+                <p className="ml-2 text-gray-500">{parsed.skills.slice(0, 15).join(", ")}{parsed.skills.length > 15 ? ` +${parsed.skills.length - 15} more` : ""}</p>
+              </div>
+            )}
+          </div>
+
           <Button onClick={handleConfirmAndSave} disabled={saving} className="w-full">
-            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving to profile...</> : "Confirm & Save to Profile"}
+            {saving ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving to profile...</> : `Confirm & Save All ${extractedFields.length} Fields`}
           </Button>
         </CardContent>
       </Card>

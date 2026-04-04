@@ -23,53 +23,63 @@ async def parse_resume(content: bytes, filename: str) -> dict:
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     message = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=3000,
-        system="You are a resume parser. Extract structured data. Return only valid JSON.",
+        model="claude-sonnet-4-6-20250514",
+        max_tokens=4096,
+        system="You are a resume parser. Extract ALL structured data completely. Return only valid JSON. Do not truncate or omit any experience, education, or skill.",
         messages=[{
             "role": "user",
-            "content": f"""Parse this resume and extract all information.
+            "content": f"""Parse this resume COMPLETELY and extract ALL information. Do not skip any work experience, education, project, or skill.
 
 RESUME TEXT:
-{text[:8000]}
+{text[:10000]}
 
-Return this exact JSON (no other text):
+IMPORTANT: Extract EVERY work experience, EVERY education entry, EVERY skill, EVERY project. Do not truncate.
+
+Return this exact JSON structure (no other text before or after):
 {{
-  "name": "",
-  "email": "",
-  "phone": "",
-  "location": "",
-  "linkedin": "",
-  "github": "",
-  "portfolio": "",
-  "headline": "",
-  "summary": "",
-  "skills": ["skill1", "skill2"],
+  "name": "full name",
+  "email": "email address",
+  "phone": "phone number",
+  "location": "city, state",
+  "linkedin": "linkedin URL or empty",
+  "github": "github URL or empty",
+  "portfolio": "portfolio URL or empty",
+  "headline": "professional headline like 'Senior ML Engineer' or empty",
+  "summary": "professional summary paragraph or empty",
+  "skills": ["Python", "SQL", "AWS", "etc - list ALL skills found"],
   "experiences": [
     {{
-      "title": "",
-      "company": "",
-      "location": "",
-      "start_date": "YYYY-MM-DD or month YYYY",
-      "end_date": "YYYY-MM-DD or null",
-      "current": false,
-      "bullets": ["bullet1", "bullet2"],
-      "skills_used": []
+      "title": "job title",
+      "company": "company name",
+      "location": "city, state or remote",
+      "start_date": "YYYY-MM or Mon YYYY",
+      "end_date": "YYYY-MM or Present or null",
+      "current": true/false,
+      "bullets": ["achievement 1", "achievement 2", "etc - include ALL bullets"],
+      "skills_used": ["tech1", "tech2"]
     }}
   ],
   "educations": [
     {{
-      "degree": "",
-      "field": "",
-      "school": "",
-      "start_date": null,
-      "end_date": null,
-      "gpa": null
+      "degree": "Bachelor of Science / Master of Science / etc",
+      "field": "Computer Science / Data Science / etc",
+      "school": "University name",
+      "start_date": "YYYY or null",
+      "end_date": "YYYY or null",
+      "gpa": "3.8 or null"
     }}
   ],
-  "certifications": [],
-  "projects": []
-}}"""
+  "certifications": ["cert1", "cert2"],
+  "projects": [
+    {{
+      "name": "project name",
+      "description": "brief description",
+      "skills": ["tech1", "tech2"]
+    }}
+  ]
+}}
+
+Extract ALL entries. Do not say "and more" or truncate. Include every single work experience and education entry from the resume."""
         }]
     )
 
