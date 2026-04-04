@@ -5,33 +5,44 @@ const APP_URL = "https://yuktihire.com"
 // ── Token Management ──────────────────────────────────────────────────────
 
 async function getToken() {
-  // Try reading token from yuktihire.com cookie (multiple domain variants)
-  for (const url of ["https://yuktihire.com", "https://www.yuktihire.com", "http://localhost:3000"]) {
-    try {
-      const cookies = await chrome.cookies.getAll({ url })
-      console.log(`[YuktiHire] Cookies from ${url}:`, cookies.map(c => c.name))
-      const authCookie = cookies.find(c => c.name.includes("auth-token"))
-      if (authCookie) {
-        const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
-        const decoded = JSON.parse(atob(raw))
-        if (decoded.access_token) {
-          console.log("[YuktiHire] Got token from cookie:", decoded.access_token.slice(0, 20) + "...")
-          return decoded.access_token
-        }
-      }
-    } catch (e) {
-      console.log(`[YuktiHire] Cookie error for ${url}:`, e.message)
-    }
-  }
-
-  // Fallback to storage
+  // Check storage first
   const result = await chrome.storage.local.get(["yuktihire_token"])
-  if (result.yuktihire_token) {
-    console.log("[YuktiHire] Using stored token")
-    return result.yuktihire_token
-  }
+  if (result.yuktihire_token) return result.yuktihire_token
+  return null
+}
 
-  console.log("[YuktiHire] No token found anywhere")
+// Try to get token by injecting a script into yuktihire.com tab
+async function fetchTokenFromTab() {
+  try {
+    // Find any open yuktihire.com tab
+    const tabs = await chrome.tabs.query({ url: ["*://yuktihire.com/*", "*://www.yuktihire.com/*"] })
+    if (!tabs.length) return null
+
+    // Inject a script to read the cookie from the page context
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: () => {
+        try {
+          const cookie = document.cookie
+          const match = cookie.match(/sb-[^=]+-auth-token=base64-([^;]+)/)
+          if (match) {
+            const decoded = JSON.parse(atob(match[1]))
+            return decoded.access_token || null
+          }
+        } catch {}
+        return null
+      },
+    })
+
+    if (results?.[0]?.result) {
+      const token = results[0].result
+      await storeTokens(token, "", 0)
+      console.log("[YuktiHire] Token from tab injection:", token.slice(0, 20) + "...")
+      return token
+    }
+  } catch (e) {
+    console.log("[YuktiHire] Tab injection error:", e.message)
+  }
   return null
 }
 
@@ -53,7 +64,8 @@ async function clearTokens() {
 // ── API Helper ────────────────────────────────────────────────────────────
 
 async function apiCall(path, options = {}) {
-  const token = await getToken()
+  let token = await getToken()
+  if (!token) token = await fetchTokenFromTab()
   console.log("[YuktiHire] apiCall", path, "token:", token ? token.slice(0, 20) + "..." : "NULL")
 
   if (!token) throw new Error("Not authenticated")
@@ -98,34 +110,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CHECK_AUTH") {
     (async () => {
       try {
-        // Try to get token from cookie directly
-        let token = null
-        const result = await chrome.storage.local.get(["yuktihire_token"])
-        token = result.yuktihire_token
+        let token = await getToken()
 
+        // If no stored token, try reading from an open yuktihire.com tab
         if (!token) {
-          // Read from yuktihire.com cookie
-          const cookies = await chrome.cookies.getAll({ domain: "yuktihire.com" })
-          console.log("[YuktiHire] All cookies:", cookies.map(c => c.name))
-          const authCookie = cookies.find(c => c.name.includes("auth-token"))
-          if (authCookie) {
-            const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
-            const decoded = JSON.parse(atob(raw))
-            token = decoded.access_token
-            if (token) {
-              await chrome.storage.local.set({ yuktihire_token: token })
-              console.log("[YuktiHire] Token from cookie:", token.slice(0, 20) + "...")
-            }
-          }
+          token = await fetchTokenFromTab()
         }
 
         if (!token) {
-          sendResponse({ ok: false, error: "No token found" })
+          sendResponse({ ok: false, error: "Not authenticated" })
           return
         }
 
-        // Skip API check — just confirm we have a token
-        sendResponse({ ok: true, data: { authenticated: true } })
+        // Verify token works
+        try {
+          const resp = await fetch(`${API_BASE}/extension/status`, {
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
+          })
+          if (resp.ok) {
+            sendResponse({ ok: true, data: await resp.json() })
+          } else {
+            // Token expired — try refreshing from tab
+            console.log("[YuktiHire] Token invalid, trying tab refresh...")
+            await chrome.storage.local.remove(["yuktihire_token"])
+            const freshToken = await fetchTokenFromTab()
+            if (freshToken) {
+              const resp2 = await fetch(`${API_BASE}/extension/status`, {
+                headers: { "Authorization": `Bearer ${freshToken}`, "Content-Type": "application/json" }
+              })
+              if (resp2.ok) {
+                sendResponse({ ok: true, data: await resp2.json() })
+                return
+              }
+            }
+            sendResponse({ ok: false, error: "Session expired. Open yuktihire.com and log in, then try again." })
+          }
+        } catch (e) {
+          sendResponse({ ok: false, error: e.message })
+        }
       } catch (e) {
         console.log("[YuktiHire] CHECK_AUTH error:", e.message)
         sendResponse({ ok: false, error: e.message })
