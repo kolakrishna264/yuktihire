@@ -1629,7 +1629,11 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     if (msg.type === "FIND_AND_FILL_QUESTION") {
-      sendResponse(findAndFillQuestion(msg.question, msg.answer))
+      // Async — supports custom dropdown click-wait-select
+      findAndFillQuestionAsync(msg.question, msg.answer).then(function(result) {
+        sendResponse(result)
+      })
+      return true  // Keep channel open for async response
     }
     return false
   })
@@ -2050,6 +2054,127 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     return { ok: false, error: "Could not fill: " + questionKeyword }
+  }
+
+  // ── Async wrapper: handles custom React dropdowns (Greenhouse, Lever, etc.) ──
+  function findAndFillQuestionAsync(questionKeyword, answer) {
+    return new Promise(function(resolve) {
+      // Step 1: Try synchronous fill
+      var result = findAndFillQuestion(questionKeyword, answer)
+      if (result.ok) { resolve(result); return }
+
+      // Step 2: If sync failed, try async custom dropdown approach
+      // Search for the question label on page
+      var keyword = questionKeyword.toLowerCase()
+      var answerLower = answer.toLowerCase()
+      var allLabels = document.querySelectorAll("label, legend, h3, h4, h5, h6, strong, p, span")
+
+      var targetLabel = null
+      var bestScore = 0
+      for (var i = 0; i < allLabels.length; i++) {
+        var el = allLabels[i]
+        var t = (el.textContent || "").toLowerCase().trim()
+        if (t.length > 200 || !t.includes(keyword)) continue
+        if (filledElements.has(el)) continue
+        var score = 1000 - t.length
+        if (el.tagName === "LABEL") score += 500
+        if (t === keyword || t.startsWith(keyword + "?") || t.startsWith(keyword + " *")) score += 400
+        if (score > bestScore) { bestScore = score; targetLabel = el }
+      }
+
+      if (!targetLabel) { resolve(result); return }
+
+      // Walk up from label to find a field container
+      var container = targetLabel.parentElement
+      for (var up = 0; up < 5; up++) {
+        if (!container) break
+        // Check if container has a custom dropdown trigger
+        var trigger = container.querySelector(
+          '[class*="select__control"], [class*="css-"][class*="control"], ' +
+          '[class*="SelectTrigger"], [class*="select-trigger"], ' +
+          '[role="combobox"], [aria-haspopup="listbox"], ' +
+          '[class*="chosen-container"], [class*="indicator"]'
+        )
+        if (trigger) break
+        // Also check for native select we might have missed
+        var nativeSelect = container.querySelector("select")
+        if (nativeSelect && !filledElements.has(nativeSelect)) {
+          var nResult = trySelectFill(nativeSelect, answer, { selector: "", inputType: "select" })
+          if (nResult.ok) {
+            filledElements.add(nativeSelect)
+            filledElements.add(targetLabel)
+            resolve(nResult)
+            return
+          }
+        }
+        container = container.parentElement
+      }
+
+      if (!container) { resolve(result); return }
+
+      // Found a custom dropdown container — click to open
+      var trigger = container.querySelector(
+        '[class*="select__control"], [class*="css-"][class*="control"], ' +
+        '[class*="SelectTrigger"], [class*="select-trigger"], ' +
+        '[role="combobox"], [aria-haspopup="listbox"], ' +
+        '[class*="chosen-container"], [class*="indicator"]'
+      )
+      // If no specific trigger, click the container's first clickable div
+      if (!trigger) {
+        trigger = container.querySelector('[class*="select"], [class*="dropdown"], [tabindex]')
+      }
+      if (!trigger) trigger = container
+
+      // Click to open the dropdown
+      trigger.click()
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+
+      // Wait for dropdown options to render
+      setTimeout(function() {
+        // Search for options anywhere on the page (dropdowns often render in portals)
+        var optionSelectors = [
+          '[class*="select__option"]', '[class*="option"]',
+          '[role="option"]', '[role="listbox"] [role="option"]',
+          '[class*="menu"] [class*="item"]', '[class*="MenuList"] > div',
+          'li[id*="option"]', 'li[id*="react-select"]'
+        ]
+        var allOptions = document.querySelectorAll(optionSelectors.join(", "))
+
+        var matched = false
+        for (var oi = 0; oi < allOptions.length; oi++) {
+          var opt = allOptions[oi]
+          var optText = (opt.textContent || "").trim().toLowerCase()
+          // Match: exact, starts with, or contains
+          if (optText === answerLower ||
+              optText.startsWith(answerLower) ||
+              answerLower.startsWith(optText) ||
+              optText.includes(answerLower) ||
+              (answerLower === "yes" && optText.startsWith("yes")) ||
+              (answerLower === "no" && (optText === "no" || optText.startsWith("no,"))) ||
+              (answerLower === "male" && optText === "male") ||
+              (answerLower === "female" && optText === "female") ||
+              (answerLower === "asian" && optText === "asian") ||
+              (answerLower.includes("not a protected veteran") && optText.includes("not a protected veteran")) ||
+              (answerLower.includes("do not want to answer") && optText.includes("do not want to answer")) ||
+              (answerLower.includes("do not have a disability") && optText.includes("do not have a disability"))) {
+            opt.click()
+            highlightField(trigger, "success")
+            filledElements.add(trigger)
+            filledElements.add(targetLabel)
+            filledElements.add(container)
+            matched = true
+            resolve({ ok: true, method: "async_custom_dropdown", selected: optText, question: keyword })
+            break
+          }
+        }
+
+        if (!matched) {
+          // Close the dropdown by pressing Escape
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+          resolve({ ok: false, error: "No matching option for: " + questionKeyword + " (tried " + allOptions.length + " options)" })
+        }
+      }, 400)  // 400ms wait for dropdown render
+    })
   }
 
 })()

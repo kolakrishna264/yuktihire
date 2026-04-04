@@ -215,23 +215,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const pd = profile?.data || {}
 
     // Phase A: EEO / Demographic — fill FIRST so no other value can contaminate these
+    // Each question waits for the async fill to complete before moving to next
     const eeoQuestions = [
+      { q: "gender", a: pd.gender || "Male" },
       { q: "are you hispanic/latino", a: pd.hispanicLatino || "No" },
       { q: "hispanic or latino", a: pd.hispanicLatino || "No" },
       { q: "hispanic/latino", a: pd.hispanicLatino || "No" },
-      { q: "race & ethnicity", a: pd.race || "Asian" },
       { q: "race", a: pd.race || "Asian" },
-      { q: "gender", a: pd.gender || "Male" },
       { q: "veteran status", a: pd.veteranStatus || "I am not a protected veteran" },
-      { q: "disability status", a: pd.disabilityStatus || "I do not want to answer" },
+      { q: "disability status", a: pd.disabilityStatus || "No, I do not have a disability" },
     ]
 
     for (const qa of eeoQuestions) {
       try {
+        btn.innerHTML = `⚡ EEO: ${qa.q.slice(0, 15)}...`
         const r = await chrome.tabs.sendMessage(currentTabId, {
           type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
         }).catch(() => null)
-        if (r?.ok) logs.push(`✓ ${qa.q}: ${qa.a}`)
+        if (r?.ok) logs.push(`✓ ${qa.q}: ${r.selected || qa.a}`)
+        // Small delay between EEO fills to let React re-render
+        await new Promise(res => setTimeout(res, 200))
       } catch {}
     }
 
@@ -246,37 +249,41 @@ document.addEventListener("DOMContentLoaded", () => {
       { q: "authorized to work", a: pd.workAuthorization || "Yes" },
       { q: "legally authorized", a: pd.workAuthorization || "Yes" },
       { q: "right to work", a: pd.workAuthorization || "Yes" },
-      // Relocation — match the exact question text from common forms
+      // Relocation
       { q: "open to relocation", a: pd.relocation || "Yes" },
       { q: "willing to relocate", a: pd.relocation || "Yes" },
       // In-person / office
       { q: "open to working in-person", a: "Yes" },
       { q: "work on-site", a: "Yes" },
-      { q: "work in office", a: "Yes" },
       // Timeline
       { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
       { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
       { q: "when can you start", a: pd.earliestStart || "2 weeks from offer" },
       // Interview history
-      { q: "interviewed at", a: pd.interviewedBefore || "No" },
+      { q: "interviewed at anthropic", a: pd.interviewedBefore || "No" },
       { q: "interviewed before", a: pd.interviewedBefore || "No" },
       { q: "ever interviewed", a: pd.interviewedBefore || "No" },
       // Policy / consent
       { q: "ai policy", a: "Yes" },
       { q: "confirm your understanding", a: "Yes" },
-      { q: "acknowledge", a: "Yes" },
       { q: "text message", a: "Yes" },
       { q: "consent to receiving", a: "Yes" },
-      // Address (ONLY if there's a text input — findAndFillQuestion handles this)
+      // Address
       { q: "address from which you plan", a: pd.address || pd.location || "Arlington, Texas, United States" },
+      // Salary expectations
+      { q: "salary expectation", a: pd.salaryExpectation || "" },
+      { q: "desired salary", a: pd.salaryExpectation || "" },
     ]
 
     for (const qa of appQuestions) {
+      if (!qa.a) continue  // Skip if no answer
       try {
+        btn.innerHTML = `⚡ ${qa.q.slice(0, 18)}...`
         const r = await chrome.tabs.sendMessage(currentTabId, {
           type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
         }).catch(() => null)
-        if (r?.ok) logs.push(`✓ ${qa.q}: ${qa.a}`)
+        if (r?.ok) logs.push(`✓ ${qa.q}: ${r.selected || qa.a}`)
+        await new Promise(res => setTimeout(res, 150))
       } catch {}
     }
 

@@ -284,7 +284,7 @@ async def get_autofill_data(
             "pronouns": "He/him/his",
             "gender": "Male",
             "veteranStatus": "I am not a protected veteran",
-            "disabilityStatus": "I do not want to answer",
+            "disabilityStatus": "No, I do not have a disability",
             "hispanicLatino": "No",
             "race": "Asian",
             "earliestStart": "2 weeks from offer",
