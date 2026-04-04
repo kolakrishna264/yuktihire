@@ -309,46 +309,74 @@ async function showCopilot(tabId) {
       freshAnalysis = await chrome.tabs.sendMessage(tabId, { type: "GET_FORM_ANALYSIS" })
     } catch { freshAnalysis = analysis }
 
-    const optionAnswers = {
+    // Step 2: Fill ALL remaining unfilled fields using smart matching
+    const knownAnswers = {
+      // By fieldType
       workAuthorization: "Yes",
       sponsorship: "Yes",
       relocation: "Yes",
-      location: profileResult?.data?.location || "Arlington, Texas",
-      address: profileResult?.data?.address || "Arlington, Texas, United States",
       consent: "Yes",
       yesNoQuestion: "Yes",
       pronouns: "He/him/his",
+      address: profileResult?.data?.address || "Arlington, Texas, United States",
+      location: profileResult?.data?.location || "Arlington, Texas",
+      currentCompany: profileResult?.data?.headline || "",
     }
 
-    for (const field of (freshAnalysis?.fields || [])) {
-      if (field.fillStatus === "filled") continue
+    // Also match by question text keywords
+    const questionKeywordAnswers = [
+      { keywords: ["authorized to work", "authorised to work", "work authorization", "legally authorized"], answer: "Yes" },
+      { keywords: ["dfw", "dallas", "fort worth", "located in"], answer: "Yes" },
+      { keywords: ["sponsorship", "sponsor", "h-1b", "h1b", "employment visa"], answer: "Yes" },
+      { keywords: ["relocat"], answer: "Yes" },
+      { keywords: ["text message", "sms", "consent to receiving"], answer: "Yes" },
+      { keywords: ["address", "your address", "what is your address"], answer: profileResult?.data?.address || "Arlington, Texas, United States" },
+      { keywords: ["pronoun"], answer: "He/him/his" },
+    ]
 
-      // Handle ALL fields with known answers (select, radio, text, custom)
-      if (optionAnswers[field.fieldType]) {
+    for (const field of (freshAnalysis?.fields || [])) {
+      // Skip already filled or file upload fields
+      if (field.fillStatus === "filled" || field.fillStatus === "file_upload") continue
+      // Skip fields already handled by safe fill
+      if (["firstName", "lastName", "email", "phone", "linkedin", "github", "portfolio"].includes(field.fieldType)) continue
+
+      let answerValue = null
+      let answerSource = ""
+
+      // Try fieldType match first
+      if (knownAnswers[field.fieldType]) {
+        answerValue = knownAnswers[field.fieldType]
+        answerSource = "profile"
+      }
+
+      // Try question text keyword match
+      if (!answerValue) {
+        const questionLower = ((field.label || "") + " " + (field.questionText || "")).toLowerCase()
+        for (const qa of questionKeywordAnswers) {
+          if (qa.keywords.some(k => questionLower.includes(k))) {
+            answerValue = qa.answer
+            answerSource = "keyword_match"
+            break
+          }
+        }
+      }
+
+      // Fill if we have an answer
+      if (answerValue) {
         try {
           const result = await chrome.tabs.sendMessage(tabId, {
             type: "FILL_SINGLE_FIELD",
             selector: field.selector,
-            value: optionAnswers[field.fieldType],
+            value: answerValue,
           })
           if (result?.ok) {
-            logs.push(`✓ ${field.label || field.fieldType}: ${optionAnswers[field.fieldType]}`)
+            logs.push(`✓ ${field.label || field.fieldType}: ${answerValue} (${answerSource})`)
           } else {
             logs.push(`✗ ${field.label || field.fieldType}: ${result?.error || "failed"}`)
           }
-        } catch {}
-      }
-
-      // Handle address/text fields not filled by safe fill
-      if (field.fieldType === "address" && field.inputType !== "select" && field.inputType !== "radio") {
-        try {
-          await chrome.tabs.sendMessage(tabId, {
-            type: "FILL_SINGLE_FIELD",
-            selector: field.selector,
-            value: profileResult?.data?.address || "Arlington, Texas, United States",
-          })
-          logs.push(`✓ Address: ${profileResult?.data?.address || "Arlington, TX"}`)
-        } catch {}
+        } catch (e) {
+          logs.push(`✗ ${field.label || field.fieldType}: ${e.message}`)
+        }
       }
     }
 

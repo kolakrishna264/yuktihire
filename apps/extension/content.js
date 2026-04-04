@@ -1319,9 +1319,75 @@ if (document.location.pathname === "/auth/extension-callback") {
         questionText: "",
         placeholder: el.placeholder || "",
       }
-      block.selector = selector // ensure the exact selector is used
+      block.selector = selector
 
-      return fillField(block, value)
+      // Try standard fill first
+      var result = fillField(block, value)
+      if (result.ok) return result
+
+      // If standard fill failed and value is Yes/No, search the entire page
+      // for radio buttons or clickable options near this element
+      var valueLower = String(value).toLowerCase()
+      if (valueLower === "yes" || valueLower === "no") {
+        // Search for clickable options in a wide area around the element
+        var searchContainer = el.closest("[class*='question'], [class*='field'], [class*='form'], [class*='block'], [class*='group']") || el.parentElement?.parentElement?.parentElement
+        if (searchContainer) {
+          var clickResult = tryCustomComponentFill(searchContainer, value, block)
+          if (clickResult.ok) return clickResult
+        }
+
+        // Last resort: find ALL radio buttons on the page and match by proximity
+        var allRadios = document.querySelectorAll('input[type="radio"]')
+        for (var i = 0; i < allRadios.length; i++) {
+          var radio = allRadios[i]
+          var label = radio.closest("label")
+          var labelText = (label ? label.textContent : radio.value || "").trim().toLowerCase()
+          if ((valueLower === "yes" && labelText.startsWith("yes")) || (valueLower === "no" && labelText.startsWith("no"))) {
+            // Check if this radio is within 500px of our target element
+            var elRect = el.getBoundingClientRect()
+            var radioRect = radio.getBoundingClientRect()
+            var distance = Math.abs(elRect.top - radioRect.top)
+            if (distance < 500) {
+              radio.click()
+              radio.checked = true
+              radio.dispatchEvent(new Event("change", { bubbles: true }))
+              highlightField(label || radio, "success")
+              return { ok: true, method: "proximity_radio", selected: labelText }
+            }
+          }
+        }
+
+        // Try clicking any Select dropdown on the page with this value
+        var allSelects = document.querySelectorAll("select")
+        for (var j = 0; j < allSelects.length; j++) {
+          var sel = allSelects[j]
+          var selRect = sel.getBoundingClientRect()
+          var dist = Math.abs(el.getBoundingClientRect().top - selRect.top)
+          if (dist < 300) {
+            var opts = Array.from(sel.options)
+            var match = opts.find(function(o) {
+              return o.text.toLowerCase().trim() === valueLower || o.value.toLowerCase().trim() === valueLower
+            })
+            if (match) {
+              sel.value = match.value
+              sel.dispatchEvent(new Event("change", { bubbles: true }))
+              highlightField(sel, "success")
+              return { ok: true, method: "proximity_select", selected: match.text }
+            }
+          }
+        }
+      }
+
+      // If value is a location-like string, try typing + clicking dropdown
+      if (value.includes(",") || value.toLowerCase().includes("arlington") || value.toLowerCase().includes("texas")) {
+        var textResult = tryTextFill(el, value, block)
+        if (textResult.ok) {
+          tryClickDropdownOption(el, value)
+          return textResult
+        }
+      }
+
+      return result // Return original failure
     } catch (e) {
       return { ok: false, error: e.message }
     }
