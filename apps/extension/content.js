@@ -811,11 +811,16 @@ if (document.location.pathname === "/auth/extension-callback") {
   function fillField(block, value) {
     try {
       var el = document.querySelector(block.selector)
-      if (!el) return { ok: false, method: "none", error: "Element not found for selector: " + block.selector }
+      if (!el) return { ok: false, method: "none", error: "Element not found" }
 
       // Strategy A: Text / email / tel / textarea / number / url / date
       if (["text", "email", "tel", "textarea", "number", "url", "date"].indexOf(block.inputType) !== -1) {
-        return tryTextFill(el, value, block)
+        var result = tryTextFill(el, value, block)
+        // If text fill worked on a searchable dropdown, try clicking the suggestion
+        if (result.ok) {
+          tryClickDropdownOption(el, value)
+        }
+        return result
       }
 
       // Strategy B: Select dropdown
@@ -833,10 +838,85 @@ if (document.location.pathname === "/auth/extension-callback") {
         return tryCheckboxFill(el, value, block)
       }
 
+      // Strategy E: Try as custom component — look for clickable options nearby
+      var customResult = tryCustomComponentFill(el, value, block)
+      if (customResult.ok) return customResult
+
       return { ok: false, method: "unsupported", error: "Input type " + block.inputType + " not supported" }
     } catch (e) {
       return { ok: false, method: "exception", error: e.message }
     }
+  }
+
+  // ── Custom React/Searchable dropdown handler ──────────────────────────
+
+  function tryClickDropdownOption(inputEl, value) {
+    /**
+     * After typing in a searchable input, look for a dropdown/listbox
+     * that appeared and click the best matching option.
+     */
+    setTimeout(function() {
+      var valueLower = value.toLowerCase()
+      // Look for visible dropdown lists near the input
+      var selectors = [
+        '[role="listbox"] [role="option"]',
+        '[role="listbox"] li',
+        'ul[class*="dropdown"] li',
+        'ul[class*="menu"] li',
+        'ul[class*="option"] li',
+        'div[class*="dropdown"] div[class*="option"]',
+        'div[class*="menu"] div[class*="item"]',
+        '[data-testid*="option"]',
+      ]
+
+      for (var s = 0; s < selectors.length; s++) {
+        var options = document.querySelectorAll(selectors[s])
+        for (var i = 0; i < options.length; i++) {
+          var optText = (options[i].textContent || "").trim().toLowerCase()
+          if (optText.includes(valueLower) || valueLower.includes(optText.split(",")[0])) {
+            // Check if this option is visible
+            if (options[i].offsetParent !== null) {
+              options[i].click()
+              highlightField(options[i], "success")
+              return true
+            }
+          }
+        }
+      }
+    }, 500) // Wait 500ms for dropdown to render after typing
+  }
+
+  function tryCustomComponentFill(el, value, block) {
+    /**
+     * Handle custom React components that aren't native inputs.
+     * Strategy: find the container, look for clickable options.
+     */
+    var container = block.container || el.closest("[class*='field'], [class*='form-group'], [class*='question']")
+    if (!container) return { ok: false, method: "custom_no_container" }
+
+    var valueLower = String(value).toLowerCase()
+
+    // Look for radio-like clickable options in the container
+    var clickables = container.querySelectorAll('[role="radio"], [role="option"], label, [class*="option"], [class*="choice"]')
+    for (var i = 0; i < clickables.length; i++) {
+      var text = (clickables[i].textContent || "").trim().toLowerCase()
+      if (text === valueLower || text.includes(valueLower) ||
+          (valueLower === "yes" && text.startsWith("yes")) ||
+          (valueLower === "no" && text.startsWith("no"))) {
+        clickables[i].click()
+        highlightField(clickables[i], "success")
+        // Also try clicking any inner input
+        var innerInput = clickables[i].querySelector("input")
+        if (innerInput) {
+          innerInput.click()
+          innerInput.checked = true
+          innerInput.dispatchEvent(new Event("change", { bubbles: true }))
+        }
+        return { ok: true, method: "custom_click", selected: text }
+      }
+    }
+
+    return { ok: false, method: "custom_no_match", error: "No matching option in container" }
   }
 
   function tryTextFill(el, value, block) {
@@ -982,7 +1062,37 @@ if (document.location.pathname === "/auth/extension-callback") {
       }
     }
 
-    return { ok: false, method: "radio_no_match", error: 'No matching radio for "' + value + '"', availableOptions: radios.map(function (r) { return r.closest("label")?.textContent?.trim() || r.value }).slice(0, 10) }
+    // Fallback: search ALL radio buttons on the page
+    var allRadios = Array.from(document.querySelectorAll('input[type="radio"]'))
+    for (var j = 0; j < allRadios.length; j++) {
+      var r = allRadios[j]
+      var lbl = r.closest("label")
+      var lt = lbl ? lbl.textContent.trim().toLowerCase() : (r.value || "").toLowerCase()
+      if ((valueLower === "yes" && lt.startsWith("yes")) ||
+          (valueLower === "no" && lt.startsWith("no")) ||
+          lt === valueLower || lt.includes(valueLower)) {
+        // Check if this radio is near the question we're trying to answer
+        var questionContainer = r.closest("[class*='question'], [class*='field'], [class*='form-group'], [class*='block']")
+        if (questionContainer) {
+          var containerText = questionContainer.textContent.toLowerCase()
+          var blockQuestion = (block.questionText || "").toLowerCase()
+          if (blockQuestion && containerText.includes(blockQuestion.slice(0, 30))) {
+            r.checked = true
+            r.click()
+            r.dispatchEvent(new Event("change", { bubbles: true }))
+            highlightField(r.closest("label") || r, "success")
+            return { ok: true, method: "radio_global_search", selected: lt }
+          }
+        }
+      }
+    }
+
+    // Last resort: try custom component fill on the container
+    if (container) {
+      return tryCustomComponentFill(container, value, block)
+    }
+
+    return { ok: false, method: "radio_no_match", error: 'No matching radio for "' + value + '"' }
   }
 
   function tryCheckboxFill(el, value, block) {

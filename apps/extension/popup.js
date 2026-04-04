@@ -316,14 +316,15 @@ async function showCopilot(tabId) {
       location: profileResult?.data?.location || "Arlington, Texas",
       address: profileResult?.data?.address || "Arlington, Texas, United States",
       consent: "Yes",
-      yesNoQuestion: "Yes",  // Default yes for generic yes/no
+      yesNoQuestion: "Yes",
+      pronouns: "He/him/his",
     }
 
     for (const field of (freshAnalysis?.fields || [])) {
       if (field.fillStatus === "filled") continue
 
-      // Handle select/radio fields with known answers
-      if (optionAnswers[field.fieldType] && (field.inputType === "select" || field.inputType === "radio")) {
+      // Handle ALL fields with known answers (select, radio, text, custom)
+      if (optionAnswers[field.fieldType]) {
         try {
           const result = await chrome.tabs.sendMessage(tabId, {
             type: "FILL_SINGLE_FIELD",
