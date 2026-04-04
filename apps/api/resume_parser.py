@@ -128,58 +128,62 @@ IMPORTANT: Education section is REQUIRED. Extract ALL degrees. Do not skip educa
 
 
 def _extract_education_from_text(text: str) -> list[dict]:
-    """Fallback: extract education from raw resume text using pattern matching."""
+    """Fallback: extract education using strict patterns that won't match random text."""
     import re
     educations = []
     lines = text.split("\n")
 
+    # Only match FULL degree names — not abbreviations like "as", "ms", "ba" which are common words
     degree_patterns = [
-        r"(Master(?:'s)?|M\.?S\.?|M\.?Tech|MBA|Ph\.?D\.?|Doctor)",
-        r"(Bachelor(?:'s)?|B\.?S\.?|B\.?Tech|B\.?E\.?|B\.?A\.?)",
-        r"(Associate(?:'s)?|A\.?S\.?|A\.?A\.?)",
+        r"(Master\s+of\s+\w+|Master['']?s\s+(?:of|in)\s+\w+|M\.S\.\s+in\s+\w+)",
+        r"(Bachelor\s+of\s+\w+|Bachelor['']?s\s+(?:of|in)\s+\w+|B\.S\.\s+in\s+\w+|B\.Tech)",
+        r"(Ph\.?D\.?\s+in\s+\w+|Doctor\s+of\s+\w+)",
+        r"(MBA\b)",
     ]
 
     for i, line in enumerate(lines):
         line_clean = line.strip()
-        if not line_clean:
+        if not line_clean or len(line_clean) < 10:
+            continue
+        # Skip lines that look like bullet points / job descriptions
+        if line_clean.startswith(("•", "-", "–", "▪", "*", "Built", "Led", "Designed", "Developed", "Created", "Implemented")):
             continue
 
         for pattern in degree_patterns:
             match = re.search(pattern, line_clean, re.IGNORECASE)
             if match:
-                degree = match.group(0)
+                degree = match.group(0).strip()
 
-                # Try to find field of study
+                # Find field of study
                 field = ""
-                field_match = re.search(r"(?:in|of)\s+(.+?)(?:\s*[,|•\-]|\s*$)", line_clean, re.IGNORECASE)
+                field_match = re.search(r"(?:in|of)\s+(.+?)(?:\s*[,|•\-–—]|\s+at\s+|\s+from\s+|\s*$)", line_clean[match.end():], re.IGNORECASE)
                 if field_match:
                     field = field_match.group(1).strip()
 
-                # Try to find school from same line or next line
+                # Find school
                 school = ""
-                # Check if university name is on the same line
                 uni_match = re.search(r"(University|College|Institute|School|Academy)[\w\s,]+", line_clean, re.IGNORECASE)
                 if uni_match:
                     school = uni_match.group(0).strip()
-                elif i + 1 < len(lines) and lines[i + 1].strip():
+                elif i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
                     if re.search(r"(University|College|Institute|School|Academy)", next_line, re.IGNORECASE):
                         school = next_line
 
-                # Try to find year
+                # Find year
                 year_match = re.findall(r"20\d{2}", line_clean)
                 end_date = year_match[-1] if year_match else None
                 start_date = year_match[0] if len(year_match) > 1 else None
 
                 educations.append({
                     "degree": degree,
-                    "field": field or "Not specified",
-                    "school": school or "Not specified",
+                    "field": field or "",
+                    "school": school or "",
                     "start_date": start_date,
                     "end_date": end_date,
                     "gpa": None,
                 })
-                break  # Don't match same line with multiple patterns
+                break
 
     return educations if educations else []
 
