@@ -5,11 +5,7 @@ const APP_URL = "https://yuktihire.com"
 // ── Token Management ──────────────────────────────────────────────────────
 
 async function getToken() {
-  // Try storage first
-  const result = await chrome.storage.local.get(["yuktihire_token"])
-  if (result.yuktihire_token) return result.yuktihire_token
-
-  // Try cookie fallback
+  // ALWAYS try cookie first — it has the freshest token
   try {
     const cookies = await chrome.cookies.getAll({ domain: "yuktihire.com" })
     const authCookie = cookies.find(c => c.name.includes("auth-token"))
@@ -17,13 +13,16 @@ async function getToken() {
       const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
       const decoded = JSON.parse(atob(raw))
       if (decoded.access_token) {
-        await chrome.storage.local.set({ yuktihire_token: decoded.access_token })
         return decoded.access_token
       }
     }
-  } catch {}
+  } catch (e) {
+    console.log("[YuktiHire] Cookie read error:", e)
+  }
 
-  return null
+  // Fallback to storage only if cookie unavailable
+  const result = await chrome.storage.local.get(["yuktihire_token"])
+  return result.yuktihire_token || null
 }
 
 async function storeTokens(accessToken, refreshToken, expiresAt) {
