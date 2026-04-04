@@ -380,6 +380,34 @@ async function showCopilot(tabId) {
       }
     }
 
+    // Step 2b: Direct page interaction for common questions
+    // These run as content script commands that search the actual page
+    const directFillCommands = [
+      { question: "authorized to work", answer: "Yes" },
+      { question: "dfw area", answer: "Yes" },
+      { question: "located in the dfw", answer: "Yes" },
+      { question: "sponsorship", answer: "Yes" },
+      { question: "employment visa", answer: "Yes" },
+      { question: "h-1b", answer: "Yes" },
+      { question: "text message", answer: "Yes" },
+      { question: "consent to receiving", answer: "Yes" },
+      { question: "address", answer: profileResult?.data?.address || "Arlington, Texas, United States" },
+      { question: "pronouns", answer: "He/him/his" },
+    ]
+
+    for (const cmd of directFillCommands) {
+      try {
+        const result = await chrome.tabs.sendMessage(tabId, {
+          type: "FIND_AND_FILL_QUESTION",
+          question: cmd.question,
+          answer: cmd.answer,
+        })
+        if (result?.ok) {
+          logs.push(`✓ ${cmd.question}: ${cmd.answer} (direct)`)
+        }
+      } catch {}
+    }
+
     // Step 3: Generate AI answers for custom/open questions
     const aiFields = (freshAnalysis?.fields || []).filter(f =>
       f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" || f.fieldType === "motivation" ||

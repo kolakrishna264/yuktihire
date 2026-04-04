@@ -655,9 +655,38 @@ if (document.location.pathname === "/auth/extension-callback") {
       if (heading && heading !== parentLabel) {
         parts.push(heading.textContent.trim())
       }
+      // Also grab the FULL container text — for Rippling-style forms where
+      // question text is in parent divs above the input
+      var containerText = container.textContent || ""
+      // Only use first 300 chars to avoid grabbing entire page
+      var shortText = containerText.replace(/\s+/g, " ").trim().slice(0, 300)
+      if (shortText.length > 10 && parts.length === 0) {
+        parts.push(shortText)
+      }
     }
 
-    // 6. Placeholder as last resort
+    // 6. Walk UP the DOM tree to find question text in parent elements
+    var parent = input.parentElement
+    for (var i = 0; i < 5 && parent; i++) {
+      // Look for direct text children or strong/p/span with question text
+      var children = parent.children
+      for (var j = 0; j < children.length; j++) {
+        var child = children[j]
+        if (child === input || child.contains(input)) continue
+        var childTag = child.tagName
+        if (childTag === "P" || childTag === "SPAN" || childTag === "DIV" || childTag === "H3" || childTag === "H4" || childTag === "STRONG") {
+          var ct = child.textContent.trim()
+          if (ct.length > 5 && ct.length < 300 && ct.includes("?")) {
+            // This is likely a question
+            parts.push(ct)
+          }
+        }
+      }
+      if (parts.length > 0) break
+      parent = parent.parentElement
+    }
+
+    // 7. Placeholder as last resort
     if (input.placeholder) parts.push(input.placeholder)
 
     // Deduplicate and join
@@ -1513,7 +1542,93 @@ if (document.location.pathname === "/auth/extension-callback") {
     if (msg.type === "CHECK_SUBMISSION") {
       sendResponse({ submitted: detectSubmissionSuccess() })
     }
+
+    if (msg.type === "FIND_AND_FILL_QUESTION") {
+      sendResponse(findAndFillQuestion(msg.question, msg.answer))
+    }
     return false
   })
+
+  /**
+   * Search the entire page for a question matching the given text,
+   * then find the nearest form control and fill it with the answer.
+   * This handles custom React forms where the scanner can't link questions to inputs.
+   */
+  function findAndFillQuestion(questionKeyword, answer) {
+    var keyword = questionKeyword.toLowerCase()
+    var answerLower = answer.toLowerCase()
+
+    // Search all text nodes on the page for the question
+    var allElements = document.querySelectorAll("p, span, div, label, h1, h2, h3, h4, h5, h6, strong, legend")
+
+    for (var i = 0; i < allElements.length; i++) {
+      var el = allElements[i]
+      var text = (el.textContent || "").toLowerCase()
+      if (!text.includes(keyword)) continue
+      // Skip if this element contains too many child elements (it's a container, not a question)
+      if (el.children.length > 10) continue
+
+      // Found a matching question text! Now find the nearest form control
+      var container = el.closest("[class*='question'], [class*='field'], [class*='form-group'], [class*='block']") || el.parentElement
+
+      if (!container) continue
+
+      // Strategy 1: Find a native <select> nearby
+      var select = container.querySelector("select")
+      if (!select) select = el.parentElement?.querySelector("select") || el.parentElement?.parentElement?.querySelector("select")
+      if (select) {
+        var result = trySelectFill(select, answer, { selector: "", inputType: "select" })
+        if (result.ok) return result
+      }
+
+      // Strategy 2: Find radio buttons nearby
+      var radios = container.querySelectorAll('input[type="radio"]')
+      if (radios.length === 0) {
+        // Search wider
+        var wider = container.parentElement
+        if (wider) radios = wider.querySelectorAll('input[type="radio"]')
+      }
+      if (radios.length > 0) {
+        for (var r = 0; r < radios.length; r++) {
+          var radio = radios[r]
+          var lbl = radio.closest("label")
+          var lblText = (lbl ? lbl.textContent : radio.value || "").trim().toLowerCase()
+          if ((answerLower === "yes" && lblText.startsWith("yes")) ||
+              (answerLower === "no" && lblText.startsWith("no")) ||
+              lblText === answerLower || lblText.includes(answerLower)) {
+            radio.click()
+            radio.checked = true
+            radio.dispatchEvent(new Event("change", { bubbles: true }))
+            highlightField(lbl || radio, "success")
+            return { ok: true, method: "find_and_fill_radio", selected: lblText, question: keyword }
+          }
+        }
+      }
+
+      // Strategy 3: Find a text input and type the answer
+      var input = container.querySelector("input:not([type='radio']):not([type='checkbox']):not([type='hidden']):not([type='file']):not([type='submit'])")
+      if (!input) input = container.querySelector("textarea")
+      if (input) {
+        var textResult = tryTextFill(input, answer, { selector: getUniqueSelector(input), inputType: input.type || "text" })
+        if (textResult.ok) {
+          tryClickDropdownOption(input, answer)
+          return { ok: true, method: "find_and_fill_text", question: keyword }
+        }
+      }
+
+      // Strategy 4: Click any clickable option div
+      var clickables = container.querySelectorAll('[role="option"], [role="radio"], [class*="option"], [class*="choice"]')
+      for (var c = 0; c < clickables.length; c++) {
+        var ct = (clickables[c].textContent || "").trim().toLowerCase()
+        if ((answerLower === "yes" && ct.startsWith("yes")) || (answerLower === "no" && ct.startsWith("no")) || ct === answerLower) {
+          clickables[c].click()
+          highlightField(clickables[c], "success")
+          return { ok: true, method: "find_and_fill_click", selected: ct, question: keyword }
+        }
+      }
+    }
+
+    return { ok: false, error: "Question not found on page: " + questionKeyword }
+  }
 
 })()
