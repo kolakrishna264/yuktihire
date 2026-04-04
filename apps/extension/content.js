@@ -539,6 +539,10 @@ if (document.location.pathname === "/auth/extension-callback") {
       github: profileData.github,
       portfolio: profileData.portfolio,
       location: profileData.location,
+      address: profileData.address || profileData.location,
+      authorization: profileData.workAuthorization || "Yes",
+      sponsorship: profileData.sponsorship || "",
+      company: profileData.headline || "",
     }
 
     for (const field of fields) {
@@ -582,16 +586,31 @@ if (document.location.pathname === "/auth/extension-callback") {
   }
 
   function _setFieldValue(el, value) {
-    // Use native setter for React compatibility
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-      "value"
-    )?.set
-
-    if (nativeSetter) {
-      nativeSetter.call(el, value)
+    if (el.tagName === "SELECT") {
+      // For dropdowns: find the best matching option
+      const options = [...el.options]
+      const valueLower = value.toLowerCase()
+      const match = options.find(o =>
+        o.value.toLowerCase() === valueLower ||
+        o.text.toLowerCase() === valueLower ||
+        o.text.toLowerCase().includes(valueLower) ||
+        (valueLower === "yes" && (o.value === "Yes" || o.value === "true" || o.text.toLowerCase() === "yes")) ||
+        (valueLower === "no" && (o.value === "No" || o.value === "false" || o.text.toLowerCase() === "no"))
+      )
+      if (match) {
+        el.value = match.value
+      } else {
+        el.value = value
+      }
     } else {
-      el.value = value
+      // Use native setter for React compatibility
+      const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
+      const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+      if (nativeSetter) {
+        nativeSetter.call(el, value)
+      } else {
+        el.value = value
+      }
     }
 
     el.dispatchEvent(new Event("input", { bubbles: true }))
@@ -710,27 +729,53 @@ if (document.location.pathname === "/auth/extension-callback") {
   function _classifyField(input, label) {
     const l = (label + " " + (input.name || "") + " " + (input.id || "") + " " + (input.placeholder || "")).toLowerCase()
 
-    if (l.includes("first name") || l.includes("firstname") || l.includes("first_name")) return "firstName"
-    if (l.includes("last name") || l.includes("lastname") || l.includes("last_name") || l.includes("surname")) return "lastName"
-    if ((l.includes("full name") || l.includes("your name") || l.includes("name")) && !l.includes("company") && !l.includes("user")) return "fullName"
+    // Name fields — check multiple variants
+    if (l.includes("first name") || l.includes("firstname") || l.includes("first_name") || l.includes("fname") || l.includes("given_name") || l.includes("given name")) return "firstName"
+    if (l.includes("last name") || l.includes("lastname") || l.includes("last_name") || l.includes("lname") || l.includes("surname") || l.includes("family_name") || l.includes("family name")) return "lastName"
+    if ((l.includes("full name") || l.includes("your name") || l.includes("fullname")) && !l.includes("company") && !l.includes("user")) return "fullName"
+
+    // Contact
     if (l.includes("email") || input.type === "email") return "email"
     if (l.includes("phone") || l.includes("mobile") || l.includes("tel") || input.type === "tel") return "phone"
+
+    // Links
     if (l.includes("linkedin")) return "linkedin"
     if (l.includes("github")) return "github"
-    if (l.includes("portfolio") || l.includes("website") || l.includes("personal site")) return "portfolio"
-    if (l.includes("address") || l.includes("location") || l.includes("city")) return "location"
-    if (l.includes("resume") || l.includes("cv")) return "resume"
-    if (l.includes("cover letter")) return "coverLetter"
-    if (l.includes("salary") || l.includes("compensation") || l.includes("expected pay")) return "salary"
-    if (l.includes("sponsor") || l.includes("visa")) return "sponsorship"
-    if (l.includes("authoriz") || l.includes("eligible to work") || l.includes("legally")) return "authorization"
-    if (l.includes("start date") || l.includes("available") || l.includes("notice period")) return "availability"
-    if (l.includes("experience") || l.includes("years")) return "experience"
+    if (l.includes("portfolio") || l.includes("website") || l.includes("personal site") || l.includes("personal url")) return "portfolio"
 
-    // Check if it's a textarea (likely a custom question)
+    // Location/Address
+    if (l.includes("address") || l.includes("street")) return "address"
+    if (l.includes("location") || l.includes("city") || l.includes("where are you")) return "location"
+
+    // Company
+    if (l.includes("current company") || l.includes("current employer")) return "company"
+
+    // Files
+    if (l.includes("resume") || l.includes("cv") || l.includes("résumé")) return "resume"
+    if (l.includes("cover letter")) return "coverLetter"
+
+    // Compensation
+    if (l.includes("salary") || l.includes("compensation") || l.includes("expected pay")) return "salary"
+
+    // Authorization / Sponsorship (including dropdowns/selects)
+    if (l.includes("sponsor") || l.includes("visa") || l.includes("h-1b") || l.includes("h1b") || l.includes("immigration")) return "sponsorship"
+    if (l.includes("authoriz") || l.includes("eligible to work") || l.includes("legally") || l.includes("right to work") || l.includes("work in the u.s")) return "authorization"
+
+    // Timing
+    if (l.includes("start date") || l.includes("available") || l.includes("notice period") || l.includes("when can you")) return "availability"
+    if (l.includes("experience") || l.includes("years of")) return "experience"
+    if (l.includes("relocat")) return "relocation"
+
+    // Detect select/radio with Yes/No options as authorization or sponsorship
+    if (input.tagName === "SELECT") {
+      const options = [...input.options].map(o => o.text.toLowerCase())
+      if (options.some(o => o === "yes" || o === "no")) return "customQuestion"
+    }
+
+    // Textareas = custom questions
     if (input.tagName === "TEXTAREA") return "customQuestion"
 
-    return null  // Unknown field — skip
+    return null
   }
 
   function _getUniqueSelector(el) {

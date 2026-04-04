@@ -135,39 +135,64 @@ async def get_autofill_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return structured profile data for form autofill."""
+    """Return structured profile data for form autofill. Priority: profile > user > fallback."""
     try:
+        # Get profile (has parsed resume data)
         profile = await db.execute(
             text("SELECT * FROM profiles WHERE user_id = :uid"),
             {"uid": current_user.id},
         )
         p = profile.mappings().first()
 
-        # Get user email
+        # Get user record
         user_result = await db.execute(
             text("SELECT email, full_name FROM users WHERE id = :uid"),
             {"uid": current_user.id},
         )
         user = user_result.mappings().first()
 
-        # Parse name
-        full_name = (user.get("full_name") or user.get("email", "").split("@")[0]) if user else ""
-        name_parts = full_name.split(" ", 1)
-        first_name = name_parts[0] if name_parts else ""
-        last_name = name_parts[1] if len(name_parts) > 1 else ""
+        # Priority 1: user.full_name (set from resume parsing)
+        # Priority 2: NEVER use email as name
+        full_name = ""
+        if user and user.get("full_name"):
+            full_name = user.get("full_name")
+
+        # If still empty, DO NOT fall back to email
+        if not full_name:
+            full_name = ""
+
+        # Parse name parts
+        name_parts = full_name.strip().split(" ") if full_name.strip() else []
+        first_name = name_parts[0] if len(name_parts) >= 1 else ""
+        last_name = " ".join(name_parts[1:]) if len(name_parts) >= 2 else ""
+
+        email = user.get("email", "") if user else ""
+        phone = p.get("phone", "") if p else ""
+        location = p.get("location", "") if p else ""
+        linkedin = p.get("linkedin", "") if p else ""
+        github = p.get("github", "") if p else ""
+        portfolio = p.get("portfolio", "") if p else ""
+
+        # Generate address from location
+        address = location
+        if location and "," not in location:
+            address = f"{location}, United States"
 
         return {
             "firstName": first_name,
             "lastName": last_name,
             "fullName": full_name,
-            "email": user.get("email", "") if user else "",
-            "phone": p.get("phone", "") if p else "",
-            "location": p.get("location", "") if p else "",
-            "linkedin": p.get("linkedin", "") if p else "",
-            "github": p.get("github", "") if p else "",
-            "portfolio": p.get("portfolio", "") if p else "",
+            "email": email,
+            "phone": phone,
+            "location": location,
+            "address": address,
+            "linkedin": linkedin,
+            "github": github,
+            "portfolio": portfolio,
             "headline": p.get("headline", "") if p else "",
             "summary": p.get("summary", "") if p else "",
+            "workAuthorization": "Yes",  # Default — user can override in profile
+            "sponsorship": "",  # User must set explicitly
         }
     except Exception as e:
         print(f"[Extension] autofill-data error: {e}")

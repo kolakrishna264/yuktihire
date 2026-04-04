@@ -180,7 +180,16 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     profile = await get_or_create_profile(current_user.id, db)
-    for field, value in data.model_dump(exclude_none=True).items():
+    payload = data.model_dump(exclude_none=True)
+
+    # Save full_name to users table (not on profile)
+    if "full_name" in payload:
+        try:
+            current_user.full_name = payload.pop("full_name")
+        except Exception:
+            payload.pop("full_name", None)
+
+    for field, value in payload.items():
         if hasattr(profile, field):
             setattr(profile, field, value)
     profile.completeness = calc_completeness(profile)
