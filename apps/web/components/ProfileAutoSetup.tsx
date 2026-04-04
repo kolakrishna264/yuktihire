@@ -257,7 +257,8 @@ export function ProfileAutoSetup() {
   }
 
   // Show upload prompt if profile is incomplete
-  if (!profileLoading && completeness < 60) {
+  // Always show upload option (user can re-upload anytime)
+  if (!profileLoading) {
     return (
       <Card className="mb-6 border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50">
         <CardContent className="p-5">
