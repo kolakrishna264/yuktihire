@@ -285,37 +285,110 @@ async function showCopilot(tabId) {
     ].join("")
   })
 
-  // Fill everything button
+  // Fill everything button — fills ALL field types
   document.getElementById("fill-all-btn")?.addEventListener("click", async () => {
     const btn = document.getElementById("fill-all-btn")
     btn.disabled = true
-    btn.textContent = "Filling all..."
+    btn.textContent = "⚡ Filling everything..."
+    const logsEl = document.getElementById("fill-logs")
+    logsEl.innerHTML = ""
+    const logs = []
 
-    // First fill safe fields
+    // Step 1: Fill safe profile fields
     const profileResult = await sendMessage({ type: "GET_AUTOFILL_DATA" })
     if (profileResult.ok) {
-      await chrome.tabs.sendMessage(tabId, { type: "FILL_SAFE_FIELDS", data: profileResult.data })
+      const result = await chrome.tabs.sendMessage(tabId, { type: "FILL_SAFE_FIELDS", data: profileResult.data })
+      result.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
+      result.skipped?.forEach(f => logs.push(`— ${f.label}: ${f.reason}`))
     }
 
-    // Then generate AI answers for custom questions
-    const customFields = analysis.fields.filter(f => f.fillStatus === "needs_ai")
-    for (const field of customFields) {
+    // Step 2: Fill dropdowns/radios with known answers
+    // Re-scan form to find unfilled option fields
+    let freshAnalysis
+    try {
+      freshAnalysis = await chrome.tabs.sendMessage(tabId, { type: "GET_FORM_ANALYSIS" })
+    } catch { freshAnalysis = analysis }
+
+    const optionAnswers = {
+      workAuthorization: "Yes",
+      sponsorship: "Yes",
+      relocation: "Yes",
+      location: profileResult?.data?.location || "Arlington, Texas",
+      address: profileResult?.data?.address || "Arlington, Texas, United States",
+      consent: "Yes",
+      yesNoQuestion: "Yes",  // Default yes for generic yes/no
+    }
+
+    for (const field of (freshAnalysis?.fields || [])) {
+      if (field.fillStatus === "filled") continue
+
+      // Handle select/radio fields with known answers
+      if (optionAnswers[field.fieldType] && (field.inputType === "select" || field.inputType === "radio")) {
+        try {
+          const result = await chrome.tabs.sendMessage(tabId, {
+            type: "FILL_SINGLE_FIELD",
+            selector: field.selector,
+            value: optionAnswers[field.fieldType],
+          })
+          if (result?.ok) {
+            logs.push(`✓ ${field.label || field.fieldType}: ${optionAnswers[field.fieldType]}`)
+          } else {
+            logs.push(`✗ ${field.label || field.fieldType}: ${result?.error || "failed"}`)
+          }
+        } catch {}
+      }
+
+      // Handle address/text fields not filled by safe fill
+      if (field.fieldType === "address" && field.inputType !== "select" && field.inputType !== "radio") {
+        try {
+          await chrome.tabs.sendMessage(tabId, {
+            type: "FILL_SINGLE_FIELD",
+            selector: field.selector,
+            value: profileResult?.data?.address || "Arlington, Texas, United States",
+          })
+          logs.push(`✓ Address: ${profileResult?.data?.address || "Arlington, TX"}`)
+        } catch {}
+      }
+    }
+
+    // Step 3: Generate AI answers for custom/open questions
+    const aiFields = (freshAnalysis?.fields || []).filter(f =>
+      f.fillStatus === "needs_ai" || f.fieldType === "customQuestion" || f.fieldType === "motivation" ||
+      f.fieldType === "experience" || f.fieldType === "openEnded"
+    )
+
+    for (const field of aiFields) {
       try {
+        btn.textContent = `⚡ AI answering: ${(field.label || "question").slice(0, 20)}...`
         const answerResult = await sendMessage({
           type: "GENERATE_ANSWER",
-          data: { question: field.label || field.placeholder }
+          data: { question: field.label || field.placeholder || "Open question" }
         })
         if (answerResult.ok && answerResult.data?.answer) {
-          await chrome.tabs.sendMessage(tabId, {
+          const fillResult = await chrome.tabs.sendMessage(tabId, {
             type: "FILL_SINGLE_FIELD",
             selector: field.selector,
             value: answerResult.data.answer,
           })
+          if (fillResult?.ok) {
+            logs.push(`✓ AI: ${(field.label || "question").slice(0, 30)}`)
+          }
         }
       } catch {}
     }
 
-    btn.textContent = "✓ All fields processed"
+    // Step 4: Show results
+    btn.textContent = `✓ ${logs.filter(l => l.startsWith("✓")).length} fields filled`
+    logsEl.innerHTML = logs.map(l => {
+      const icon = l.startsWith("✓") ? "✓" : l.startsWith("✗") ? "✗" : "—"
+      return `<div class="log-item"><span class="status-icon">${icon}</span> ${l.slice(2)}</div>`
+    }).join("")
+
+    // Switch to logs tab
+    document.querySelectorAll(".copilot-tab").forEach(t => t.classList.remove("active"))
+    document.querySelector('[data-tab="logs"]')?.classList.add("active")
+    document.querySelectorAll(".copilot-content").forEach(c => c.classList.add("hidden"))
+    document.getElementById("copilot-logs")?.classList.remove("hidden")
   })
 
   // Check for submission success every 5 seconds
