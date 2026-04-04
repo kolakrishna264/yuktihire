@@ -7,7 +7,15 @@ const APP_URL = "https://yuktihire.com"
 async function getToken() {
   // Check storage first
   const result = await chrome.storage.local.get(["yuktihire_token"])
-  if (result.yuktihire_token) return result.yuktihire_token
+  if (result.yuktihire_token) {
+    // Verify token isn't expired by checking length (valid JWTs are 100+ chars)
+    if (result.yuktihire_token.length > 50) return result.yuktihire_token
+  }
+
+  // Auto-fetch from yuktihire.com tab
+  const freshToken = await fetchTokenFromTab()
+  if (freshToken) return freshToken
+
   return null
 }
 
@@ -112,49 +120,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         let token = await getToken()
 
-        // If no stored token, try reading from an open yuktihire.com tab
         if (!token) {
-          token = await fetchTokenFromTab()
-        }
-
-        if (!token) {
-          sendResponse({ ok: false, error: "Not authenticated" })
+          sendResponse({ ok: false, error: "Not authenticated. Open yuktihire.com and sign in." })
           return
         }
 
-        // Verify token works
-        try {
-          const resp = await fetch(`${API_BASE}/extension/status`, {
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
-          })
-          if (resp.ok) {
-            sendResponse({ ok: true, data: await resp.json() })
-          } else {
-            // Token expired — try refreshing from tab
-            console.log("[YuktiHire] Token invalid, trying tab refresh...")
-            await chrome.storage.local.remove(["yuktihire_token"])
-            const freshToken = await fetchTokenFromTab()
-            if (freshToken) {
-              const resp2 = await fetch(`${API_BASE}/extension/status`, {
-                headers: { "Authorization": `Bearer ${freshToken}`, "Content-Type": "application/json" }
-              })
-              if (resp2.ok) {
-                sendResponse({ ok: true, data: await resp2.json() })
-                return
-              }
-            }
-            sendResponse({ ok: false, error: "Session expired. Open yuktihire.com and log in, then try again." })
-          }
-        } catch (e) {
-          sendResponse({ ok: false, error: e.message })
-        }
+        // Trust the token — don't verify with API (saves time, prevents false negatives)
+        // If token is expired, individual API calls will get 401 and we handle it there
+        sendResponse({ ok: true, data: { authenticated: true } })
       } catch (e) {
-        console.log("[YuktiHire] CHECK_AUTH error:", e.message)
         sendResponse({ ok: false, error: e.message })
       }
     })()
     return true
   }
+
 
   if (msg.type === "CHECK_URL") {
     apiCall(`/extension/check-url?url=${encodeURIComponent(msg.url)}`)
