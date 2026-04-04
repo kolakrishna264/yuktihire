@@ -51,7 +51,7 @@ export function TailorWorkspace() {
         toast.info(`No JD saved for "${trackerJob.title}" — paste the JD or use the URL tab to fetch it`)
       }
     }
-  }, [trackerJob, prefilledJD])
+  }, [trackerJob]) // Only depend on trackerJob, not prefilledJD
   const { mutateAsync: updateResumeAsync } = useUpdateResume()
   const { mutate: runTailoring, isPending: startingTailor } = useRunTailoring()
   const { data: sessionData, isPolling } = useTailoringSession(sessionId)

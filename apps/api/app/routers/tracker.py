@@ -434,12 +434,16 @@ async def get_tracked_job(
 
         data = _serialize_row(row)
 
-        # Load events
-        events_result = await db.execute(
-            sql_text("SELECT * FROM application_events WHERE application_id = :id ORDER BY created_at DESC"),
-            {"id": tracker_id},
-        )
-        events = [dict(e) for e in events_result.mappings().all()]
+        # Load events (table may not exist)
+        events = []
+        try:
+            events_result = await db.execute(
+                sql_text("SELECT * FROM application_events WHERE application_id = :id ORDER BY created_at DESC"),
+                {"id": tracker_id},
+            )
+            events = [dict(e) for e in events_result.mappings().all()]
+        except Exception:
+            pass
         data["events"] = [{
             "id": e.get("id"),
             "eventType": e.get("event_type"),
