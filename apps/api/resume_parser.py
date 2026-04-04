@@ -23,7 +23,7 @@ async def parse_resume(content: bytes, filename: str) -> dict:
     client = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     message = await client.messages.create(
-        model="claude-sonnet-4-6-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         system="You are a resume parser. Extract ALL structured data completely. Return only valid JSON. Do not truncate or omit any experience, education, or skill.",
         messages=[{
