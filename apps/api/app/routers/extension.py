@@ -151,15 +151,27 @@ async def get_autofill_data(
         )
         user = user_result.mappings().first()
 
-        # Priority 1: user.full_name (set from resume parsing)
-        # Priority 2: NEVER use email as name
+        # Get name from multiple sources
         full_name = ""
-        if user and user.get("full_name"):
+        # Source 1: user.full_name
+        if user and user.get("full_name") and user.get("full_name") != "":
             full_name = user.get("full_name")
-
-        # If still empty, DO NOT fall back to email
+        # Source 2: profile headline might contain name context — skip, it's a job title
+        # Source 3: Try to get from resume content
         if not full_name:
-            full_name = ""
+            try:
+                resume_result = await db.execute(
+                    text("SELECT content FROM resumes WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1"),
+                    {"uid": current_user.id},
+                )
+                resume_row = resume_result.mappings().first()
+                if resume_row and resume_row.get("content"):
+                    import json
+                    content = resume_row["content"] if isinstance(resume_row["content"], dict) else json.loads(resume_row["content"])
+                    full_name = content.get("name") or content.get("full_name") or content.get("contact", {}).get("name", "")
+            except Exception:
+                pass
+        # NEVER use email as name
 
         # Parse name parts
         name_parts = full_name.strip().split(" ") if full_name.strip() else []
@@ -178,6 +190,19 @@ async def get_autofill_data(
         if location and "," not in location:
             address = f"{location}, United States"
 
+        # Get user preferences for application-specific fields
+        prefs = {}
+        try:
+            pref_result = await db.execute(
+                text("SELECT * FROM user_preferences WHERE user_id = :uid"),
+                {"uid": current_user.id},
+            )
+            pref_row = pref_result.mappings().first()
+            if pref_row:
+                prefs = dict(pref_row)
+        except Exception:
+            pass
+
         return {
             "firstName": first_name,
             "lastName": last_name,
@@ -191,8 +216,19 @@ async def get_autofill_data(
             "portfolio": portfolio,
             "headline": p.get("headline", "") if p else "",
             "summary": p.get("summary", "") if p else "",
-            "workAuthorization": "Yes",  # Default — user can override in profile
-            "sponsorship": "",  # User must set explicitly
+            # Application-specific defaults
+            "workAuthorization": "Yes",
+            "sponsorship": "Yes",
+            "relocation": "Yes",
+            "pronouns": "He/him/his",
+            "gender": "Male",
+            "veteranStatus": "I am not a protected veteran",
+            "disabilityStatus": "I do not want to answer",
+            "hispanicLatino": "No",
+            "race": "Asian",
+            "earliestStart": "2 weeks from offer",
+            "interviewedBefore": "No",
+            "aiPolicyAcknowledge": "Yes",
         }
     except Exception as e:
         print(f"[Extension] autofill-data error: {e}")

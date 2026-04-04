@@ -202,17 +202,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Step 2: Fill questions by searching the page
     showStatus("Filling dropdowns & questions...", "info")
+    const pd = profile?.data || {}
     const questionAnswers = [
-      { q: "authorized to work", a: "Yes" },
+      // Authorization & sponsorship
+      { q: "authorized to work", a: pd.workAuthorization || "Yes" },
+      { q: "legally authorized", a: pd.workAuthorization || "Yes" },
+      { q: "right to work", a: pd.workAuthorization || "Yes" },
+      { q: "sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "employment visa", a: pd.sponsorship || "Yes" },
+      { q: "h-1b", a: pd.sponsorship || "Yes" },
+      { q: "visa sponsorship", a: pd.sponsorship || "Yes" },
+      // Location
       { q: "located in the dfw", a: "Yes" },
       { q: "dfw area", a: "Yes" },
-      { q: "sponsorship", a: "Yes" },
-      { q: "employment visa", a: "Yes" },
-      { q: "h-1b", a: "Yes" },
+      { q: "your address", a: pd.address || "Arlington, Texas, United States" },
+      { q: "address from which", a: pd.address || "Arlington, Texas, United States" },
+      { q: "open to relocation", a: pd.relocation || "Yes" },
+      { q: "open to working in-person", a: "Yes" },
+      // Personal
+      { q: "pronouns", a: pd.pronouns || "He/him/his" },
+      { q: "gender", a: pd.gender || "Male" },
+      { q: "hispanic", a: pd.hispanicLatino || "No" },
+      { q: "veteran", a: pd.veteranStatus || "I am not a protected veteran" },
+      { q: "disability", a: pd.disabilityStatus || "I do not want to answer" },
+      // Application specific
+      { q: "interviewed at", a: pd.interviewedBefore || "No" },
+      { q: "interviewed before", a: pd.interviewedBefore || "No" },
+      { q: "ai policy", a: pd.aiPolicyAcknowledge || "Yes" },
+      { q: "earliest", a: pd.earliestStart || "2 weeks from offer" },
+      { q: "start working", a: pd.earliestStart || "2 weeks from offer" },
+      { q: "deadlines", a: "No specific deadlines" },
+      { q: "timeline consideration", a: "No specific timeline constraints" },
+      // Consent
       { q: "text message", a: "Yes" },
       { q: "consent to receiving", a: "Yes" },
-      { q: "your address", a: profile?.data?.address || "Arlington, Texas, United States" },
-      { q: "pronouns", a: "He/him/his" },
+      { q: "sms", a: "Yes" },
     ]
 
     for (const qa of questionAnswers) {
