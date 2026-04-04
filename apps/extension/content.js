@@ -2306,7 +2306,7 @@ if (document.location.hostname.includes("yuktihire.com")) {
           var sr = trySelectFill(ctrl.element, match.value, { selector: "", inputType: "select" })
           if (sr.ok) filled = true
           // Even if fill failed, mark country/phone selects as claimed so nothing else touches them
-          if (match.key === "phone_country" || match.key === "country" || match.key === "country code") {
+          if (match.key === "phone_country" || match.key === "country_text" || match.key.includes("country")) {
             filledElements.add(ctrl.element)
             if (ctrl.container) filledElements.add(ctrl.container)
           }
@@ -2327,6 +2327,11 @@ if (document.location.hostname.includes("yuktihire.com")) {
         // Custom dropdown (React-Select, MUI, Workday, etc.)
         if (ctrl.type === "custom-select" && !filled) {
           filled = await fillCustomDropdown(ctrl.element, ctrl.container, match.value)
+          // Claim country custom-selects even if fill failed
+          if (match.key.includes("country")) {
+            filledElements.add(ctrl.element)
+            if (ctrl.container) filledElements.add(ctrl.container)
+          }
         }
 
         if (filled) {
@@ -2501,11 +2506,10 @@ if (document.location.hostname.includes("yuktihire.com")) {
       // Links — only fill if user actually has data
       "publication": pd.publications || "", "publications": pd.publications || "",
       "google scholar": pd.publications || "", "semantic scholar": pd.publications || "",
-      // Location
+      // Location — NO "country" key here (handled specially to avoid cross-contamination)
       "location": pd.location, "city": pd.location,
       "address": pd.address || pd.location, "street address": pd.address || pd.location,
-      "country": "United States", "country code": "United States",
-      "state": "",
+      "what is your address": pd.address || pd.location,
       // Work
       "current company": pd.headline, "current employer": pd.headline,
       "headline": pd.headline, "summary": pd.summary,
@@ -2521,10 +2525,13 @@ if (document.location.hostname.includes("yuktihire.com")) {
       "require sponsorship": pd.sponsorship || "Yes",
       "require visa": pd.sponsorship || "Yes",
       "employment visa": pd.sponsorship || "Yes",
+      "employer sponsorship": pd.sponsorship || "Yes",
       // Relocation
       "relocation": pd.relocation || "Yes",
       "open to relocation": pd.relocation || "Yes",
       "willing to relocate": pd.relocation || "Yes",
+      // Location-specific
+      "dfw area": "Yes", "located in the dfw": "Yes",
       // EEO
       "gender": pd.gender || "Male",
       "sex": pd.gender || "Male",
@@ -2572,10 +2579,16 @@ if (document.location.hostname.includes("yuktihire.com")) {
       if (labelLower.includes(optionalFields[of2]) && !answers[optionalFields[of2]]) return null
     }
 
-    // Special handling: phone country code (label often just says "Country" near phone)
-    if ((labelLower === "country" || labelLower.includes("country code") || labelLower.includes("phone country")) &&
-        (controlType === "select" || controlType === "custom-select")) {
-      return { key: "phone_country", value: "United States" }
+    // Special handling: "Country" label — ONLY fill as phone country code for selects
+    // This prevents ANY other value (disability, race, etc.) from going into the Country field
+    if (labelLower.includes("country")) {
+      if (controlType === "select" || controlType === "custom-select") {
+        return { key: "phone_country", value: "United States" }
+      }
+      if (controlType === "text") {
+        return { key: "country_text", value: "United States" }
+      }
+      return null  // Don't match country to anything else
     }
 
     // Exact key match

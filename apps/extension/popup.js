@@ -299,16 +299,22 @@ document.addEventListener("DOMContentLoaded", () => {
       { q: "race", a: pd.race || "Asian" },
       { q: "veteran status", a: pd.veteranStatus || "I am not a protected veteran" },
       { q: "disability status", a: pd.disabilityStatus || "No, I do not have a disability" },
-      // Yes/No questions (often custom selects)
+      // Yes/No questions (custom selects on Greenhouse, Rippling, Lever, Workday)
       { q: "open to relocation", a: pd.relocation || "Yes" },
       { q: "open to working in-person", a: "Yes" },
       { q: "do you require visa sponsorship", a: pd.sponsorship || "Yes" },
       { q: "require employment visa sponsorship", a: pd.sponsorship || "Yes" },
+      { q: "require employer sponsorship", a: pd.sponsorship || "Yes" },
       { q: "authorized to work", a: pd.workAuthorization || "Yes" },
+      { q: "located in the dfw", a: "Yes" },
+      { q: "dfw area", a: "Yes" },
       { q: "interviewed before", a: pd.interviewedBefore || "No" },
       { q: "interviewed at", a: pd.interviewedBefore || "No" },
       { q: "ai policy", a: "Yes" },
       { q: "confirm your understanding", a: "Yes" },
+      // Consent / SMS
+      { q: "receive text message", a: "Yes" },
+      { q: "agree to receive", a: "Yes" },
       // Timeline
       { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
       { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
