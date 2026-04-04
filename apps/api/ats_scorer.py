@@ -165,46 +165,61 @@ def generate_tips(
     return tips[:6]
 
 
+def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
+    """Extract ALL meaningful keywords from JD analysis — not just must_have."""
+    keywords = set()
+    for field in ["must_have_keywords", "nice_to_have_keywords", "required_skills",
+                  "nice_to_have_skills", "domain_phrases", "responsibilities_summary"]:
+        for kw in jd_analysis.get(field, []):
+            if isinstance(kw, str) and len(kw) > 1:
+                keywords.add(kw)
+    return list(keywords)
+
+
 def calculate_ats_score(
     resume_content: dict,
     jd_analysis: dict,
     gap_analysis: dict,
 ) -> dict:
     """
-    Full ATS scoring. Deterministic, no AI.
-    Returns complete score breakdown.
+    Full ATS scoring. Returns complete score breakdown.
+    Designed to give actionable scores — adding suggested keywords should push to 85%+.
     """
     resume_text = extract_resume_text(resume_content)
 
-    # Keyword score (30% weight)
-    kw_score, matched_kw, missing_kw = keyword_match_score(
-        resume_text, jd_analysis.get("must_have_keywords", [])
-    )
+    # Combine ALL keywords from JD (not just must_have)
+    all_keywords = extract_all_jd_keywords(jd_analysis)
+    must_have = jd_analysis.get("must_have_keywords", [])
+    required_skills = jd_analysis.get("required_skills", [])
+
+    # Keyword score (25% weight) — uses ALL JD keywords
+    kw_score, matched_kw, missing_kw = keyword_match_score(resume_text, all_keywords)
 
     # Skills score (25% weight)
-    skills_scr, matched_skills, missing_skills = skills_match_score(
-        resume_text, jd_analysis.get("required_skills", [])
-    )
+    skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
 
-    # Experience score (25% weight) — from gap analysis
-    exp_score = experience_score_from_gaps(gap_analysis)
+    # Experience score (20% weight) — from gap analysis, with floor
+    exp_score = max(experience_score_from_gaps(gap_analysis), 45)
 
-    # Education score (10% weight)
+    # Education score (15% weight)
     edu_scr = education_score(resume_content, jd_analysis)
 
-    # Format score (10% weight)
+    # Format score (15% weight)
     fmt_scr = format_score(resume_content)
 
-    # Weighted overall
+    # Weighted overall — designed so adding all missing keywords → ~85-90%
     overall = int(
-        kw_score * 0.30 +
+        kw_score * 0.25 +
         skills_scr * 0.25 +
-        exp_score * 0.25 +
-        edu_scr * 0.10 +
-        fmt_scr * 0.10
+        exp_score * 0.20 +
+        edu_scr * 0.15 +
+        fmt_scr * 0.15
     )
 
-    # Section scores
+    # Boost: if many keywords match, give bonus
+    if kw_score >= 70 and skills_scr >= 60:
+        overall = min(overall + 10, 100)
+
     section_scores = {
         "summary": gap_analysis.get("summary_score", 60),
         "experience": exp_score,
@@ -215,6 +230,11 @@ def calculate_ats_score(
 
     tips = generate_tips(missing_kw, missing_skills, gap_analysis, [])
 
+    # Add tip about how many keywords needed for 85%+
+    if overall < 85 and missing_kw:
+        needed = min(len(missing_kw), max(3, int(len(all_keywords) * 0.3)))
+        tips.insert(0, f"Add {needed} more keywords to reach 85%+ ATS score")
+
     return {
         "overall_score": min(overall, 100),
         "keyword_score": kw_score,
@@ -223,9 +243,9 @@ def calculate_ats_score(
         "education_score": edu_scr,
         "format_score": fmt_scr,
         "matched_keywords": matched_kw,
-        "missing_keywords": missing_kw[:10],
+        "missing_keywords": missing_kw[:20],  # Show up to 20 missing
         "matched_skills": matched_skills,
-        "missing_skills": missing_skills[:10],
+        "missing_skills": missing_skills[:15],
         "section_scores": section_scores,
         "tips": tips,
     }
