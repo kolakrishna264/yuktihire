@@ -39,11 +39,14 @@ export function TailorWorkspace() {
   const { data: trackerJob } = useTrackerDetail(trackerId)
   useEffect(() => {
     if (trackerJob && !prefilledJD) {
-      // Use notes (where extension saves JD) or description
       const jd = trackerJob.notes || trackerJob.description || ""
-      if (jd) {
+      if (jd && jd.length > 20) {
         setPrefilledJD(jd)
-        toast.success(`Loaded JD from "${trackerJob.title}" — select a resume and start tailoring`)
+        toast.success(`JD loaded from "${trackerJob.title}" — select a resume and click Analyze`)
+      } else if (trackerJob.url) {
+        // No JD stored — set the URL so user can fetch it
+        setPrefilledJD("")
+        toast.info(`No JD saved for "${trackerJob.title}" — paste the JD or use the URL tab to fetch it`)
       }
     }
   }, [trackerJob, prefilledJD])

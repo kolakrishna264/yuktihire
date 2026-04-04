@@ -166,7 +166,7 @@ if (document.location.pathname === "/auth/extension-callback") {
     "greenhouse.io": () => ({
       title: getText("#header .app-title, .opening h1, [data-mapped='true'] h1, h1"),
       company: getText(".company-name, #header .company-name") || document.title.split(" at ").pop()?.split(" - ")[0]?.trim() || "",
-      description: getText("#content .body, .opening .body, #app_body, .job-post-content"),
+      description: getText("#content .body, .opening .body, #app_body, .job-post-content, main, [id*='content'], [class*='content']") || getText("body")?.slice(0, 8000) || "",
       source: "greenhouse",
       confidence: 90,
     }),
@@ -270,11 +270,12 @@ if (document.location.pathname === "/auth/extension-callback") {
       getText("[class*='location'], [class*='Location']") ||
       ""
 
-    // Try multiple description strategies
+    // Try multiple description strategies — always get SOMETHING
     const description =
       getText(".job-description, .job-details, #job-description, .description-section") ||
       getText("[class*='description'], [class*='Description'], [data-testid*='description']") ||
       getText("main, article, [role='main']") ||
+      (document.body?.innerText || "").slice(0, 8000) ||
       ""
 
     if (!title && !description) return null
