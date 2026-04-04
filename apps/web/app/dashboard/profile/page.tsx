@@ -10,10 +10,11 @@ import { Badge } from "@/components/ui/Badge"
 import { Skeleton } from "@/components/ui/Skeleton"
 import { Progress } from "@/components/ui/Progress"
 import { EmptyState } from "@/components/EmptyState"
-import { User, Briefcase, GraduationCap, Zap, Plus, Trash2, Save, X } from "lucide-react"
+import { User, Briefcase, GraduationCap, Zap, Plus, Trash2, Save, X, FileText } from "lucide-react"
+import { apiFetch } from "@/lib/api/client"
 import { ProfileAutoSetup } from "@/components/ProfileAutoSetup"
 
-type Tab = "basics" | "experience" | "education" | "skills"
+type Tab = "basics" | "experience" | "education" | "skills" | "application"
 
 export default function ProfilePage() {
   const [tab, setTab] = useState<Tab>("basics")
@@ -45,6 +46,7 @@ export default function ProfilePage() {
     { id: "experience", label: "Experience", icon: Briefcase },
     { id: "education", label: "Education", icon: GraduationCap },
     { id: "skills", label: "Skills", icon: Zap },
+    { id: "application", label: "Application Info", icon: Zap },
   ]
 
   return (
@@ -125,6 +127,7 @@ export default function ProfilePage() {
           {tab === "experience" && <ExperienceTab />}
           {tab === "education" && <EducationTab />}
           {tab === "skills" && <SkillsTab />}
+          {tab === "application" && <ApplicationInfoTab />}
         </>
       )}
     </div>
@@ -580,6 +583,80 @@ function SkillsTab() {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Application Info Tab ──────────────────────────────────────────────────
+
+function ApplicationInfoTab() {
+  const [form, setForm] = useState({
+    workAuthorization: "Yes",
+    sponsorship: "Yes",
+    gender: "Male",
+    pronouns: "He/him/his",
+    veteranStatus: "I am not a protected veteran",
+    disabilityStatus: "I do not want to answer",
+    hispanicLatino: "No",
+    race: "Asian",
+    relocation: "Yes",
+    earliestStart: "2 weeks from offer",
+  })
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await apiFetch("/preferences", {
+        method: "PUT",
+        body: JSON.stringify(form),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch {}
+    setSaving(false)
+  }
+
+  const fields = [
+    { key: "workAuthorization", label: "Are you authorized to work in the U.S.?", options: ["Yes", "No"] },
+    { key: "sponsorship", label: "Do you require visa sponsorship?", options: ["Yes", "No"] },
+    { key: "gender", label: "Gender", options: ["Male", "Female", "Non-binary", "Prefer not to say"] },
+    { key: "pronouns", label: "Pronouns", options: ["He/him/his", "She/her/hers", "They/them/theirs", "Prefer not to say"] },
+    { key: "hispanicLatino", label: "Are you Hispanic/Latino?", options: ["Yes", "No", "Prefer not to say"] },
+    { key: "race", label: "Race / Ethnicity", options: ["American Indian or Alaska Native", "Asian", "Black or African American", "Hispanic or Latino", "Native Hawaiian or Other Pacific Islander", "White", "Two or More Races", "Prefer not to say"] },
+    { key: "veteranStatus", label: "Veteran Status", options: ["I am not a protected veteran", "I identify as one or more of the classifications of protected veteran", "I don't wish to answer"] },
+    { key: "disabilityStatus", label: "Disability Status", options: ["Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"] },
+    { key: "relocation", label: "Open to relocation?", options: ["Yes", "No", "Depends on location"] },
+    { key: "earliestStart", label: "Earliest start date", options: ["Immediately", "1 week from offer", "2 weeks from offer", "1 month from offer", "Flexible"] },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground mb-2">
+        Set your answers once — the extension will use these to auto-fill every application.
+      </p>
+      {fields.map((f) => (
+        <div key={f.key}>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">{f.label}</label>
+          <select
+            value={(form as any)[f.key]}
+            onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          >
+            {f.options.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
+      ))}
+      <Button loading={saving} onClick={handleSave} className="w-full sm:w-auto">
+        <Save className="w-4 h-4" />
+        {saved ? "Saved ✓" : "Save Application Info"}
+      </Button>
+      {saved && (
+        <p className="text-xs text-emerald-600 font-medium">✓ Saved — the extension will use these answers for autofill.</p>
       )}
     </div>
   )
