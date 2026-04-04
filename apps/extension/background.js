@@ -5,20 +5,25 @@ const APP_URL = "https://yuktihire.com"
 // ── Token Management ──────────────────────────────────────────────────────
 
 async function getToken() {
-  const result = await chrome.storage.local.get(["yuktihire_token", "yuktihire_refresh", "yuktihire_expires"])
-  const token = result.yuktihire_token
-  const expires = result.yuktihire_expires || 0
+  // Try storage first
+  const result = await chrome.storage.local.get(["yuktihire_token"])
+  if (result.yuktihire_token) return result.yuktihire_token
 
-  if (!token) return null
+  // Try cookie fallback
+  try {
+    const cookies = await chrome.cookies.getAll({ domain: "yuktihire.com" })
+    const authCookie = cookies.find(c => c.name.includes("auth-token"))
+    if (authCookie) {
+      const raw = authCookie.value.startsWith("base64-") ? authCookie.value.slice(7) : authCookie.value
+      const decoded = JSON.parse(atob(raw))
+      if (decoded.access_token) {
+        await chrome.storage.local.set({ yuktihire_token: decoded.access_token })
+        return decoded.access_token
+      }
+    }
+  } catch {}
 
-  // Check if expired (with 5 min buffer) — prompt re-login
-  if (expires && Date.now() / 1000 > expires - 300) {
-    console.log("[YuktiHire] Token expired, clearing")
-    await clearTokens()
-    return null
-  }
-
-  return token
+  return null
 }
 
 async function storeTokens(accessToken, refreshToken, expiresAt) {
