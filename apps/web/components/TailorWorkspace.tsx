@@ -9,6 +9,7 @@ import { ResumeSelectPanel } from "./ResumeSelectPanel"
 import { AtsScorePanel } from "./AtsScorePanel"
 import { CoverLetterPanel } from "./CoverLetterPanel"
 import { SuggestionsList } from "./SuggestionsList"
+import { ResumePreviewEditor } from "./ResumePreviewEditor"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Skeleton } from "@/components/ui/Skeleton"
@@ -377,8 +378,8 @@ export function TailorWorkspace() {
       )}
 
       {step === "results" && sessionData && (
-        <div className="flex-1 grid lg:grid-cols-3 gap-0 overflow-hidden">
-          {/* Left: ATS score + breakdown */}
+        <div className="flex-1 grid lg:grid-cols-2 gap-0 overflow-hidden">
+          {/* Left: ATS score + suggestions */}
           <div className="border-r border-border overflow-y-auto scrollbar-thin p-5 space-y-4">
             {isPolling ? (
               <TailoringRunningState compact />
@@ -391,6 +392,16 @@ export function TailorWorkspace() {
                     onInsertKeyword={handleInsertKeyword}
                   />
                 )}
+
+                {/* Suggestions inline */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">AI Suggestions</p>
+                  <SuggestionsList
+                    recommendations={sessionData.recommendations ?? []}
+                    onUpdateStatus={handleRecStatus}
+                  />
+                </div>
+
                 <CoverLetterPanel
                   jobDescription={jdText || prefilledJD}
                   resumeId={selectedResumeId}
@@ -401,18 +412,26 @@ export function TailorWorkspace() {
             )}
           </div>
 
-          {/* Center + Right: Suggestions */}
-          <div className="lg:col-span-2 overflow-y-auto scrollbar-thin">
+          {/* Right: Live resume preview + editor */}
+          <div className="overflow-y-auto scrollbar-thin p-5">
             {isPolling ? (
-              <div className="p-5 space-y-3">
+              <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-28 w-full rounded-xl" />
                 ))}
               </div>
             ) : (
-              <SuggestionsList
-                recommendations={sessionData.recommendations ?? []}
-                onUpdateStatus={handleRecStatus}
+              <ResumePreviewEditor
+                resumeData={resumeData}
+                resumeId={selectedResumeId}
+                onUpdate={async (content) => {
+                  try {
+                    await updateResumeAsync({ id: selectedResumeId, data: { content } })
+                    toast.success("Resume updated")
+                  } catch {
+                    toast.error("Failed to save")
+                  }
+                }}
               />
             )}
           </div>
