@@ -398,6 +398,14 @@ if (document.location.hostname.includes("yuktihire.com")) {
       }
       addLog("Profile loaded: " + (pd.firstName || "") + " " + (pd.lastName || ""), "ok", "high")
 
+      // Show detected portal
+      if (typeof YuktiEngine !== "undefined") {
+        var portal = YuktiEngine.portal()
+        if (portal !== "generic") {
+          addLog("Portal: " + portal, "ok", "medium")
+        }
+      }
+
       // Show autofill readiness score
       if (pd.readiness) {
         var r = pd.readiness

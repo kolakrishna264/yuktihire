@@ -1051,13 +1051,28 @@ var YuktiEngine = (function () {
 
   function detectPortal() {
     var host = location.hostname.toLowerCase()
-    if (host.includes("greenhouse")) return "greenhouse"
-    if (host.includes("lever.co")) return "lever"
+    var path = location.pathname.toLowerCase()
+    // Tier 0: Original portals
+    if (host.includes("greenhouse") || host.includes("boards.eu.greenhouse")) return "greenhouse"
+    if (host.includes("lever.co") || host.includes("jobs.lever")) return "lever"
     if (host.includes("rippling")) return "rippling"
     if (host.includes("myworkday") || host.includes("workday")) return "workday"
-    if (host.includes("icims")) return "icims"
-    if (host.includes("smartrecruiters")) return "smartrecruiters"
-    if (host.includes("ashby")) return "ashby"
+    if (host.includes("ashby") || host.includes("ashbyhq")) return "ashby"
+    // Tier 1
+    if (host.includes("smartrecruiters") || host.includes("smrtr.io")) return "smartrecruiters"
+    if (host.includes("icims") || host.includes(".igreens.")) return "icims"
+    if (host.includes("jobvite") || host.includes("jobs.jobvite")) return "jobvite"
+    if (host.includes("bamboohr") || host.includes("bamboo")) return "bamboohr"
+    // Tier 2
+    if (host.includes("taleo") || host.includes("oracle.com") && path.includes("recruit")) return "taleo"
+    if (host.includes("adp") || host.includes("workforcenow")) return "adp"
+    if (host.includes("paylocity")) return "paylocity"
+    // Tier 3
+    if (host.includes("teamtailor")) return "teamtailor"
+    if (host.includes("recruitee")) return "recruitee"
+    if (host.includes("workable") || host.includes("apply.workable")) return "workable"
+    // Common career page patterns
+    if (path.includes("/careers") || path.includes("/jobs") || path.includes("/apply")) return "generic_career"
     return "generic"
   }
 
@@ -1139,10 +1154,146 @@ var YuktiEngine = (function () {
 
       // ── Rippling ──
       if (portal === "rippling") {
-        // Rippling embeds forms in iframes — labels use standard HTML
         if (b.questionText.length < 3 && b.container) {
           var ripLabel = b.container.querySelector("label, [class*='label']")
           if (ripLabel) b.questionText = ripLabel.textContent.trim()
+        }
+      }
+
+      // ── SmartRecruiters (Tier 1) ──
+      if (portal === "smartrecruiters") {
+        // SmartRecruiters uses [data-test] and .field-label patterns
+        if (b.questionText.length < 3) {
+          var srTest = el.getAttribute("data-test") || (b.container ? b.container.getAttribute("data-test") : null)
+          if (srTest) b.questionText = srTest.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")
+        }
+        if (b.questionText.length < 3 && b.container) {
+          var srLabel = b.container.querySelector(".field-label, [class*='field-label'], label, [class*='Label']")
+          if (srLabel) b.questionText = srLabel.textContent.trim()
+        }
+        // SmartRecruiters wraps custom questions in .field-wrapper
+        if (b.questionText.length < 3 && b.container) {
+          var srWrapper = b.container.closest(".field-wrapper, [class*='field-wrapper'], [class*='question']")
+          if (srWrapper) {
+            var srHead = srWrapper.querySelector("label, h3, h4, [class*='title']")
+            if (srHead) b.questionText = srHead.textContent.trim()
+          }
+        }
+      }
+
+      // ── iCIMS (Tier 1) ──
+      if (portal === "icims") {
+        // iCIMS uses iframes with standard form elements but custom class patterns
+        if (b.questionText.length < 3 && b.container) {
+          var icLabel = b.container.querySelector(".iCIMS_InfoMsg_Job label, [class*='labelArea'] label, label")
+          if (icLabel) b.questionText = icLabel.textContent.trim()
+        }
+        // iCIMS wraps in .iCIMS_Expandable or table-based layouts
+        if (b.questionText.length < 3) {
+          var icRow = el.closest("tr, [class*='iCIMS']")
+          if (icRow) {
+            var icTd = icRow.querySelector("td label, th, [class*='label']")
+            if (icTd) b.questionText = icTd.textContent.trim()
+          }
+        }
+      }
+
+      // ── Jobvite (Tier 1) ──
+      if (portal === "jobvite") {
+        // Jobvite uses .jv-field-wrapper and .jv-label
+        if (b.questionText.length < 3 && b.container) {
+          var jvLabel = b.container.querySelector(".jv-label, [class*='jv-label'], label")
+          if (jvLabel) b.questionText = jvLabel.textContent.trim()
+        }
+        if (b.questionText.length < 3) {
+          var jvWrapper = el.closest(".jv-field-wrapper, [class*='field-wrapper']")
+          if (jvWrapper) {
+            var jvHead = jvWrapper.querySelector("label, .jv-label, [class*='label']")
+            if (jvHead) b.questionText = jvHead.textContent.trim()
+          }
+        }
+      }
+
+      // ── BambooHR (Tier 1) ──
+      if (portal === "bamboohr") {
+        // BambooHR uses clean semantic HTML with .fab-* classes
+        if (b.questionText.length < 3 && b.container) {
+          var bhLabel = b.container.querySelector("[class*='fab-Label'], [class*='FormField'] label, label")
+          if (bhLabel) b.questionText = bhLabel.textContent.trim()
+        }
+        // BambooHR also uses data-field-id
+        if (b.questionText.length < 3) {
+          var bhField = el.getAttribute("data-field-id") || el.getAttribute("name")
+          if (bhField && bhField.length > 2 && !/^\d+$/.test(bhField)) {
+            b.questionText = bhField.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")
+          }
+        }
+      }
+
+      // ── Taleo (Tier 2) ──
+      if (portal === "taleo") {
+        // Taleo (Oracle) uses table-based forms with id-based labels
+        if (b.questionText.length < 3 && el.id) {
+          var taleoLabel = document.querySelector("label[for='" + el.id + "']")
+          if (taleoLabel) b.questionText = taleoLabel.textContent.trim()
+        }
+        if (b.questionText.length < 3 && b.container) {
+          var taleoTd = b.container.closest("tr")
+          if (taleoTd) {
+            var taleoHead = taleoTd.querySelector(".contentLinePanelLabel, td label, [class*='label']")
+            if (taleoHead) b.questionText = taleoHead.textContent.trim()
+          }
+        }
+      }
+
+      // ── ADP Workforce Now (Tier 2) ──
+      if (portal === "adp") {
+        // ADP uses [data-ad-comp-id] and complex nested structures
+        if (b.questionText.length < 3 && b.container) {
+          var adpLabel = b.container.querySelector("[class*='labelText'], [class*='field-label'], label")
+          if (adpLabel) b.questionText = adpLabel.textContent.trim()
+        }
+        if (b.questionText.length < 3) {
+          var adpComp = el.getAttribute("data-ad-comp-id")
+          if (adpComp) b.questionText = adpComp.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")
+        }
+      }
+
+      // ── Paylocity (Tier 2) ──
+      if (portal === "paylocity") {
+        if (b.questionText.length < 3 && b.container) {
+          var plLabel = b.container.querySelector("[class*='field-label'], [class*='question-text'], label")
+          if (plLabel) b.questionText = plLabel.textContent.trim()
+        }
+      }
+
+      // ── Teamtailor (Tier 3) ──
+      if (portal === "teamtailor") {
+        // Teamtailor uses clean React-based forms
+        if (b.questionText.length < 3 && b.container) {
+          var ttLabel = b.container.querySelector("[class*='field-label'], [class*='Label'], label")
+          if (ttLabel) b.questionText = ttLabel.textContent.trim()
+        }
+      }
+
+      // ── Recruitee (Tier 3) ──
+      if (portal === "recruitee") {
+        if (b.questionText.length < 3 && b.container) {
+          var recLabel = b.container.querySelector("[class*='question__title'], [class*='form-label'], label")
+          if (recLabel) b.questionText = recLabel.textContent.trim()
+        }
+      }
+
+      // ── Workable (Tier 3) ──
+      if (portal === "workable") {
+        // Workable uses [data-ui] attributes and clean semantic HTML
+        if (b.questionText.length < 3) {
+          var wkUi = el.getAttribute("data-ui")
+          if (wkUi) b.questionText = wkUi.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2")
+        }
+        if (b.questionText.length < 3 && b.container) {
+          var wkLabel = b.container.querySelector("[class*='form-field'] label, [data-ui*='label'], label")
+          if (wkLabel) b.questionText = wkLabel.textContent.trim()
         }
       }
 
@@ -1165,6 +1316,11 @@ var YuktiEngine = (function () {
   // ═══════════════════════════════════════════════════════════════════════
 
   return {
+    // Detect which ATS portal this page belongs to
+    portal: function() {
+      return detectPortal()
+    },
+
     // Scan page and return all form blocks
     scan: function() {
       return scanPage()
