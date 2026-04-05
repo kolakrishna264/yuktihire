@@ -705,82 +705,145 @@ var YuktiEngine = (function () {
     }
   }
 
-  function fillNativeSelect(el, value, options) {
-    var valueLower = value.toLowerCase().trim()
+  // ── Fuzzy text normalization ──
+  function normalize(s) {
+    return (s || "").toLowerCase().trim()
+      .replace(/['']/g, "'")
+      .replace(/[""]/g, '"')
+      .replace(/\s+/g, " ")
+  }
 
-    // GUARD: If value is very long (>50 chars), it's not meant for a select dropdown
-    if (valueLower.length > 50) {
+  // Equivalence groups for fuzzy matching
+  var EQUIVALENCES = {
+    "yes": ["yes", "true", "y", "si", "oui", "yeah", "yep", "affirmative"],
+    "no": ["no", "false", "n", "non", "nope", "nah", "negative"],
+    "united states": ["united states", "united states of america", "usa", "us", "u.s.", "u.s.a.", "america", "+1"],
+    "male": ["male", "man", "m", "masculine"],
+    "female": ["female", "woman", "f", "feminine"],
+    "i am not a protected veteran": ["i am not a protected veteran", "not a protected veteran", "not a veteran", "no veteran status", "i am not a veteran"],
+    "no, i do not have a disability": ["no, i do not have a disability", "i do not have a disability", "no disability", "not disabled"],
+    "i do not want to answer": ["i do not want to answer", "prefer not to say", "decline to answer", "prefer not to disclose", "i don't wish to answer"],
+  }
+
+  function fuzzyMatch(value, optionText) {
+    var vn = normalize(value)
+    var on = normalize(optionText)
+    if (vn === on) return 100
+    // Check equivalence groups
+    for (var key in EQUIVALENCES) {
+      var group = EQUIVALENCES[key]
+      var vInGroup = group.indexOf(vn) !== -1 || vn.includes(key)
+      var oInGroup = group.indexOf(on) !== -1 || on.includes(key)
+      if (vInGroup && oInGroup) return 95
+    }
+    // Starts with
+    if (on.startsWith(vn) || vn.startsWith(on)) return 80
+    // Contains
+    if (on.includes(vn)) return 60
+    if (vn.includes(on) && on.length > 3) return 50
+    // Word overlap
+    var vWords = vn.split(" ").filter(function(w) { return w.length > 2 })
+    var oWords = on.split(" ").filter(function(w) { return w.length > 2 })
+    var overlap = vWords.filter(function(w) { return oWords.indexOf(w) !== -1 }).length
+    if (overlap > 0 && overlap >= Math.min(vWords.length, oWords.length) * 0.5) return 40 + overlap * 10
+    return 0
+  }
+
+  function fillNativeSelect(el, value, options) {
+    var valueLower = normalize(value)
+
+    // GUARD: Long values aren't for dropdowns
+    if (valueLower.length > 80) {
       return { ok: false, reason: "value too long for select dropdown" }
     }
 
-    // Build scored matches
     var bestMatch = null
     var bestScore = 0
 
     for (var i = 0; i < el.options.length; i++) {
       var opt = el.options[i]
-      var t = opt.text.toLowerCase().trim()
-      var v = opt.value.toLowerCase().trim()
-      if (!t && !v) continue // skip empty options
-      var score = 0
+      var t = normalize(opt.text)
+      var v = normalize(opt.value)
+      if (!t && !v) continue
 
-      if (t === valueLower || v === valueLower) score = 100
-      else if (t.startsWith(valueLower)) score = 80
-      else if (valueLower.startsWith(t) && t.length > 2) score = 70
-      else if (t.includes(valueLower)) score = 60
-      else if (valueLower.includes(t) && t.length > 3) score = 50
-      // Yes/No normalization
-      else if (valueLower === "yes" && (t === "yes" || v === "yes" || v === "true" || t.startsWith("yes"))) score = 90
-      else if (valueLower === "no" && (t === "no" || v === "no" || v === "false" || t.startsWith("no"))) score = 90
-      // Country code normalization
-      else if (valueLower === "united states" && (t.includes("united states") || t.includes("+1") || v === "us" || v === "usa" || v === "1" || v === "+1")) score = 85
-      // Boolean to Yes/No
-      else if (value === true && (t === "yes" || v === "true")) score = 90
-      else if (value === false && (t === "no" || v === "false")) score = 90
+      // Score using fuzzy match against both text and value
+      var scoreT = fuzzyMatch(valueLower, t)
+      var scoreV = fuzzyMatch(valueLower, v)
+      var score = Math.max(scoreT, scoreV)
+
+      // Exact value match bonus
+      if (v === valueLower) score = Math.max(score, 100)
+
+      // Boolean normalization
+      if (value === true && (t === "yes" || v === "true" || v === "1")) score = Math.max(score, 90)
+      if (value === false && (t === "no" || v === "false" || v === "0")) score = Math.max(score, 90)
 
       if (score > bestScore) { bestScore = score; bestMatch = opt }
     }
 
-    if (bestMatch && bestScore >= 50) {
+    if (bestMatch && bestScore >= 40) {
       var setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set
       if (setter) setter.call(el, bestMatch.value)
       else el.value = bestMatch.value
       el.dispatchEvent(new Event("change", { bubbles: true }))
       el.dispatchEvent(new Event("input", { bubbles: true }))
       highlightEl(el, "success")
-      return { ok: true, method: "select", selected: bestMatch.text }
+      return { ok: true, method: "select", selected: bestMatch.text, score: bestScore }
     }
 
     return { ok: false, reason: "no matching option for: " + value }
   }
 
   function fillRadio(block, value) {
-    var valueLower = value.toLowerCase().trim()
+    var valueLower = normalize(value)
     var radios = block.radioGroupName
       ? document.querySelectorAll('input[type="radio"][name="' + block.radioGroupName + '"]')
       : (block.container ? block.container.querySelectorAll('input[type="radio"]') : [])
 
+    var bestRadio = null
+    var bestScore = 0
+    var bestLabel = ""
+
     for (var i = 0; i < radios.length; i++) {
       var radio = radios[i]
       var lbl = radio.closest("label") || document.querySelector('label[for="' + radio.id + '"]')
-      var lblText = (lbl ? lbl.textContent.trim() : radio.value || "").toLowerCase()
+      var lblText = normalize(lbl ? lbl.textContent : radio.value || "")
+      var radioVal = normalize(radio.value)
 
-      if (lblText === valueLower ||
-          (valueLower === "yes" && lblText.startsWith("yes")) ||
-          (valueLower === "no" && (lblText === "no" || lblText.startsWith("no,"))) ||
-          lblText.includes(valueLower)) {
-        radio.click()
-        radio.checked = true
-        radio.dispatchEvent(new Event("change", { bubbles: true }))
-        highlightEl(lbl || radio, "success")
-        return { ok: true, method: "radio", selected: lblText }
+      // Score using fuzzy match
+      var score = Math.max(fuzzyMatch(valueLower, lblText), fuzzyMatch(valueLower, radioVal))
+
+      if (score > bestScore) {
+        bestScore = score
+        bestRadio = radio
+        bestLabel = lblText
       }
     }
-    return { ok: false, reason: "no matching radio option" }
+
+    if (bestRadio && bestScore >= 40) {
+      bestRadio.click()
+      bestRadio.checked = true
+      bestRadio.dispatchEvent(new Event("change", { bubbles: true }))
+      var parentLbl = bestRadio.closest("label")
+      highlightEl(parentLbl || bestRadio, "success")
+      return { ok: true, method: "radio", selected: bestLabel, score: bestScore }
+    }
+    return { ok: false, reason: "no matching radio option for: " + value }
   }
 
   function fillCheckbox(el, value) {
-    var shouldCheck = value === true || value === "true" || value === "Yes" || value === "yes" || value === "checked"
+    var vn = normalize(String(value))
+    var shouldCheck = vn === "true" || vn === "yes" || vn === "y" || vn === "checked" || vn === "1" || value === true
+
+    // For consent/agreement checkboxes, also check label context
+    if (!shouldCheck) {
+      var lbl = el.closest("label")
+      var lblText = normalize(lbl ? lbl.textContent : "")
+      if (lblText.includes("agree") || lblText.includes("consent") || lblText.includes("acknowledge") || lblText.includes("confirm")) {
+        shouldCheck = true
+      }
+    }
+
     if (el.checked !== shouldCheck) {
       el.click()
       el.dispatchEvent(new Event("change", { bubbles: true }))
@@ -789,22 +852,22 @@ var YuktiEngine = (function () {
     return { ok: true, method: "checkbox" }
   }
 
-  // Async fill for custom dropdowns
+  // Async fill for custom dropdowns (React-Select, MUI, etc.)
   function fillCustomSelectAsync(block, value) {
     return new Promise(function(resolve) {
       var el = block.element
-      var valueLower = value.toLowerCase().trim()
+      var valueLower = normalize(value)
 
-      // GUARD: If value is very long, it's not meant for a dropdown
       if (valueLower.length > 80) {
         resolve({ ok: false, reason: "value too long for dropdown" })
         return
       }
 
-      // Click to open
+      // Click to open — try multiple strategies
       el.click()
       el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-      var inner = el.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator'], [class*='arrow']")
+      // Try clicking inner trigger elements (React-Select, MUI patterns)
+      var inner = el.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator'], [class*='arrow'], [class*='trigger']")
       if (inner) inner.click()
 
       setTimeout(function() {
@@ -823,20 +886,13 @@ var YuktiEngine = (function () {
         for (var i = 0; i < allOpts.length; i++) {
           var opt = allOpts[i]
           if (!opt.offsetParent && !opt.getBoundingClientRect().height) continue
-          var t = opt.textContent.trim().toLowerCase()
-          var score = 0
-          if (t === valueLower) score = 100
-          else if (t.startsWith(valueLower)) score = 80
-          else if (valueLower.startsWith(t) && t.length > 2) score = 70
-          else if (t.includes(valueLower)) score = 60
-          else if (valueLower.includes(t) && t.length > 3) score = 50
-          else if (valueLower === "yes" && t.startsWith("yes")) score = 90
-          else if (valueLower === "no" && (t === "no" || t.startsWith("no,"))) score = 90
-          else if (valueLower === "united states" && (t.includes("united states") || t.includes("+1") || t === "us")) score = 85
+          var t = normalize(opt.textContent)
+          var optVal = normalize(opt.getAttribute("value") || opt.getAttribute("data-value") || "")
+          var score = Math.max(fuzzyMatch(valueLower, t), fuzzyMatch(valueLower, optVal))
           if (score > bestScore) { bestScore = score; bestOpt = opt }
         }
 
-        if (bestOpt && bestScore >= 50) {
+        if (bestOpt && bestScore >= 40) {
           bestOpt.click()
           highlightEl(el, "success")
           resolve({ ok: true, method: "customSelect", selected: bestOpt.textContent.trim() })
@@ -905,32 +961,100 @@ var YuktiEngine = (function () {
 
   function applyPortalAdapter(blocks) {
     var portal = detectPortal()
-    if (portal === "greenhouse") {
-      // Greenhouse: inputs often have name="question_XXXXX" — already handled in readQuestionText
-      // Custom selects use React-Select — already handled by fillCustomSelectAsync
-      return blocks
-    }
-    if (portal === "lever") {
-      // Lever: uses div-based custom fields with data-qa attributes
-      for (var i = 0; i < blocks.length; i++) {
-        if (blocks[i].questionText === "" && blocks[i].element) {
-          var qa = blocks[i].element.getAttribute("data-qa")
-          if (qa) blocks[i].questionText = qa.replace(/-/g, " ").replace(/_/g, " ")
+
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i]
+      var el = b.element
+      if (!el) continue
+
+      // ── Common: recover missing labels from element attributes ──
+      if (!b.questionText || b.questionText.length < 3) {
+        // Try data attributes common across portals
+        var attrSources = ["data-qa", "data-testid", "data-automation-id", "aria-label", "title"]
+        for (var a = 0; a < attrSources.length; a++) {
+          var attrVal = el.getAttribute(attrSources[a])
+          if (attrVal && attrVal.length > 2 && !/^\d+$/.test(attrVal)) {
+            b.questionText = attrVal.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim()
+            break
+          }
         }
       }
-      return blocks
-    }
-    if (portal === "workday") {
-      // Workday: uses data-automation-id for labels
-      for (var i = 0; i < blocks.length; i++) {
-        if (blocks[i].questionText === "" && blocks[i].element) {
-          var aid = blocks[i].element.getAttribute("data-automation-id")
-          if (aid) blocks[i].questionText = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/-/g, " ")
+
+      // ── Greenhouse ──
+      if (portal === "greenhouse") {
+        // Filter out question IDs that slipped through
+        if (/question.*\d{5,}/i.test(b.questionText)) {
+          // Try to find label from parent container heading instead
+          if (b.container) {
+            var heading = b.container.querySelector("label, legend, h3, strong")
+            if (heading) {
+              var ht = heading.textContent.trim()
+              if (ht.length > 2 && !/\d{5,}/.test(ht)) b.questionText = ht
+            }
+          }
         }
       }
-      return blocks
+
+      // ── Lever ──
+      if (portal === "lever") {
+        // Lever uses data-qa for field identification
+        if (b.questionText.length < 3) {
+          var qa = el.getAttribute("data-qa") || (b.container ? b.container.getAttribute("data-qa") : null)
+          if (qa) b.questionText = qa.replace(/-/g, " ").replace(/_/g, " ")
+        }
+        // Lever wraps questions in .application-question divs
+        if (b.questionText.length < 3 && b.container) {
+          var aq = b.container.closest(".application-question, [class*='question']")
+          if (aq) {
+            var aqLabel = aq.querySelector(".application-label, label, [class*='label']")
+            if (aqLabel) b.questionText = aqLabel.textContent.trim()
+          }
+        }
+      }
+
+      // ── Workday ──
+      if (portal === "workday") {
+        // Workday uses data-automation-id extensively
+        if (b.questionText.length < 3) {
+          var aid = el.getAttribute("data-automation-id")
+          if (aid) b.questionText = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/-/g, " ")
+        }
+        // Workday labels are often in sibling [data-automation-id="formLabel"]
+        if (b.questionText.length < 3 && b.container) {
+          var wdLabel = b.container.querySelector('[data-automation-id="formLabel"], [data-automation-id*="label"]')
+          if (wdLabel) b.questionText = wdLabel.textContent.trim()
+        }
+      }
+
+      // ── Ashby ──
+      if (portal === "ashby") {
+        // Ashby uses clean HTML but wraps in custom form blocks
+        if (b.questionText.length < 3 && b.container) {
+          var ashbyLabel = b.container.querySelector("[class*='FormField'] label, [class*='formField'] label")
+          if (ashbyLabel) b.questionText = ashbyLabel.textContent.trim()
+        }
+      }
+
+      // ── Rippling ──
+      if (portal === "rippling") {
+        // Rippling embeds forms in iframes — labels use standard HTML
+        if (b.questionText.length < 3 && b.container) {
+          var ripLabel = b.container.querySelector("label, [class*='label']")
+          if (ripLabel) b.questionText = ripLabel.textContent.trim()
+        }
+      }
+
+      // ── Re-classify after label recovery ──
+      if (b.questionText && b.questionText.length > 2 && b.intent === "unknown") {
+        var reclass = classifyQuestion(b.questionText, b.inputType, el)
+        if (reclass.confidence > b.confidence) {
+          b.intent = reclass.intent
+          b.category = reclass.category
+          b.confidence = reclass.confidence
+        }
+      }
     }
-    // Rippling, iCIMS, etc. — generic engine handles them
+
     return blocks
   }
 

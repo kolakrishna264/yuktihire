@@ -217,14 +217,36 @@ if (document.location.hostname.includes("yuktihire.com")) {
       var resumeInputs = []
       for (var i = 0; i < fileInputs.length; i++) {
         var fi = fileInputs[i]
-        var container = fi.closest("[class*='field'], [class*='question'], [class*='upload']") || fi.parentElement
+        var container = fi.closest("[class*='field'], [class*='question'], [class*='upload'], [class*='attach']") || fi.parentElement
         var labelText = container ? (container.textContent || "").toLowerCase() : ""
-        if (labelText.includes("resume") || labelText.includes("cv") || fi.accept?.includes("pdf") || fi.accept?.includes("doc")) {
+        var accept = (fi.accept || "").toLowerCase()
+
+        // Detect resume/CV by label, accept type, or nearby text
+        if (labelText.includes("resume") || labelText.includes("cv") || labelText.includes("résumé") ||
+            accept.includes("pdf") || accept.includes("doc") || accept.includes("rtf")) {
           resumeInputs.push({ element: fi, type: "resume", label: "Resume/CV" })
-        } else if (labelText.includes("cover letter")) {
+        } else if (labelText.includes("cover letter") || labelText.includes("cover_letter")) {
           resumeInputs.push({ element: fi, type: "coverLetter", label: "Cover Letter" })
+        } else if (labelText.includes("portfolio") || labelText.includes("work sample") || labelText.includes("writing sample")) {
+          resumeInputs.push({ element: fi, type: "portfolio", label: "Portfolio/Sample" })
         }
       }
+
+      // Also detect custom upload buttons (Greenhouse/Lever pattern: clickable div with "Attach" text)
+      var uploadButtons = document.querySelectorAll('[class*="upload"], [class*="attach"], [class*="dropzone"]')
+      for (var j = 0; j < uploadButtons.length; j++) {
+        var btn = uploadButtons[j]
+        var btnText = (btn.textContent || "").toLowerCase()
+        if ((btnText.includes("attach") || btnText.includes("upload") || btnText.includes("choose file")) &&
+            (btnText.includes("resume") || btnText.includes("cv"))) {
+          // Check if there's a hidden file input inside
+          var hidden = btn.querySelector('input[type="file"]') || btn.parentElement?.querySelector('input[type="file"]')
+          if (hidden && !resumeInputs.some(function(r) { return r.element === hidden })) {
+            resumeInputs.push({ element: hidden, type: "resume", label: "Resume/CV (custom)" })
+          }
+        }
+      }
+
       return resumeInputs
     }
 
@@ -232,15 +254,28 @@ if (document.location.hostname.includes("yuktihire.com")) {
       var inputs = detectResumeInputs()
       for (var i = 0; i < inputs.length; i++) {
         var el = inputs[i].element
-        var container = el.closest("[class*='field'], [class*='upload']") || el.parentElement
+        var container = el.closest("[class*='field'], [class*='upload'], [class*='attach']") || el.parentElement
         if (container) {
           container.style.outline = "3px solid #f59e0b"
           container.style.outlineOffset = "2px"
           container.style.borderRadius = "8px"
+          // Add visual label
+          if (!container.querySelector(".yh-upload-badge")) {
+            var badge = document.createElement("div")
+            badge.className = "yh-upload-badge"
+            badge.style.cssText = "position:absolute;top:-8px;right:8px;background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;z-index:999"
+            badge.textContent = inputs[i].label
+            container.style.position = "relative"
+            container.appendChild(badge)
+          }
         }
       }
       if (inputs.length > 0) {
-        document.getElementById("yh-resume-hint").style.display = "block"
+        var hint = document.getElementById("yh-resume-hint")
+        if (hint) {
+          hint.style.display = "block"
+          hint.textContent = inputs.length + " file upload" + (inputs.length > 1 ? "s" : "") + " detected — attach your files to the highlighted areas"
+        }
       }
       return inputs
     }
@@ -284,23 +319,48 @@ if (document.location.hostname.includes("yuktihire.com")) {
       }
     }
 
-    // ── Multi-step form detection (MutationObserver) ──
-    var lastFormHash = ""
-    function getFormHash() {
-      var inputs = document.querySelectorAll("input, select, textarea")
-      return inputs.length + ":" + (inputs[0]?.name || "") + ":" + (inputs[inputs.length - 1]?.name || "")
+    // ── Next/Continue button detection ──
+    function detectNextButton() {
+      var allBtns = document.querySelectorAll("button, a[role='button'], input[type='button']")
+      var nextWords = ["next", "continue", "proceed", "save & continue", "save and continue", "next step", "next page"]
+      for (var b = 0; b < allBtns.length; b++) {
+        var text = (allBtns[b].textContent || allBtns[b].value || "").toLowerCase().trim()
+        for (var w = 0; w < nextWords.length; w++) {
+          if (text.includes(nextWords[w])) return allBtns[b]
+        }
+      }
+      return null
     }
 
-    // Watch for page changes (Next button clicks, multi-step forms)
+    // ── Multi-step form detection (MutationObserver) ──
+    var lastFormHash = ""
+    var formChangeDebounce = null
+    function getFormHash() {
+      var inputs = document.querySelectorAll("input, select, textarea")
+      var ids = []
+      for (var i = 0; i < Math.min(inputs.length, 5); i++) ids.push(inputs[i]?.name || inputs[i]?.id || "")
+      return inputs.length + ":" + ids.join(",")
+    }
+
+    // Watch for page changes (Next button clicks, multi-step forms, SPA navigation)
     var observer = new MutationObserver(function() {
-      var newHash = getFormHash()
-      if (newHash !== lastFormHash && lastFormHash !== "") {
-        // Form structure changed — new fields appeared
-        addLog("New form section detected — ready to fill", "warn")
-        document.getElementById("yh-fill").disabled = false
-        document.getElementById("yh-fill").textContent = "Fill Everything"
-      }
-      lastFormHash = newHash
+      // Debounce — DOM changes can fire many times during React renders
+      clearTimeout(formChangeDebounce)
+      formChangeDebounce = setTimeout(function() {
+        var newHash = getFormHash()
+        if (newHash !== lastFormHash && lastFormHash !== "") {
+          // Form structure changed — new fields appeared
+          var newInputCount = document.querySelectorAll("input:not([type='hidden']), select, textarea").length
+          if (newInputCount > 2) {
+            addLog("New form section detected (" + newInputCount + " fields) — ready to fill", "warn")
+            document.getElementById("yh-fill").disabled = false
+            document.getElementById("yh-fill").textContent = "Fill New Fields"
+            // Detect and highlight resume uploads in new section
+            highlightResumeInputs()
+          }
+        }
+        lastFormHash = newHash
+      }, 500)  // Wait 500ms for React to finish rendering
     })
     observer.observe(document.body, { childList: true, subtree: true })
     lastFormHash = getFormHash()
