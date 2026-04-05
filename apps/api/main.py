@@ -53,12 +53,101 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(50)",
                     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMPTZ",
                     "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS is_overdue BOOLEAN DEFAULT FALSE",
+                    # SaaS: User roles and admin
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user'",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                    # SaaS: AI answer usage tracking
+                    "ALTER TABLE usage_limits ADD COLUMN IF NOT EXISTS ai_answers_used INTEGER DEFAULT 0",
+                    "ALTER TABLE usage_limits ADD COLUMN IF NOT EXISTS ai_answers_max INTEGER DEFAULT 10",
                 ]:
                     try:
                         await conn.execute(sql_text(col_sql))
                     except Exception:
                         pass
-            print("[DB] Columns migrated")
+
+                # SaaS tables
+                saas_tables = [
+                    """CREATE TABLE IF NOT EXISTS promo_codes (
+                        id VARCHAR PRIMARY KEY,
+                        code VARCHAR(50) UNIQUE NOT NULL,
+                        unlocks_plan VARCHAR(20) DEFAULT 'PROMO',
+                        max_uses INTEGER DEFAULT 100,
+                        uses_consumed INTEGER DEFAULT 0,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        expires_at TIMESTAMPTZ,
+                        features_json TEXT,
+                        note TEXT,
+                        created_by VARCHAR REFERENCES users(id),
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS promo_redemptions (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL REFERENCES users(id),
+                        code_id VARCHAR NOT NULL REFERENCES promo_codes(id),
+                        redeemed_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(user_id, code_id)
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS audit_log (
+                        id VARCHAR PRIMARY KEY,
+                        admin_id VARCHAR NOT NULL REFERENCES users(id),
+                        action VARCHAR(100) NOT NULL,
+                        target_id VARCHAR,
+                        details TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS feature_flags (
+                        name VARCHAR(100) PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT TRUE,
+                        description TEXT,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS curated_jobs (
+                        id VARCHAR PRIMARY KEY,
+                        title VARCHAR(500) NOT NULL,
+                        company VARCHAR(255) NOT NULL,
+                        location VARCHAR(255),
+                        url VARCHAR(1000),
+                        description TEXT,
+                        work_type VARCHAR(50),
+                        employment_type VARCHAR(50),
+                        experience_level VARCHAR(50),
+                        salary_range VARCHAR(200),
+                        skills TEXT,
+                        tags TEXT,
+                        job_family VARCHAR(100),
+                        seniority VARCHAR(50),
+                        is_active BOOLEAN DEFAULT TRUE,
+                        source_type VARCHAR(50) DEFAULT 'manual',
+                        created_by VARCHAR REFERENCES users(id),
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                ]
+                for table_sql in saas_tables:
+                    try:
+                        await conn.execute(sql_text(table_sql))
+                    except Exception:
+                        pass
+
+                # Insert default feature flags
+                default_flags = [
+                    ("job_discovery", True, "Show Discover tab with job listings"),
+                    ("ai_answers", True, "Enable AI answer generation"),
+                    ("cover_letter", True, "Enable cover letter generation"),
+                    ("interview_prep", True, "Enable interview prep feature"),
+                    ("company_intel", True, "Enable company research feature"),
+                    ("autofill", True, "Enable extension autofill"),
+                    ("promo_codes", True, "Enable promo code redemption"),
+                ]
+                for name, enabled, desc in default_flags:
+                    try:
+                        await conn.execute(sql_text(
+                            "INSERT INTO feature_flags (name, enabled, description) VALUES (:n, :e, :d) ON CONFLICT (name) DO NOTHING"
+                        ), {"n": name, "e": enabled, "d": desc})
+                    except Exception:
+                        pass
+
+            print("[DB] Columns + SaaS tables migrated")
         except Exception as e:
             print(f"[DB] Setup error: {e}")
 
@@ -129,6 +218,8 @@ from app.routers.insights import router as insights_router
 from app.routers.extension import router as extension_router
 from app.routers.answers import router as answers_router
 from app.routers.intelligence import router as intelligence_router
+from app.routers.admin import router as admin_router
+from app.routers.promo import router as promo_router
 
 API_PREFIX = "/api/v1"
 
@@ -149,6 +240,8 @@ app.include_router(insights_router, prefix=API_PREFIX)
 app.include_router(extension_router, prefix=API_PREFIX)
 app.include_router(answers_router, prefix=API_PREFIX)
 app.include_router(intelligence_router, prefix=API_PREFIX)
+app.include_router(admin_router, prefix=API_PREFIX)
+app.include_router(promo_router, prefix=API_PREFIX)
 
 
 @app.get("/health")
@@ -242,3 +335,13 @@ async def get_usage(
         "resumesMax": usage.resumes_max if usage else 1,
         "periodEnd": usage.period_end if usage else None,
     }
+
+
+@app.get(API_PREFIX + "/permissions")
+async def get_permissions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all feature permissions for the current user — used by frontend to show/hide features."""
+    from app.core.permissions import get_user_permissions
+    return await get_user_permissions(current_user, db)
