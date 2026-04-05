@@ -443,14 +443,45 @@ async def apply_recommendations(
 
     accepted = [r for r in session.recommendations if r.status == RecommendationStatus.ACCEPTED]
     new_content = dict(resume.content or {})
+    applied_count = 0
 
     for rec in accepted:
+        # Apply experience bullet rewrites
         if rec.section == "experience" and "experiences" in new_content:
             for exp in new_content["experiences"]:
                 bullets = exp.get("bullets", [])
                 if rec.original in bullets:
                     idx = bullets.index(rec.original)
                     bullets[idx] = rec.suggested
+                    applied_count += 1
+
+        # Apply summary rewrites
+        elif rec.section == "summary" and rec.suggested:
+            new_content["summary"] = rec.suggested
+            applied_count += 1
+
+        # Apply skills section additions
+        elif rec.section == "skills" and rec.suggested:
+            # Parse "Add: skill1, skill2, skill3" format
+            add_text = rec.suggested.replace("Add: ", "").replace("Add:", "")
+            new_skills_list = [s.strip() for s in add_text.split(",") if s.strip()]
+            current_skills = new_content.get("skills", [])
+            current_lower = set()
+            for s in current_skills:
+                if isinstance(s, str):
+                    current_lower.add(s.lower())
+                elif isinstance(s, dict):
+                    current_lower.add((s.get("name", "") or "").lower())
+
+            for ns in new_skills_list:
+                if ns.lower() not in current_lower:
+                    # Match existing format (string or dict)
+                    if current_skills and isinstance(current_skills[0], dict):
+                        current_skills.append({"name": ns})
+                    else:
+                        current_skills.append(ns)
+                    applied_count += 1
+            new_content["skills"] = current_skills
 
     version = ResumeVersion(
         resume_id=resume.id,
@@ -465,7 +496,7 @@ async def apply_recommendations(
     return {
         "versionId": version.id,
         "resumeId": resume.id,
-        "appliedCount": len(accepted),
+        "appliedCount": applied_count,
     }
 
 

@@ -166,13 +166,18 @@ def generate_tips(
 
 
 def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
-    """Extract ALL meaningful keywords from JD analysis — not just must_have."""
+    """Extract meaningful keywords from JD analysis — exclude full sentences."""
     keywords = set()
+    # Primary keyword sources (short, specific terms)
     for field in ["must_have_keywords", "nice_to_have_keywords", "required_skills",
-                  "nice_to_have_skills", "domain_phrases", "responsibilities_summary"]:
+                  "nice_to_have_skills", "domain_phrases"]:
         for kw in jd_analysis.get(field, []):
-            if isinstance(kw, str) and len(kw) > 1:
+            if isinstance(kw, str) and 1 < len(kw) < 50:  # Skip full sentences
                 keywords.add(kw)
+    # From responsibilities: extract only short phrases (< 5 words), not full sentences
+    for resp in jd_analysis.get("responsibilities_summary", []):
+        if isinstance(resp, str) and len(resp.split()) <= 4:
+            keywords.add(resp)
     return list(keywords)
 
 
@@ -187,7 +192,7 @@ def calculate_ats_score(
     """
     resume_text = extract_resume_text(resume_content)
 
-    # Combine ALL keywords from JD (not just must_have)
+    # Extract keywords — separate must-have from nice-to-have
     all_keywords = extract_all_jd_keywords(jd_analysis)
     must_have = jd_analysis.get("must_have_keywords", [])
     required_skills = jd_analysis.get("required_skills", [])
@@ -195,11 +200,14 @@ def calculate_ats_score(
     # Keyword score (25% weight) — uses ALL JD keywords
     kw_score, matched_kw, missing_kw = keyword_match_score(resume_text, all_keywords)
 
+    # Must-have keyword coverage — separate metric for tips
+    mh_score, matched_mh, missing_mh = keyword_match_score(resume_text, must_have) if must_have else (100, [], [])
+
     # Skills score (25% weight)
     skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
 
-    # Experience score (20% weight) — from gap analysis, with floor
-    exp_score = max(experience_score_from_gaps(gap_analysis), 45)
+    # Experience score (20% weight) — from gap analysis, with generous floor
+    exp_score = max(experience_score_from_gaps(gap_analysis), 50)
 
     # Education score (15% weight)
     edu_scr = education_score(resume_content, jd_analysis)
@@ -207,7 +215,7 @@ def calculate_ats_score(
     # Format score (15% weight)
     fmt_scr = format_score(resume_content)
 
-    # Weighted overall — designed so adding all missing keywords → ~85-90%
+    # Weighted overall
     overall = int(
         kw_score * 0.25 +
         skills_scr * 0.25 +
@@ -216,9 +224,15 @@ def calculate_ats_score(
         fmt_scr * 0.15
     )
 
-    # Boost: if many keywords match, give bonus
+    # Boosts for strong profiles
     if kw_score >= 70 and skills_scr >= 60:
         overall = min(overall + 10, 100)
+    # Boost if most must-have keywords are present
+    if mh_score >= 80:
+        overall = min(overall + 5, 100)
+    # Ensure format doesn't drag score below 60 if content is good
+    if kw_score >= 50 and skills_scr >= 50 and overall < 60:
+        overall = 60
 
     section_scores = {
         "summary": gap_analysis.get("summary_score", 60),
@@ -226,14 +240,28 @@ def calculate_ats_score(
         "skills": skills_scr,
         "education": edu_scr,
         "format": fmt_scr,
+        "keywords": kw_score,
+        "mustHave": mh_score,
     }
 
     tips = generate_tips(missing_kw, missing_skills, gap_analysis, [])
 
-    # Add tip about how many keywords needed for 85%+
-    if overall < 85 and missing_kw:
-        needed = min(len(missing_kw), max(3, int(len(all_keywords) * 0.3)))
-        tips.insert(0, f"Add {needed} more keywords to reach 85%+ ATS score")
+    # Separate blockers: what can be fixed vs what requires real experience
+    true_gaps = gap_analysis.get("true_skill_gaps", [])
+    fixable_blockers = []
+    unfixable_blockers = []
+    for kw in missing_mh[:5]:
+        # Check if the missing must-have is a skill the user could add vs genuinely doesn't have
+        if any(kw.lower() in tg.lower() for tg in true_gaps):
+            unfixable_blockers.append(kw)
+        else:
+            fixable_blockers.append(kw)
+
+    if overall < 85:
+        if fixable_blockers:
+            tips.insert(0, f"Add these keywords to boost score: {', '.join(fixable_blockers[:5])}")
+        if unfixable_blockers:
+            tips.append(f"Missing experience in: {', '.join(unfixable_blockers[:3])} (cannot fix with resume edits)")
 
     return {
         "overall_score": min(overall, 100),
@@ -242,10 +270,14 @@ def calculate_ats_score(
         "experience_score": exp_score,
         "education_score": edu_scr,
         "format_score": fmt_scr,
+        "must_have_score": mh_score,
         "matched_keywords": matched_kw,
-        "missing_keywords": missing_kw[:20],  # Show up to 20 missing
+        "missing_keywords": missing_kw[:20],
+        "missing_must_have": missing_mh[:10],
         "matched_skills": matched_skills,
         "missing_skills": missing_skills[:15],
         "section_scores": section_scores,
+        "fixable_blockers": fixable_blockers[:5],
+        "unfixable_blockers": unfixable_blockers[:5],
         "tips": tips,
     }

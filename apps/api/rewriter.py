@@ -201,8 +201,8 @@ async def generate_all_rewrites(
         if not alignment.get("rewrite_opportunity"):
             continue
 
-        # Skip high-scoring bullets
-        if alignment.get("alignment_score", 100) >= 80:
+        # Skip very-high-scoring bullets (lower threshold to be more aggressive)
+        if alignment.get("alignment_score", 100) >= 90:
             continue
 
         # Handle true gaps — flag but don't fabricate
@@ -248,15 +248,14 @@ async def generate_all_rewrites(
                 "is_gap": False,
             })
 
-    # Rewrite summary if score is low
-    summary_score = gap_analysis.get("summary_score", 100)
-    if summary_score < 75 and resume_content.get("summary"):
+    # Rewrite summary — always if it exists (more aggressive)
+    if resume_content.get("summary"):
         summary_result = await rewrite_summary(
             resume_content["summary"],
             resume_content,
             jd_analysis,
         )
-        if summary_result.get("suggested") != resume_content["summary"]:
+        if summary_result.get("suggested") and summary_result.get("suggested") != resume_content["summary"]:
             recommendations.append({
                 "section": "summary",
                 "field": "summary",
@@ -269,4 +268,38 @@ async def generate_all_rewrites(
                 "is_gap": False,
             })
 
-    return recommendations
+    # ── Skills section: suggest adding missing skills that the user actually has ──
+    unhighlighted = gap_analysis.get("unhighlighted_skills", [])
+    if unhighlighted:
+        current_skills = resume_content.get("skills", [])
+        current_skills_lower = set()
+        for s in current_skills:
+            if isinstance(s, str):
+                current_skills_lower.add(s.lower())
+            elif isinstance(s, dict):
+                current_skills_lower.add((s.get("name", "") or "").lower())
+
+        new_skills = [s for s in unhighlighted if s.lower() not in current_skills_lower]
+        if new_skills:
+            recommendations.append({
+                "section": "skills",
+                "field": "skills_list",
+                "original": ", ".join(s if isinstance(s, str) else s.get("name", "") for s in current_skills[:10]),
+                "suggested": "Add: " + ", ".join(new_skills[:8]),
+                "reason": f"You have experience with these skills but they're not in your skills section. Adding them improves ATS match.",
+                "confidence": 0.9,
+                "keywords_added": new_skills[:8],
+                "truthful": True,
+                "is_gap": False,
+            })
+
+    # ── Deduplicate recommendations by (section, original) ──
+    seen = set()
+    deduped = []
+    for rec in recommendations:
+        key = (rec["section"], rec.get("original", "")[:50])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(rec)
+
+    return deduped
