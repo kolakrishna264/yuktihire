@@ -41,98 +41,282 @@ if (document.location.hostname.includes("yuktihire.com")) {
   }
 }
 
-// ── Persistent Floating Widget ───────────────────────────────────────────
+// ── Persistent Assistant Panel ───────────────────────────────────────────
 ;(function() {
-  // Only inject on job/application pages (not on yuktihire.com itself)
   if (location.hostname.includes("yuktihire.com")) return
+  if (window !== window.top) return // Don't inject in iframes
 
-  // Auto-detect if this is a relevant page
   setTimeout(function() {
     var bodyText = (document.body?.innerText || "").toLowerCase()
     var url = location.href.toLowerCase()
     var jobSignals = ["job description", "responsibilities", "qualifications", "apply now", "apply for this", "submit application", "about the role", "what you'll do"]
     var isJobPage = jobSignals.filter(function(s) { return bodyText.includes(s) }).length >= 2
-    var isCareerPage = url.includes("/jobs") || url.includes("/career") || url.includes("/apply") || url.includes("greenhouse") || url.includes("lever.co") || url.includes("workday")
+    var isCareerPage = url.includes("/jobs") || url.includes("/career") || url.includes("/apply") || url.includes("greenhouse") || url.includes("lever.co") || url.includes("workday") || url.includes("icims") || url.includes("myworkday")
     var hasForms = document.querySelectorAll("form").length > 0 || document.querySelectorAll("input[type='text'], input[type='email'], textarea").length >= 3
 
-    if (isJobPage || isCareerPage || hasForms) {
-      injectFloatingWidget()
-    }
-  }, 1500) // Wait for page to load
+    if (isJobPage || isCareerPage || hasForms) injectPanel()
+  }, 1500)
 
-  function injectFloatingWidget() {
-    if (document.getElementById("yuktihire-widget")) return // Already injected
+  function injectPanel() {
+    if (document.getElementById("yh-assistant")) return
 
-    var widget = document.createElement("div")
-    widget.id = "yuktihire-widget"
-    widget.innerHTML = `
-      <div id="yh-panel" style="position:fixed;bottom:20px;right:20px;z-index:999999;font-family:system-ui,sans-serif;">
-        <div id="yh-chip" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:10px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;border-radius:14px;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(108,99,255,0.4);transition:transform 0.15s,box-shadow 0.15s" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform=''">
-          <span style="font-size:16px">Y</span>
-          YuktiHire
-          <span id="yh-badge" style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:99px;font-size:10px"></span>
-        </div>
-        <div id="yh-expanded" style="display:none;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,0.15);overflow:hidden">
-          <div style="padding:12px 16px;background:linear-gradient(135deg,#6c63ff,#8b5cf6);color:#fff;display:flex;align-items:center;justify-content:space-between">
-            <span style="font-weight:700;font-size:14px">YuktiHire Assistant</span>
-            <span id="yh-close" style="cursor:pointer;font-size:18px;opacity:0.8">&#10005;</span>
-          </div>
-          <div id="yh-content" style="padding:12px 16px;max-height:400px;overflow-y:auto">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <button class="yh-btn" data-action="save" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Save Job</button>
-              <button class="yh-btn" data-action="fill" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Fill Form</button>
-              <button class="yh-btn" data-action="tailor" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Tailor</button>
-              <button class="yh-btn" data-action="dashboard" style="padding:8px;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;font-weight:600;color:#374151;transition:all 0.15s">Dashboard</button>
-            </div>
-            <div id="yh-status" style="margin-top:8px;font-size:11px;color:#6b7280;text-align:center"></div>
-          </div>
-        </div>
-      </div>
-    `
-    document.body.appendChild(widget)
-
-    // Add hover styles for buttons
     var style = document.createElement("style")
-    style.textContent = ".yh-btn:hover { border-color:#c4b5fd !important; background:#faf9ff !important; }"
+    style.textContent = `
+      #yh-assistant { position:fixed; top:80px; right:0; z-index:999998; font-family:system-ui,-apple-system,sans-serif; }
+      #yh-assistant * { box-sizing:border-box; margin:0; padding:0; }
+      #yh-tab { position:absolute; right:0; top:0; width:36px; height:80px; background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; border-radius:10px 0 0 10px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; box-shadow:-2px 2px 12px rgba(108,99,255,0.3); transition:width 0.15s; writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; }
+      #yh-tab:hover { width:40px; }
+      #yh-dock { position:absolute; right:0; top:0; width:340px; background:#fff; border:1px solid #e5e7eb; border-right:none; border-radius:16px 0 0 16px; box-shadow:-4px 0 30px rgba(0,0,0,0.1); display:none; max-height:calc(100vh - 100px); overflow:hidden; flex-direction:column; }
+      .yh-header { padding:10px 14px; background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+      .yh-header-title { font-weight:700; font-size:13px; }
+      .yh-minimize { cursor:pointer; font-size:16px; opacity:0.8; background:none; border:none; color:#fff; }
+      .yh-minimize:hover { opacity:1; }
+      .yh-job-ctx { padding:8px 14px; background:#f9fafb; border-bottom:1px solid #f3f4f6; font-size:11px; color:#6b7280; }
+      .yh-job-ctx strong { color:#111827; font-size:12px; display:block; margin-bottom:2px; }
+      .yh-actions { padding:10px 14px; display:grid; grid-template-columns:1fr 1fr; gap:6px; border-bottom:1px solid #f3f4f6; }
+      .yh-btn { padding:8px 6px; border:1.5px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; font-size:10px; font-weight:600; color:#374151; transition:all 0.15s; text-align:center; }
+      .yh-btn:hover { border-color:#c4b5fd; background:#faf9ff; }
+      .yh-btn:disabled { opacity:0.5; cursor:not-allowed; }
+      .yh-btn-primary { background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; border-color:transparent; }
+      .yh-btn-primary:hover { opacity:0.9; }
+      .yh-progress { padding:8px 14px; border-bottom:1px solid #f3f4f6; }
+      .yh-progress-bar { height:4px; background:#e5e7eb; border-radius:99px; overflow:hidden; margin-top:4px; }
+      .yh-progress-fill { height:100%; background:linear-gradient(90deg,#6c63ff,#22c55e); border-radius:99px; transition:width 0.3s; width:0%; }
+      .yh-stats { display:flex; gap:8px; font-size:10px; font-weight:600; margin-top:4px; }
+      .yh-stat-ok { color:#22c55e; } .yh-stat-warn { color:#f59e0b; } .yh-stat-fail { color:#ef4444; }
+      .yh-log-area { flex:1; overflow-y:auto; max-height:300px; padding:6px 14px; }
+      .yh-log { padding:3px 0; font-size:10px; color:#6b7280; border-bottom:1px solid #f9fafb; display:flex; gap:4px; align-items:flex-start; }
+      .yh-log-icon { flex-shrink:0; font-size:11px; }
+      .yh-log-ok .yh-log-icon { color:#22c55e; }
+      .yh-log-warn .yh-log-icon { color:#f59e0b; }
+      .yh-log-fail .yh-log-icon { color:#ef4444; }
+      .yh-status-msg { padding:6px 14px; font-size:10px; font-weight:500; text-align:center; }
+    `
     document.head.appendChild(style)
 
-    var chip = document.getElementById("yh-chip")
-    var expanded = document.getElementById("yh-expanded")
-    var closeBtn = document.getElementById("yh-close")
-    var statusEl = document.getElementById("yh-status")
+    var panel = document.createElement("div")
+    panel.id = "yh-assistant"
+    panel.innerHTML = `
+      <div id="yh-tab">Y H</div>
+      <div id="yh-dock">
+        <div class="yh-header">
+          <span class="yh-header-title">YuktiHire Assistant</span>
+          <button class="yh-minimize" id="yh-min">&minus;</button>
+        </div>
+        <div class="yh-job-ctx" id="yh-job-ctx">
+          <strong id="yh-job-title">Detecting job...</strong>
+          <span id="yh-job-company"></span>
+        </div>
+        <div class="yh-actions">
+          <button class="yh-btn" id="yh-save">Save Job</button>
+          <button class="yh-btn yh-btn-primary" id="yh-fill">Fill Everything</button>
+          <button class="yh-btn" id="yh-tailor">Tailor Resume</button>
+          <button class="yh-btn" id="yh-cover">Cover Letter</button>
+          <button class="yh-btn" id="yh-download">Download Resume</button>
+          <button class="yh-btn" id="yh-dash">Dashboard</button>
+        </div>
+        <div class="yh-progress" id="yh-progress" style="display:none">
+          <div class="yh-status-msg" id="yh-status">Scanning form...</div>
+          <div class="yh-progress-bar"><div class="yh-progress-fill" id="yh-bar"></div></div>
+          <div class="yh-stats" id="yh-stats"></div>
+        </div>
+        <div class="yh-log-area" id="yh-logs"></div>
+      </div>
+    `
+    document.body.appendChild(panel)
 
-    // Toggle expand/collapse
-    chip.addEventListener("click", function() {
-      if (expanded.style.display === "none") {
-        expanded.style.display = "block"
-        chip.style.display = "none"
-      } else {
-        expanded.style.display = "none"
-        chip.style.display = "flex"
-      }
+    // State
+    var isOpen = false
+    var tab = document.getElementById("yh-tab")
+    var dock = document.getElementById("yh-dock")
+
+    // Toggle
+    tab.addEventListener("click", function() {
+      isOpen = !isOpen
+      dock.style.display = isOpen ? "flex" : "none"
+      tab.style.display = isOpen ? "none" : "flex"
+      if (isOpen) detectJob()
+    })
+    document.getElementById("yh-min").addEventListener("click", function() {
+      isOpen = false
+      dock.style.display = "none"
+      tab.style.display = "flex"
     })
 
-    closeBtn.addEventListener("click", function() {
-      expanded.style.display = "none"
-      chip.style.display = "flex"
-    })
-
-    // Action button handlers
-    widget.querySelectorAll(".yh-btn").forEach(function(btn) {
-      btn.addEventListener("click", function() {
-        var action = btn.getAttribute("data-action")
-        if (action === "save") {
-          statusEl.textContent = "Saving job..."
-          chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
-        } else if (action === "fill") {
-          statusEl.textContent = "Opening autofill..."
-          chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
-        } else if (action === "tailor") {
-          chrome.runtime.sendMessage({ type: "OPEN_TAB", url: "https://yuktihire.com/dashboard/tailor" })
-        } else if (action === "dashboard") {
-          chrome.runtime.sendMessage({ type: "OPEN_TAB", url: "https://yuktihire.com/dashboard/jobs" })
+    // Detect job context
+    function detectJob() {
+      try {
+        if (typeof extractJobData === "function") {
+          var data = extractJobData()
+          if (data.title) document.getElementById("yh-job-title").textContent = data.title
+          if (data.company) document.getElementById("yh-job-company").textContent = data.company
         }
+      } catch(e) {}
+    }
+
+    // Logging
+    function addLog(text, type) {
+      var el = document.getElementById("yh-logs")
+      var icon = type === "ok" ? "&#10003;" : type === "warn" ? "&#9888;" : type === "fail" ? "&#10007;" : "&#8226;"
+      el.innerHTML += '<div class="yh-log yh-log-' + type + '"><span class="yh-log-icon">' + icon + '</span>' + text + '</div>'
+      el.scrollTop = el.scrollHeight
+    }
+    function clearLogs() { document.getElementById("yh-logs").innerHTML = "" }
+    function setStatus(text) { document.getElementById("yh-status").textContent = text }
+    function setBar(pct) { document.getElementById("yh-bar").style.width = pct + "%" }
+    function showProgress() { document.getElementById("yh-progress").style.display = "block" }
+    function setStats(ok, warn, fail) {
+      document.getElementById("yh-stats").innerHTML =
+        '<span class="yh-stat-ok">' + ok + ' filled</span>' +
+        '<span class="yh-stat-warn">' + warn + ' review</span>' +
+        '<span class="yh-stat-fail">' + fail + ' failed</span>'
+    }
+
+    // ── SAVE JOB ──
+    document.getElementById("yh-save").addEventListener("click", function() {
+      chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+    })
+
+    // ── FILL EVERYTHING (continuous loop) ──
+    document.getElementById("yh-fill").addEventListener("click", async function() {
+      var btn = document.getElementById("yh-fill")
+      btn.disabled = true
+      btn.textContent = "Filling..."
+      clearLogs()
+      showProgress()
+
+      var totalFilled = 0, totalReview = 0, totalFailed = 0
+
+      // Step 1: Get profile
+      setStatus("Loading profile...")
+      setBar(5)
+      var profile = await new Promise(function(r) {
+        chrome.runtime.sendMessage({ type: "GET_AUTOFILL_DATA" }, function(resp) { r(resp) })
       })
+      if (!profile || !profile.ok) {
+        addLog("Could not load profile data", "fail")
+        btn.disabled = false; btn.textContent = "Fill Everything"; return
+      }
+      addLog("Profile loaded", "ok")
+
+      // Step 2: Continuous fill loop (up to 5 passes)
+      var maxPasses = 5
+      for (var pass = 1; pass <= maxPasses; pass++) {
+        setStatus("Pass " + pass + "/" + maxPasses + " — scanning...")
+        setBar(10 + (pass - 1) * 15)
+
+        // Engine fill
+        var result = null
+        if (typeof YuktiEngine !== "undefined") {
+          result = YuktiEngine.fillAll(profile.data)
+        }
+        if (!result) { addLog("Engine not loaded", "fail"); break }
+
+        // Log filled
+        var passFilled = 0
+        result.filled.forEach(function(f) {
+          addLog(f.label + ": " + f.value + (f.verified ? "" : " (unverified)"), f.verified ? "ok" : "warn")
+          if (f.verified) passFilled++; else totalReview++
+        })
+        totalFilled += passFilled
+
+        // Log review needed
+        result.needsReview.forEach(function(r) {
+          addLog(r.label + " — needs review", "warn")
+          totalReview++
+        })
+
+        // Fill async custom dropdowns
+        if (result.needsAsync.length > 0) {
+          setStatus("Pass " + pass + " — dropdowns...")
+          for (var a = 0; a < result.needsAsync.length; a++) {
+            var af = result.needsAsync[a]
+            try {
+              var asyncBlock = { element: document.querySelector(af.selector), container: null, inputType: "customSelect" }
+              if (asyncBlock.element) {
+                asyncBlock.container = asyncBlock.element.parentElement
+                var ar = await YuktiEngine.fillAsync(asyncBlock, af.value)
+                if (ar.ok) { addLog(af.label.slice(0, 40) + ": " + (ar.selected || af.value), "ok"); totalFilled++ }
+                else { addLog(af.label.slice(0, 40) + " — dropdown failed", "fail"); totalFailed++ }
+              }
+            } catch(e) { addLog(af.label.slice(0, 40) + " — error", "fail"); totalFailed++ }
+            await new Promise(function(r) { setTimeout(r, 300) })
+          }
+        }
+
+        // AI fill for remaining
+        if (result.needsAI.length > 0) {
+          setStatus("Pass " + pass + " — AI answering " + result.needsAI.length + " questions...")
+          for (var ai = 0; ai < result.needsAI.length; ai++) {
+            var field = result.needsAI[ai]
+            if (!field.label) continue
+            setBar(Math.min(90, 10 + pass * 15 + ai * 3))
+
+            // Build prompt
+            var prompt = field.label
+            if (field.options && field.options.length > 0) {
+              prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text.'
+            } else if (field.category === "motivation" || field.category === "behavioral" || field.category === "technical" || field.category === "openEnded") {
+              prompt = 'Answer this job application question professionally (200-400 words if open-ended, 1-2 sentences if short):\n\n"' + field.label + '"'
+              if (field.helperText) prompt += '\n\nContext: ' + field.helperText.slice(0, 300)
+            }
+
+            try {
+              var answer = await new Promise(function(r) {
+                chrome.runtime.sendMessage({ type: "GENERATE_ANSWER", data: { question: prompt } }, function(resp) { r(resp) })
+              })
+              if (answer && answer.ok && answer.data && answer.data.answer) {
+                var val = answer.data.answer.trim()
+                var el = document.querySelector(field.selector)
+                if (el) {
+                  var fakeBlock = { element: el, container: el.parentElement, inputType: field.inputType, options: [], radioGroupName: null }
+                  var fr = YuktiEngine.fill(fakeBlock, val)
+                  if (fr.ok) { addLog("AI: " + field.label.slice(0, 35), "ok"); totalFilled++ }
+                  else if (fr.reason === "needs_async") {
+                    var ar2 = await YuktiEngine.fillAsync(fakeBlock, val)
+                    if (ar2.ok) { addLog("AI: " + field.label.slice(0, 35), "ok"); totalFilled++ }
+                    else { addLog("AI: " + field.label.slice(0, 35) + " (fill failed)", "warn"); totalFailed++ }
+                  }
+                  else { addLog("AI: " + field.label.slice(0, 35) + " (fill failed)", "warn"); totalFailed++ }
+                }
+              }
+            } catch(e) { addLog("AI error: " + field.label.slice(0, 30), "fail"); totalFailed++ }
+            await new Promise(function(r) { setTimeout(r, 200) })
+          }
+        }
+
+        // Check if new fields appeared
+        if (pass < maxPasses) {
+          await new Promise(function(r) { setTimeout(r, 500) })
+          var newEmpty = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
+          if (newEmpty.length === 0) {
+            addLog("All fields filled — done!", "ok")
+            break
+          }
+          addLog(newEmpty.length + " fields remaining — rescanning...", "warn")
+        }
+      }
+
+      // Final summary
+      setBar(100)
+      setStatus("Done!")
+      setStats(totalFilled, totalReview, totalFailed)
+      btn.disabled = false
+      btn.textContent = "Fill Everything"
+    })
+
+    // ── OTHER BUTTONS ──
+    document.getElementById("yh-tailor").addEventListener("click", function() {
+      window.open("https://yuktihire.com/dashboard/tailor", "_blank")
+    })
+    document.getElementById("yh-cover").addEventListener("click", function() {
+      window.open("https://yuktihire.com/dashboard/tailor", "_blank")
+    })
+    document.getElementById("yh-download").addEventListener("click", function() {
+      chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
+    })
+    document.getElementById("yh-dash").addEventListener("click", function() {
+      window.open("https://yuktihire.com/dashboard/jobs", "_blank")
     })
   }
 })()
