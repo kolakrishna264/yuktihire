@@ -194,7 +194,22 @@ def render_html(resume_content: dict) -> str:
     """Render resume content to HTML string."""
     env = Environment(loader=BaseLoader())
     template = env.from_string(RESUME_HTML_TEMPLATE)
-    return template.render(**resume_content)
+
+    # Build contact dict from top-level fields if not present
+    data = dict(resume_content)
+    if "contact" not in data or not data["contact"]:
+        data["contact"] = {
+            "full_name": data.get("name") or data.get("full_name") or data.get("fullName") or "",
+            "email": data.get("email") or "",
+            "phone": data.get("phone") or "",
+            "location": data.get("location") or "",
+            "linkedin": data.get("linkedin") or "",
+            "github": data.get("github") or "",
+        }
+    if "name" not in data:
+        data["name"] = data["contact"].get("full_name", "")
+
+    return template.render(**data)
 
 
 def _render_pdf(html: str) -> bytes:
