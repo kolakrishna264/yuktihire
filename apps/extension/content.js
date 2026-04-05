@@ -518,13 +518,60 @@ if (document.location.hostname.includes("yuktihire.com")) {
         }
       }
 
+      // ── Auto-continue multi-step forms ──
+      // After filling, check if there's a Next/Continue button
+      var nextBtn = detectNextButton()
+      if (nextBtn) {
+        addLog("Next/Continue button found — auto-advancing...", "ok", "medium")
+        setStatus("Advancing to next section...")
+        setBar(95)
+        nextBtn.click()
+        nextBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+        // Wait for new section to load
+        await sleep(1500)
+
+        // Rescan and fill the new section
+        var newBlocks = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
+        newBlocks = newBlocks.filter(function(b) { return b.inputType !== "file" })
+        if (newBlocks.length > 0) {
+          addLog(newBlocks.length + " new fields in next section — filling...", "warn")
+          // Run one more fill pass on the new section
+          var newResult = YuktiEngine.fillAll(profile.data)
+          newResult.filled.forEach(function(f) {
+            addLog(f.label + ": " + f.value, f.verified ? "ok" : "warn", getConfidence(f.source, ""))
+            if (f.verified) totalFilled++; else totalReview++
+          })
+          // Fill async dropdowns in new section
+          for (var na = 0; na < newResult.needsAsync.length; na++) {
+            var naf = newResult.needsAsync[na]
+            try {
+              var nael = document.querySelector(naf.selector)
+              if (nael) {
+                var nar = await YuktiEngine.fillAsync({ element: nael, container: nael.parentElement, inputType: "customSelect" }, naf.value)
+                if (nar.ok) { addLog(naf.label.slice(0, 35) + ": " + (nar.selected || naf.value), "ok", "medium"); totalFilled++ }
+              }
+            } catch(e) {}
+            await sleep(300)
+          }
+          // Highlight new resume uploads
+          highlightResumeInputs()
+        }
+
+        // Check for another Next button (for 3+ step forms)
+        var nextBtn2 = detectNextButton()
+        if (nextBtn2) {
+          addLog("More sections available — click Fill again to continue", "warn", "review")
+        }
+      }
+
       // Final
       var endTime = Date.now()
       setBar(100)
       setStatus("Done — " + totalFilled + " filled")
       setStats(totalFilled, totalReview, totalFailed)
       btn.disabled = false
-      btn.textContent = "Fill Everything"
+      btn.textContent = nextBtn ? "Fill Next Section" : "Fill Everything"
 
       // Track autofill session for analytics
       sendMsg({

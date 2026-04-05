@@ -605,10 +605,12 @@ var YuktiEngine = (function () {
   }
 
   function getProfileAnswer(intent, pd) {
-    // Parse location into city/state for US addresses (e.g. "Arlington, Texas" → city: "Arlington", state: "Texas")
+    // Parse US location: "Arlington, Texas" → city + normalized state
     var locParts = (pd.location || "").split(",").map(function(s) { return s.trim() })
     var cityVal = locParts[0] || ""
-    var stateVal = locParts[1] || ""
+    var rawState = locParts[1] || ""
+    var stateInfo = normalizeState(rawState)
+    var yearsCalc = calculateYearsExperience(pd)
 
     var map = {
       // Tier 1: Identity — US-formatted
@@ -620,15 +622,14 @@ var YuktiEngine = (function () {
       phone: pd.phone,
       address: pd.address || pd.location,
       city: cityVal,
-      state: stateVal,
+      state: stateInfo.full || stateInfo.abbr,  // Try full name first, then abbr
       zip: pd.zip || pd.zipCode || "",
       location: pd.location,
       linkedin: pd.linkedin,
       github: pd.github,
       portfolio: pd.portfolio,
-      country: "United States",  // US-only product
-      // Tier 1: US Work Authorization — deterministic from workAuthType
-      // Backend derives these from workAuthType (citizen→Yes/No, H-1B→Yes/Yes, etc.)
+      country: "United States",
+      // Tier 1: US Work Authorization
       workAuth: pd.workAuthorization || "",
       sponsorship: pd.sponsorship || "",
       visaType: pd.visaStatus || pd.visaType || "",
@@ -636,9 +637,10 @@ var YuktiEngine = (function () {
       currentCompany: pd.headline || pd.currentCompany || "",
       currentTitle: pd.currentTitle || pd.headline || "",
       publications: pd.publications || "",
-      yearsExp: pd.yearsExperience || "",
+      yearsExp: yearsCalc,
       skills: pd.skills || "",
       education: pd.education || pd.degree || "",
+      gradYear: pd.gradYear || "",
       // Logistics
       interviewedBefore: pd.interviewedBefore || "",
     }
@@ -713,6 +715,53 @@ var YuktiEngine = (function () {
       .replace(/\s+/g, " ")
   }
 
+  // ── US State abbreviation map ──
+  var US_STATES = {
+    "alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA",
+    "colorado":"CO","connecticut":"CT","delaware":"DE","florida":"FL","georgia":"GA",
+    "hawaii":"HI","idaho":"ID","illinois":"IL","indiana":"IN","iowa":"IA",
+    "kansas":"KS","kentucky":"KY","louisiana":"LA","maine":"ME","maryland":"MD",
+    "massachusetts":"MA","michigan":"MI","minnesota":"MN","mississippi":"MS","missouri":"MO",
+    "montana":"MT","nebraska":"NE","nevada":"NV","new hampshire":"NH","new jersey":"NJ",
+    "new mexico":"NM","new york":"NY","north carolina":"NC","north dakota":"ND","ohio":"OH",
+    "oklahoma":"OK","oregon":"OR","pennsylvania":"PA","rhode island":"RI","south carolina":"SC",
+    "south dakota":"SD","tennessee":"TN","texas":"TX","utah":"UT","vermont":"VT",
+    "virginia":"VA","washington":"WA","west virginia":"WV","wisconsin":"WI","wyoming":"WY",
+    "district of columbia":"DC",
+  }
+  // Reverse map: abbreviation → full name
+  var US_STATES_REV = {}
+  for (var st in US_STATES) US_STATES_REV[US_STATES[st].toLowerCase()] = st
+
+  function normalizeState(input) {
+    var s = (input || "").trim().toLowerCase()
+    // If it's already an abbreviation
+    if (s.length === 2 && US_STATES_REV[s]) return { abbr: s.toUpperCase(), full: US_STATES_REV[s].replace(/\b\w/g, function(c) { return c.toUpperCase() }) }
+    // If it's a full name
+    if (US_STATES[s]) return { abbr: US_STATES[s], full: s.replace(/\b\w/g, function(c) { return c.toUpperCase() }) }
+    return { abbr: s.toUpperCase(), full: input || "" }
+  }
+
+  // ── Experience years calculation ──
+  function calculateYearsExperience(pd) {
+    // Try explicit value first
+    if (pd.yearsExperience) return pd.yearsExperience
+    // Calculate from profile experiences
+    if (!pd.experiences || !pd.experiences.length) return ""
+    var totalMonths = 0
+    var now = new Date()
+    for (var i = 0; i < pd.experiences.length; i++) {
+      var exp = pd.experiences[i]
+      var start = exp.startDate ? new Date(exp.startDate) : null
+      var end = exp.current ? now : (exp.endDate ? new Date(exp.endDate) : null)
+      if (start && end && !isNaN(start) && !isNaN(end)) {
+        totalMonths += Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()))
+      }
+    }
+    var years = Math.round(totalMonths / 12)
+    return years > 0 ? String(years) : ""
+  }
+
   // Equivalence groups for fuzzy matching
   var EQUIVALENCES = {
     "yes": ["yes", "true", "y", "si", "oui", "yeah", "yep", "affirmative"],
@@ -777,6 +826,11 @@ var YuktiEngine = (function () {
       // Boolean normalization
       if (value === true && (t === "yes" || v === "true" || v === "1")) score = Math.max(score, 90)
       if (value === false && (t === "no" || v === "false" || v === "0")) score = Math.max(score, 90)
+
+      // US State normalization: "Texas" ↔ "TX"
+      var valState = normalizeState(valueLower)
+      var optState = normalizeState(t)
+      if (valState.abbr && optState.abbr && valState.abbr === optState.abbr) score = Math.max(score, 95)
 
       if (score > bestScore) { bestScore = score; bestMatch = opt }
     }
@@ -863,21 +917,39 @@ var YuktiEngine = (function () {
         return
       }
 
-      // Click to open — try multiple strategies
+      // ── Strategy 1: Type into combobox search input first ──
+      // Many custom selects (React-Select, MUI) have an input that filters options
+      var isCombobox = el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox"
+      var searchInput = el.querySelector("input") || el.closest("[class*='select']")?.querySelector("input:not([type='hidden'])")
+      if (!searchInput && isCombobox && el.tagName === "INPUT") searchInput = el
+
+      if (searchInput) {
+        searchInput.focus()
+        // Type the value to filter options
+        var typeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        if (typeSetter) typeSetter.call(searchInput, value)
+        else searchInput.value = value
+        searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+        searchInput.dispatchEvent(new Event("change", { bubbles: true }))
+        // Also simulate keydown for React
+        searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: value.slice(-1), bubbles: true }))
+      }
+
+      // ── Strategy 2: Click to open dropdown ──
       el.click()
       el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-      // Try clicking inner trigger elements (React-Select, MUI patterns)
-      var inner = el.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator'], [class*='arrow'], [class*='trigger']")
+      var inner = el.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator'], [class*='arrow'], [class*='trigger'], [class*='button']")
       if (inner) inner.click()
 
       setTimeout(function() {
-        // Search for options anywhere (portals render outside)
+        // Search for options anywhere (portals render outside container)
         var optSelectors = [
           '[class*="select__option"]', '[class*="option"]:not([class*="control"])',
           '[role="option"]', '[class*="menu"] [class*="item"]',
           '[class*="MenuList"] > div', 'li[id*="option"]', 'li[role="option"]',
           '[class*="MuiMenuItem"]', '[class*="ant-select-item"]',
           '[data-automation-id*="option"]', '[class*="dropdown-item"]',
+          '[class*="listbox"] [class*="option"]',
         ]
         var allOpts = document.querySelectorAll(optSelectors.join(", "))
 
@@ -894,21 +966,46 @@ var YuktiEngine = (function () {
 
         if (bestOpt && bestScore >= 40) {
           bestOpt.click()
+          // Also try Enter key to confirm selection (some React-Select variants need this)
+          setTimeout(function() {
+            document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }))
+          }, 100)
           highlightEl(el, "success")
-          resolve({ ok: true, method: "customSelect", selected: bestOpt.textContent.trim() })
+          resolve({ ok: true, method: "customSelect", selected: bestOpt.textContent.trim(), score: bestScore })
         } else {
-          // Try typing into search
-          var searchInput = document.querySelector('[class*="select__input"] input, [class*="search"] input, input[role="combobox"]')
-          if (searchInput) {
-            searchInput.focus()
-            searchInput.value = value
-            searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+          // Fallback: type into search and pick first filtered result
+          var fallbackInput = document.querySelector(
+            '[class*="select__input"] input, [class*="search"] input, ' +
+            'input[role="combobox"], [class*="combobox"] input, ' +
+            '[class*="MuiAutocomplete"] input, [class*="ant-select-search"] input'
+          )
+          if (fallbackInput) {
+            fallbackInput.focus()
+            var fbSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+            if (fbSetter) fbSetter.call(fallbackInput, value)
+            else fallbackInput.value = value
+            fallbackInput.dispatchEvent(new Event("input", { bubbles: true }))
+            fallbackInput.dispatchEvent(new Event("change", { bubbles: true }))
             setTimeout(function() {
-              var filtered = document.querySelectorAll('[role="option"], [class*="option"]')
-              if (filtered.length > 0 && filtered[0].offsetParent) {
+              var filtered = document.querySelectorAll('[role="option"], [class*="option"]:not([class*="control"])')
+              // Find best match among filtered results
+              var bestFiltered = null
+              var bestFScore = 0
+              for (var fi = 0; fi < filtered.length; fi++) {
+                if (!filtered[fi].offsetParent) continue
+                var ft = normalize(filtered[fi].textContent)
+                var fs = fuzzyMatch(valueLower, ft)
+                if (fs > bestFScore) { bestFScore = fs; bestFiltered = filtered[fi] }
+              }
+              if (bestFiltered && bestFScore >= 30) {
+                bestFiltered.click()
+                highlightEl(el, "success")
+                resolve({ ok: true, method: "customSelect_search", selected: bestFiltered.textContent.trim() })
+              } else if (filtered.length > 0 && filtered[0].offsetParent) {
+                // Just pick the first visible option
                 filtered[0].click()
                 highlightEl(el, "success")
-                resolve({ ok: true, method: "customSelect_search", selected: filtered[0].textContent.trim() })
+                resolve({ ok: true, method: "customSelect_first", selected: filtered[0].textContent.trim() })
               } else {
                 document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
                 resolve({ ok: false, reason: "no matching custom option" })
@@ -937,6 +1034,11 @@ var YuktiEngine = (function () {
       var color = type === "success" ? "#22c55e" : type === "error" ? "#ef4444" : "#f59e0b"
       el.style.outline = "2px solid " + color
       el.style.outlineOffset = "1px"
+      el.style.transition = "outline-color 0.3s"
+      // Auto-scroll to element if it's below the viewport
+      if (el.getBoundingClientRect().bottom > window.innerHeight) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
       setTimeout(function() {
         el.style.outline = ""
         el.style.outlineOffset = ""
