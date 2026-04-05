@@ -72,6 +72,31 @@ def generate_docx_sync(resume_content: dict) -> bytes:
     style.paragraph_format.space_after = Pt(0)
     style.paragraph_format.space_before = Pt(0)
 
+    # Deduplicate experiences
+    exps = resume_content.get("experiences", [])
+    if exps:
+        seen = set()
+        clean = []
+        for e in exps:
+            key = f"{(e.get('company','') or '').lower()}|{(e.get('title','') or '').lower()}"
+            if key not in seen:
+                seen.add(key)
+                clean.append(e)
+        resume_content = dict(resume_content)
+        resume_content["experiences"] = clean
+
+    # Deduplicate education
+    edus = resume_content.get("educations", [])
+    if edus:
+        seen = set()
+        clean = []
+        for e in edus:
+            key = f"{(e.get('degree','') or '').lower()}|{(e.get('school','') or '').lower()}"
+            if key not in seen:
+                seen.add(key)
+                clean.append(e)
+        resume_content["educations"] = clean
+
     contact = resume_content.get("contact", {})
     name = contact.get("full_name") or resume_content.get("name", "")
     email = contact.get("email") or resume_content.get("email", "")

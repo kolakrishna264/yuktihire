@@ -13,96 +13,70 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { margin: 0.6in 0.7in; size: letter; }
+  @page { margin: 0.55in 0.65in; size: letter; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Arial', sans-serif;
-    font-size: 10.5pt;
-    line-height: 1.4;
-    color: #222;
-  }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.35; color: #1a1a1a; }
 
-  /* Header */
-  .header { text-align: center; margin-bottom: 14px; border-bottom: 2px solid #1a1a1a; padding-bottom: 10px; }
-  .name { font-size: 22pt; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 4px; }
-  .contact { font-size: 9.5pt; color: #444; }
-  .contact span { margin: 0 8px; }
+  .header { text-align: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #888; }
+  .name { font-size: 18pt; font-weight: bold; letter-spacing: 0.3px; }
+  .contact { font-size: 9pt; color: #444; margin-top: 3px; }
 
-  /* Sections */
-  .section { margin-bottom: 14px; }
-  .section-title {
-    font-size: 11pt;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    border-bottom: 1px solid #333;
-    padding-bottom: 2px;
-    margin-bottom: 8px;
-  }
+  .section { margin-bottom: 10px; }
+  .section-title { font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 0.5pt solid #aaa; padding-bottom: 1px; margin-bottom: 5px; color: #222; }
 
-  /* Experience */
-  .exp-item { margin-bottom: 10px; }
-  .exp-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .exp-item { margin-bottom: 8px; }
+  .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
   .exp-company { font-weight: bold; font-size: 10.5pt; }
-  .exp-dates { font-size: 9.5pt; color: #555; white-space: nowrap; }
-  .exp-title { font-style: italic; font-size: 10pt; color: #333; margin-bottom: 3px; }
-  .bullets { list-style: none; padding: 0; }
-  .bullets li { padding-left: 14px; position: relative; margin-bottom: 2px; font-size: 10pt; }
-  .bullets li::before { content: "•"; position: absolute; left: 2px; }
+  .exp-dates { font-size: 9pt; color: #666; }
+  .exp-title { font-style: italic; font-size: 10pt; color: #333; margin-bottom: 2px; }
 
-  /* Skills */
-  .skills-grid { display: flex; flex-wrap: wrap; gap: 4px 0; }
-  .skill-row { width: 100%; font-size: 10pt; margin-bottom: 3px; }
-  .skill-category { font-weight: bold; margin-right: 6px; }
+  ul.bullets { list-style-type: disc; margin-left: 16px; padding: 0; }
+  ul.bullets li { font-size: 9.5pt; margin-bottom: 1.5px; line-height: 1.35; color: #222; }
 
-  /* Education */
-  .edu-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
-  .edu-left .degree { font-weight: bold; font-size: 10.5pt; }
-  .edu-left .school { font-size: 10pt; color: #333; }
-  .edu-right { text-align: right; font-size: 9.5pt; color: #555; }
+  .skills-text { font-size: 9.5pt; line-height: 1.5; }
+
+  .edu-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .edu-degree { font-weight: bold; font-size: 10pt; }
+  .edu-school { font-size: 9.5pt; color: #444; }
+  .edu-date { font-size: 9pt; color: #666; }
 </style>
 </head>
 <body>
 
-<!-- Header -->
 <div class="header">
   <div class="name">{{ contact.full_name or name }}</div>
   <div class="contact">
-    {% if contact.email %}<span>{{ contact.email }}</span>{% endif %}
-    {% if contact.phone %}<span>{{ contact.phone }}</span>{% endif %}
-    {% if contact.location %}<span>{{ contact.location }}</span>{% endif %}
-    {% if contact.linkedin %}<span>{{ contact.linkedin }}</span>{% endif %}
-    {% if contact.github %}<span>{{ contact.github }}</span>{% endif %}
+    {% set parts = [] %}
+    {% if contact.email %}{% if parts.append(contact.email) %}{% endif %}{% endif %}
+    {% if contact.phone %}{% if parts.append(contact.phone) %}{% endif %}{% endif %}
+    {% if contact.location %}{% if parts.append(contact.location) %}{% endif %}{% endif %}
+    {% if contact.linkedin %}{% if parts.append(contact.linkedin) %}{% endif %}{% endif %}
+    {% if contact.github %}{% if parts.append(contact.github) %}{% endif %}{% endif %}
+    {{ parts | join('  |  ') }}
   </div>
 </div>
 
-<!-- Summary -->
 {% if summary %}
 <div class="section">
   <div class="section-title">Professional Summary</div>
-  <p style="font-size:10pt; line-height:1.5;">{{ summary }}</p>
+  <p style="font-size:9.5pt; line-height:1.45;">{{ summary }}</p>
 </div>
 {% endif %}
 
-<!-- Experience -->
 {% if experiences %}
 <div class="section">
   <div class="section-title">Professional Experience</div>
   {% for exp in experiences %}
   <div class="exp-item">
-    <div class="exp-header">
+    <div class="exp-row">
       <span class="exp-company">{{ exp.company }}</span>
-      <span class="exp-dates">
-        {{ exp.start_date or exp.startDate or '' }}
-        {% if exp.end_date or exp.endDate %} – {{ exp.end_date or exp.endDate }}{% elif exp.current %} – Present{% endif %}
-      </span>
+      <span class="exp-dates">{{ exp.start_date or exp.startDate or '' }}{% if exp.end_date or exp.endDate %} – {{ exp.end_date or exp.endDate }}{% elif exp.current %} – Present{% endif %}</span>
     </div>
-    <div class="exp-title">{{ exp.title }}</div>
+    <div class="exp-title">{{ exp.title }}{% if exp.location %}, {{ exp.location }}{% endif %}</div>
     {% if exp.bullets %}
     <ul class="bullets">
-      {% for bullet in exp.bullets %}
-      <li>{{ bullet }}</li>
-      {% endfor %}
+      {% for bullet in exp.bullets %}<li>{{ bullet }}</li>{% endfor %}
     </ul>
     {% endif %}
   </div>
@@ -110,59 +84,39 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 </div>
 {% endif %}
 
-<!-- Skills -->
 {% if skills %}
 <div class="section">
   <div class="section-title">Technical Skills</div>
-  <p style="font-size:10pt;">
-  {% set seen_skills = [] %}
-  {% for skill in skills %}
-    {% set skill_name = skill.name if skill is mapping else skill %}
-    {% if skill_name and skill_name|length < 60 and skill_name not in seen_skills %}
-      {% if seen_skills %}· {% endif %}{{ skill_name }}{% if seen_skills.append(skill_name) %}{% endif %}
-    {% endif %}
-  {% endfor %}
+  <p class="skills-text">
+  {% for skill in skills %}{% set sn = skill.name if skill is mapping else skill %}{% if sn and sn|length < 60 %}{% if not loop.first %}  ·  {% endif %}{{ sn }}{% endif %}{% endfor %}
   </p>
 </div>
 {% endif %}
 
-<!-- Education -->
 {% if educations %}
 <div class="section">
   <div class="section-title">Education</div>
   {% for edu in educations %}
-  <div class="edu-item">
-    <div class="edu-left">
-      <div class="degree">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</div>
-      <div class="school">{{ edu.school }}</div>
-      {% if edu.gpa %}<div style="font-size:9.5pt;color:#555">GPA: {{ edu.gpa }}</div>{% endif %}
+  <div class="edu-row">
+    <div>
+      <span class="edu-degree">{{ edu.degree }}{% if edu.field %}, {{ edu.field }}{% endif %}</span>
+      <span class="edu-school"> — {{ edu.school }}</span>
+      {% if edu.gpa %}<span style="font-size:8.5pt;color:#666"> (GPA: {{ edu.gpa }})</span>{% endif %}
     </div>
-    <div class="edu-right">
-      {% if edu.end_date or edu.endDate %}{{ edu.end_date or edu.endDate }}{% endif %}
-    </div>
+    <span class="edu-date">{% if edu.end_date or edu.endDate %}{{ edu.end_date or edu.endDate }}{% endif %}</span>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- Projects -->
 {% if projects %}
 <div class="section">
   <div class="section-title">Projects</div>
   {% for proj in projects %}
   <div class="exp-item">
-    <div class="exp-header">
-      <span class="exp-company">{{ proj.name }}</span>
-      {% if proj.url %}<span style="font-size:9pt;color:#555">{{ proj.url }}</span>{% endif %}
-    </div>
+    <span class="exp-company">{{ proj.name }}</span>
     {% if proj.description %}<div class="exp-title">{{ proj.description }}</div>{% endif %}
-    {% if proj.bullets %}
-    <ul class="bullets">
-      {% for bullet in proj.bullets %}
-      <li>{{ bullet }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
+    {% if proj.bullets %}<ul class="bullets">{% for b in proj.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
   </div>
   {% endfor %}
 </div>
@@ -202,24 +156,42 @@ def render_html(resume_content: dict) -> str:
     if "name" not in data:
         data["name"] = data["contact"].get("full_name", "")
 
-    # Clean up skills: deduplicate and remove long sentences
+    # ── Deduplicate ALL sections ──
+
+    # Skills: remove duplicates and long sentences
     if "skills" in data and isinstance(data["skills"], list):
         seen = set()
-        clean_skills = []
+        clean = []
         for s in data["skills"]:
             name = s.get("name", s) if isinstance(s, dict) else s
-            if not name or not isinstance(name, str):
-                continue
-            name_lower = name.lower().strip()
-            # Skip duplicates
-            if name_lower in seen:
-                continue
-            # Skip long sentences (>60 chars or >5 words = not a skill)
-            if len(name) > 60 or len(name.split()) > 6:
-                continue
-            seen.add(name_lower)
-            clean_skills.append(s)
-        data["skills"] = clean_skills
+            if not name or not isinstance(name, str): continue
+            key = name.lower().strip()
+            if key in seen or len(name) > 60 or len(name.split()) > 6: continue
+            seen.add(key)
+            clean.append(s)
+        data["skills"] = clean
+
+    # Experiences: deduplicate by company+title
+    if "experiences" in data and isinstance(data["experiences"], list):
+        seen = set()
+        clean = []
+        for exp in data["experiences"]:
+            key = f"{(exp.get('company','') or '').lower()}|{(exp.get('title','') or '').lower()}"
+            if key in seen: continue
+            seen.add(key)
+            clean.append(exp)
+        data["experiences"] = clean
+
+    # Education: deduplicate by degree+school
+    if "educations" in data and isinstance(data["educations"], list):
+        seen = set()
+        clean = []
+        for edu in data["educations"]:
+            key = f"{(edu.get('degree','') or '').lower()}|{(edu.get('school','') or '').lower()}"
+            if key in seen: continue
+            seen.add(key)
+            clean.append(edu)
+        data["educations"] = clean
 
     return template.render(**data)
 
