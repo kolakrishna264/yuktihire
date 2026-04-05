@@ -1,25 +1,25 @@
 """
 Permission Engine — Feature gating by plan, promo code, and admin role.
 
+Plans: FREE → PROMO → PRO (unlimited) → TEAM (unlimited)
+Admin: support@yuktihire.com → role=admin → unlimited everything
+PRO/TEAM: None = unlimited (no limits enforced)
+
 Usage:
-    from app.core.permissions import check_permission, require_permission, FEATURES
-
-    # In endpoint:
-    @router.get("/something")
-    async def handler(user=Depends(get_current_user), db=Depends(get_db)):
-        await require_permission(user, "can_tailor_resume", db)
-        ...
-
-    # Or check without raising:
-    allowed = await check_permission(user, "can_tailor_resume", db)
+    await require_permission(user, "can_tailor_resume", db)
+    allowed = await check_permission(user, "can_export_docx", db)
+    usage = await check_usage_limit(user, "max_tailor_per_month", db)
 """
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.models.user import User, Plan
 
+# Admin email — this account auto-gets admin role
+ADMIN_EMAIL = "support@yuktihire.com"
+
 # ── Feature Definitions ──────────────────────────────────────────────────
-# Each feature has: default limits per plan, and whether it's a boolean or counter
+# None = unlimited (no limit enforced)
 
 FEATURES = {
     # Boolean features
@@ -33,19 +33,22 @@ FEATURES = {
     "can_use_company_intel":   {"FREE": False, "PROMO": True,  "PRO": True,  "TEAM": True},
     "can_use_outreach":        {"FREE": False, "PROMO": True,  "PRO": True,  "TEAM": True},
     "can_use_cover_letter":    {"FREE": True,  "PROMO": True,  "PRO": True,  "TEAM": True},
+    "can_use_apply_copilot":   {"FREE": True,  "PROMO": True,  "PRO": True,  "TEAM": True},
+    "can_use_job_feed":        {"FREE": True,  "PROMO": True,  "PRO": True,  "TEAM": True},
+    "can_use_resume_versions": {"FREE": False, "PROMO": True,  "PRO": True,  "TEAM": True},
+    "can_use_auto_tailor":     {"FREE": False, "PROMO": True,  "PRO": True,  "TEAM": True},
 
-    # Counter-based features (limits)
-    "max_resumes":             {"FREE": 1,     "PROMO": 5,     "PRO": 10,    "TEAM": 50},
-    "max_tailor_per_month":    {"FREE": 3,     "PROMO": 20,    "PRO": 999,   "TEAM": 999},
-    "max_ai_answers_per_month":{"FREE": 10,    "PROMO": 100,   "PRO": 999,   "TEAM": 999},
-    "max_exports_per_month":   {"FREE": 2,     "PROMO": 20,    "PRO": 999,   "TEAM": 999},
-    "max_jobs_saved":          {"FREE": 25,    "PROMO": 200,   "PRO": 999,   "TEAM": 999},
-    "max_ats_scans_per_month": {"FREE": 5,     "PROMO": 50,    "PRO": 999,   "TEAM": 999},
+    # Counter-based features — None = unlimited
+    "max_resumes":             {"FREE": 1,     "PROMO": 5,     "PRO": None,  "TEAM": None},
+    "max_tailor_per_month":    {"FREE": 3,     "PROMO": 20,    "PRO": None,  "TEAM": None},
+    "max_ai_answers_per_month":{"FREE": 10,    "PROMO": 100,   "PRO": None,  "TEAM": None},
+    "max_exports_per_month":   {"FREE": 2,     "PROMO": 20,    "PRO": None,  "TEAM": None},
+    "max_jobs_saved":          {"FREE": 25,    "PROMO": 200,   "PRO": None,  "TEAM": None},
+    "max_ats_scans_per_month": {"FREE": 5,     "PROMO": 50,    "PRO": None,  "TEAM": None},
 }
 
 
 def get_user_plan(user: User) -> str:
-    """Get effective plan, treating PRO_ANNUAL as PRO."""
     plan = user.plan.value if user.plan else "FREE"
     if plan == "PRO_ANNUAL":
         plan = "PRO"
@@ -53,7 +56,6 @@ def get_user_plan(user: User) -> str:
 
 
 async def get_promo_plan(user_id: str, db: AsyncSession) -> str | None:
-    """Check if user has redeemed a promo code and what plan it unlocks."""
     try:
         result = await db.execute(
             text("""
@@ -70,55 +72,84 @@ async def get_promo_plan(user_id: str, db: AsyncSession) -> str | None:
         return None
 
 
-async def check_permission(user: User, feature: str, db: AsyncSession) -> bool:
-    """Check if user has access to a feature. Returns True/False."""
-    if feature not in FEATURES:
-        return True  # Unknown feature = allow
+def _is_unlimited(limit) -> bool:
+    """Check if a limit value means unlimited."""
+    return limit is None
 
-    # Admin always has access
+
+async def is_admin(user_id: str, db: AsyncSession) -> bool:
+    """Check if user is an admin (by role column or by admin email)."""
+    try:
+        result = await db.execute(
+            text("SELECT role, email FROM users WHERE id = :uid"),
+            {"uid": user_id},
+        )
+        row = result.first()
+        if not row:
+            return False
+        return row[0] == "admin" or (row[1] and row[1].lower() == ADMIN_EMAIL)
+    except Exception:
+        return False
+
+
+async def ensure_admin_role(db: AsyncSession):
+    """Auto-set admin role for the admin email on startup/login."""
+    try:
+        await db.execute(
+            text("UPDATE users SET role = 'admin' WHERE LOWER(email) = :email AND (role IS NULL OR role != 'admin')"),
+            {"email": ADMIN_EMAIL},
+        )
+        await db.commit()
+    except Exception:
+        pass
+
+
+def _get_effective_plan(user_plan: str, promo_plan: str | None) -> str:
+    plan_hierarchy = {"FREE": 0, "PROMO": 1, "PRO": 2, "TEAM": 3}
+    effective = user_plan
+    if promo_plan and plan_hierarchy.get(promo_plan, 0) > plan_hierarchy.get(user_plan, 0):
+        effective = promo_plan
+    return effective
+
+
+async def check_permission(user: User, feature: str, db: AsyncSession) -> bool:
+    if feature not in FEATURES:
+        return True
+
+    # Admin = unlimited
     if await is_admin(user.id, db):
         return True
 
-    # Get effective plan (user plan or promo-unlocked plan, whichever is higher)
     user_plan = get_user_plan(user)
     promo_plan = await get_promo_plan(user.id, db)
-
-    # Use the higher plan
-    plan_hierarchy = {"FREE": 0, "PROMO": 1, "PRO": 2, "TEAM": 3}
-    effective_plan = user_plan
-    if promo_plan and plan_hierarchy.get(promo_plan, 0) > plan_hierarchy.get(user_plan, 0):
-        effective_plan = promo_plan
+    effective_plan = _get_effective_plan(user_plan, promo_plan)
 
     limit = FEATURES[feature].get(effective_plan, FEATURES[feature].get("FREE"))
 
+    # None = unlimited = allowed
+    if _is_unlimited(limit):
+        return True
     if isinstance(limit, bool):
         return limit
-
-    # For counter features, we'd check usage here
-    # For now, return True if limit > 0
     return limit > 0
 
 
-async def get_feature_limit(user: User, feature: str, db: AsyncSession) -> int:
-    """Get the numeric limit for a counter feature."""
+async def get_feature_limit(user: User, feature: str, db: AsyncSession) -> int | None:
+    """Get numeric limit. Returns None for unlimited."""
     if feature not in FEATURES:
-        return 999
+        return None
 
     if await is_admin(user.id, db):
-        return 999
+        return None  # Admin = unlimited
 
     user_plan = get_user_plan(user)
     promo_plan = await get_promo_plan(user.id, db)
-    plan_hierarchy = {"FREE": 0, "PROMO": 1, "PRO": 2, "TEAM": 3}
-    effective_plan = user_plan
-    if promo_plan and plan_hierarchy.get(promo_plan, 0) > plan_hierarchy.get(user_plan, 0):
-        effective_plan = promo_plan
+    effective_plan = _get_effective_plan(user_plan, promo_plan)
 
     return FEATURES[feature].get(effective_plan, FEATURES[feature].get("FREE", 0))
 
 
 async def require_permission(user: User, feature: str, db: AsyncSession):
-    """Raise 403 if user doesn't have access to the feature."""
     allowed = await check_permission(user, feature, db)
     if not allowed:
         plan = get_user_plan(user)
@@ -134,10 +165,13 @@ async def require_permission(user: User, feature: str, db: AsyncSession):
 
 
 async def check_usage_limit(user: User, feature: str, db: AsyncSession) -> dict:
-    """Check if user is within their usage limit. Returns {allowed, used, max, remaining}."""
+    """Returns {allowed, used, max, remaining, unlimited}."""
     max_limit = await get_feature_limit(user, feature, db)
 
-    # Map feature to usage column
+    # Unlimited = always allowed
+    if _is_unlimited(max_limit):
+        return {"allowed": True, "used": 0, "max": None, "remaining": None, "unlimited": True}
+
     usage_col_map = {
         "max_tailor_per_month": "tailoring_used",
         "max_ats_scans_per_month": "ats_scans_used",
@@ -146,7 +180,7 @@ async def check_usage_limit(user: User, feature: str, db: AsyncSession) -> dict:
     }
     col = usage_col_map.get(feature)
     if not col:
-        return {"allowed": True, "used": 0, "max": max_limit, "remaining": max_limit}
+        return {"allowed": True, "used": 0, "max": max_limit, "remaining": max_limit, "unlimited": False}
 
     try:
         result = await db.execute(
@@ -163,11 +197,11 @@ async def check_usage_limit(user: User, feature: str, db: AsyncSession) -> dict:
         "used": used,
         "max": max_limit,
         "remaining": max(0, max_limit - used),
+        "unlimited": False,
     }
 
 
 async def increment_usage(user_id: str, feature: str, db: AsyncSession):
-    """Increment a usage counter."""
     usage_col_map = {
         "max_tailor_per_month": "tailoring_used",
         "max_ats_scans_per_month": "ats_scans_used",
@@ -186,37 +220,25 @@ async def increment_usage(user_id: str, feature: str, db: AsyncSession):
         pass
 
 
-async def is_admin(user_id: str, db: AsyncSession) -> bool:
-    """Check if user is an admin."""
-    try:
-        result = await db.execute(
-            text("SELECT role FROM users WHERE id = :uid"),
-            {"uid": user_id},
-        )
-        row = result.first()
-        return row and row[0] == "admin"
-    except Exception:
-        return False
-
-
 async def get_user_permissions(user: User, db: AsyncSession) -> dict:
-    """Get all permissions for a user — used by frontend to show/hide features."""
+    """Get all permissions for frontend. None values = unlimited."""
     admin = await is_admin(user.id, db)
     plan = get_user_plan(user)
     promo_plan = await get_promo_plan(user.id, db)
-    plan_hierarchy = {"FREE": 0, "PROMO": 1, "PRO": 2, "TEAM": 3}
-    effective_plan = plan
-    if promo_plan and plan_hierarchy.get(promo_plan, 0) > plan_hierarchy.get(plan, 0):
-        effective_plan = promo_plan
+    effective_plan = _get_effective_plan(plan, promo_plan)
 
     perms = {}
     for feature, plans in FEATURES.items():
-        value = plans.get(effective_plan, plans.get("FREE"))
-        perms[feature] = value if not admin else (True if isinstance(value, bool) else 999)
+        if admin:
+            perms[feature] = True if isinstance(plans.get("PRO"), bool) or plans.get("PRO") is True else None
+        else:
+            value = plans.get(effective_plan, plans.get("FREE"))
+            perms[feature] = value
 
     perms["isAdmin"] = admin
     perms["plan"] = plan
     perms["effectivePlan"] = effective_plan
     perms["hasPromo"] = promo_plan is not None
+    perms["isUnlimited"] = admin or effective_plan in ("PRO", "TEAM")
 
     return perms

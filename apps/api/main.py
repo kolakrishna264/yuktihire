@@ -148,6 +148,17 @@ async def lifespan(app: FastAPI):
                         pass
 
             print("[DB] Columns + SaaS tables migrated")
+
+            # Auto-set admin role for platform owner
+            try:
+                from app.core.permissions import ensure_admin_role, ADMIN_EMAIL
+                from app.core.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as session:
+                    await ensure_admin_role(session)
+                    print(f"[Admin] {ADMIN_EMAIL} → admin role ensured")
+            except Exception as e:
+                print(f"[Admin] Role setup skipped: {e}")
+
         except Exception as e:
             print(f"[DB] Setup error: {e}")
 
