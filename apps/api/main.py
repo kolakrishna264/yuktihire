@@ -122,6 +122,16 @@ async def lifespan(app: FastAPI):
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     )""",
+                    """CREATE TABLE IF NOT EXISTS answer_memory (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL REFERENCES users(id),
+                        question_hash VARCHAR(100) NOT NULL,
+                        question_text TEXT,
+                        answer TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(user_id, question_hash)
+                    )""",
                 ]
                 for table_sql in saas_tables:
                     try:

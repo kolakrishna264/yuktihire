@@ -539,6 +539,17 @@ var YuktiEngine = (function () {
 
   // ── 4. Answer Resolver ────────────────────────────────────────────────
 
+  // Simple hash for question text → used as answer memory key
+  function hashQuestion(text) {
+    var hash = 0
+    var s = text.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim()
+    for (var i = 0; i < s.length; i++) {
+      hash = ((hash << 5) - hash) + s.charCodeAt(i)
+      hash = hash & hash  // Convert to 32bit integer
+    }
+    return "q_" + Math.abs(hash).toString(36)
+  }
+
   function resolveAnswer(block, profileData) {
     var strategy = ANSWER_STRATEGY[block.category] || "ai"
     var intent = block.intent
@@ -556,10 +567,8 @@ var YuktiEngine = (function () {
         return { value: profileAnswer, source: "profile", confidence: "high" }
       }
       if (strategy === "profile") {
-        // Profile field missing — skip (user needs to set it in profile)
         return { value: null, source: "none", confidence: "low" }
       }
-      // profile_or_ai: fall through to AI
     }
 
     // ── Tier 1.5: Rule-based answers ──
@@ -569,6 +578,26 @@ var YuktiEngine = (function () {
         return { value: ruleAnswer, source: "rules", confidence: "high" }
       }
       return { value: null, source: "none", confidence: "low" }
+    }
+
+    // ── Tier 1.75: Answer memory — check if user previously answered this question ──
+    if (pd.answerMemory) {
+      var qHash = hashQuestion(block.questionText)
+      if (pd.answerMemory[qHash]) {
+        return { value: pd.answerMemory[qHash], source: "memory", confidence: "high" }
+      }
+    }
+
+    // ── Tier 2: Contextual — use metro area for location questions ──
+    if (strategy === "ai" && block.category === "contextual" && pd.metroArea) {
+      // DFW area question + user is in DFW
+      if (intent === "dfwArea" && pd.metroArea === "dfw") {
+        return { value: "Yes", source: "metro", confidence: "high" }
+      }
+      // Generic location-specific questions
+      if (intent === "locationPref" && pd.location) {
+        return { value: pd.location, source: "profile", confidence: "medium" }
+      }
     }
 
     // ── Tier 2: AI contextual (uses job description + user location) ──
@@ -867,6 +896,11 @@ var YuktiEngine = (function () {
     // Scan page and return all form blocks
     scan: function() {
       return scanPage()
+    },
+
+    // Hash a question for answer memory
+    hash: function(text) {
+      return hashQuestion(text)
     },
 
     // Classify a question text

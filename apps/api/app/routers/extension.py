@@ -167,6 +167,46 @@ async def update_user_name(
         return {"status": "error", "message": str(e)}
 
 
+class SaveAnswerData(BaseModel):
+    question_hash: str
+    question_text: str
+    answer: str
+
+
+@router.post("/save-answer")
+async def save_answer_memory(
+    data: SaveAnswerData,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a user-confirmed answer for a recurring question."""
+    try:
+        import uuid
+        now = datetime.now(timezone.utc)
+        # Upsert: update if same question_hash exists, otherwise insert
+        existing = await db.execute(
+            text("SELECT id FROM answer_memory WHERE user_id = :uid AND question_hash = :qh"),
+            {"uid": current_user.id, "qh": data.question_hash},
+        )
+        if existing.first():
+            await db.execute(
+                text("UPDATE answer_memory SET answer = :answer, question_text = :qt, updated_at = :now WHERE user_id = :uid AND question_hash = :qh"),
+                {"uid": current_user.id, "qh": data.question_hash, "answer": data.answer, "qt": data.question_text, "now": now},
+            )
+        else:
+            await db.execute(
+                text("""INSERT INTO answer_memory (id, user_id, question_hash, question_text, answer, created_at, updated_at)
+                        VALUES (:id, :uid, :qh, :qt, :answer, :now, :now)"""),
+                {"id": str(uuid.uuid4()), "uid": current_user.id, "qh": data.question_hash,
+                 "qt": data.question_text, "answer": data.answer, "now": now},
+            )
+        await db.commit()
+        return {"status": "saved"}
+    except Exception as e:
+        print(f"[Extension] save-answer error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 class UpdateJDData(BaseModel):
     tracker_id: str
     description: str
@@ -318,12 +358,69 @@ async def get_autofill_data(
                 "h1b":            {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "H-1B"},
                 "o1":             {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "O-1"},
                 "other_visa":     {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "Other Visa"},
-                "not_authorized": {"workAuthorization": "No",  "sponsorship": "No",  "visaStatus": "Not Authorized"},
+                "not_authorized": {"workAuthorization": "No",  "sponsorship": "",    "visaStatus": ""},  # Sponsorship ambiguous — mark for review
             }
             derived = AUTH_MAP.get(auth_type, {})
             defaults["workAuthorization"] = derived.get("workAuthorization", defaults["workAuthorization"])
             defaults["sponsorship"] = derived.get("sponsorship", defaults["sponsorship"])
             defaults["visaStatus"] = derived.get("visaStatus", defaults["visaStatus"])
+
+        # Load saved answer memory (Tier 2 recurring answers)
+        answer_memory = {}
+        try:
+            am_result = await db.execute(
+                text("SELECT question_hash, answer FROM answer_memory WHERE user_id = :uid"),
+                {"uid": current_user.id},
+            )
+            for row in am_result.mappings().all():
+                answer_memory[row["question_hash"]] = row["answer"]
+        except Exception:
+            pass
+
+        # Calculate autofill readiness score
+        readiness_fields = {
+            "firstName": bool(first_name),
+            "lastName": bool(last_name),
+            "email": bool(email),
+            "phone": bool(phone),
+            "location": bool(location),
+            "linkedin": bool(linkedin),
+            "workAuthType": bool(defaults.get("workAuthType")),
+            "resumeUploaded": False,
+        }
+        # Check if user has at least one resume
+        try:
+            resume_check = await db.execute(
+                text("SELECT COUNT(*) FROM resumes WHERE user_id = :uid"),
+                {"uid": current_user.id},
+            )
+            readiness_fields["resumeUploaded"] = (resume_check.scalar() or 0) > 0
+        except Exception:
+            pass
+
+        readiness_score = sum(1 for v in readiness_fields.values() if v)
+        readiness_total = len(readiness_fields)
+        readiness_pct = round((readiness_score / readiness_total) * 100)
+
+        # US metro area detection from location
+        metro_area = ""
+        loc_lower = location.lower() if location else ""
+        METRO_MAP = {
+            "dfw": ["dallas", "fort worth", "arlington, tx", "arlington, texas", "irving", "plano", "frisco", "mckinney", "denton", "garland", "mesquite", "grand prairie"],
+            "bay_area": ["san francisco", "san jose", "oakland", "palo alto", "mountain view", "sunnyvale", "santa clara", "fremont", "redwood", "menlo park", "cupertino"],
+            "nyc": ["new york", "manhattan", "brooklyn", "queens", "bronx", "jersey city", "hoboken"],
+            "seattle": ["seattle", "bellevue", "redmond", "kirkland", "tacoma"],
+            "la": ["los angeles", "santa monica", "pasadena", "long beach", "burbank", "glendale"],
+            "chicago": ["chicago", "evanston", "naperville", "schaumburg"],
+            "boston": ["boston", "cambridge", "somerville", "brookline"],
+            "dc": ["washington dc", "washington, dc", "arlington, va", "bethesda", "reston", "mclean"],
+            "austin": ["austin", "round rock", "cedar park"],
+            "denver": ["denver", "boulder", "aurora", "lakewood"],
+        }
+        for metro, cities in METRO_MAP.items():
+            if any(city in loc_lower for city in cities):
+                metro_area = metro
+                break
 
         return {
             "firstName": first_name,
@@ -338,6 +435,13 @@ async def get_autofill_data(
             "portfolio": portfolio,
             "headline": p.get("headline", "") if p else "",
             "summary": p.get("summary", "") if p else "",
+            "metroArea": metro_area,
+            "answerMemory": answer_memory,
+            "readiness": {
+                "score": readiness_pct,
+                "fields": readiness_fields,
+                "missing": [k for k, v in readiness_fields.items() if not v],
+            },
             **defaults,
         }
     except Exception as e:

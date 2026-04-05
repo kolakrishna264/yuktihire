@@ -174,6 +174,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "SAVE_ANSWER_MEMORY") {
+    apiCall("/extension/save-answer", {
+      method: "POST",
+      body: JSON.stringify(msg.data),
+    })
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
   if (msg.type === "OPEN_POPUP") {
     // Can't open popup programmatically in MV3, but we can open the side panel or a new window
     chrome.action.openPopup().catch(() => {

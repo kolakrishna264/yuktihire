@@ -336,9 +336,20 @@ if (document.location.hostname.includes("yuktihire.com")) {
         btn.disabled = false; btn.textContent = "Fill Everything"; return
       }
       addLog("Profile loaded: " + (pd.firstName || "") + " " + (pd.lastName || ""), "ok", "high")
-      // Warn about missing preferences
-      if (!pd.workAuthorization) addLog("Work authorization not set — go to Profile > Application Info", "warn", "review")
-      if (!pd.gender) addLog("EEO preferences not set — go to Profile > Application Info", "warn", "review")
+
+      // Show autofill readiness score
+      if (pd.readiness) {
+        var r = pd.readiness
+        addLog("Autofill readiness: " + r.score + "%", r.score >= 75 ? "ok" : "warn", r.score >= 75 ? "high" : "review")
+        if (r.missing && r.missing.length > 0) {
+          addLog("Missing: " + r.missing.join(", ") + " — set in Profile", "warn", "review")
+        }
+      }
+
+      // Show metro area if detected
+      if (pd.metroArea) {
+        addLog("Metro area: " + pd.metroArea.toUpperCase(), "ok", "medium")
+      }
 
       // Step 2: Detect resume upload fields
       var resumeInputs = highlightResumeInputs()
@@ -413,11 +424,18 @@ if (document.location.hostname.includes("yuktihire.com")) {
               if (el) {
                 var fb = { element: el, container: el.parentElement, inputType: field.inputType, options: [], radioGroupName: null }
                 var fr = YuktiEngine.fill(fb, val)
-                if (fr.ok) { addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++ }
-                else if (fr.reason === "needs_async") {
+                var filled = fr.ok
+                if (!filled && fr.reason === "needs_async") {
                   var ar2 = await YuktiEngine.fillAsync(fb, val)
-                  if (ar2.ok) { addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++ }
-                  else { addLog("AI: " + field.label.slice(0, 30), "fail"); totalFailed++ }
+                  filled = ar2.ok
+                }
+                if (filled) {
+                  addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++
+                  // Save to answer memory for reuse
+                  if (typeof YuktiEngine !== "undefined" && field.label.length > 5) {
+                    var qHash = YuktiEngine.hash(field.label)
+                    sendMsg({ type: "SAVE_ANSWER_MEMORY", data: { question_hash: qHash, question_text: field.label, answer: val } })
+                  }
                 } else { addLog("AI: " + field.label.slice(0, 30), "fail"); totalFailed++ }
               }
             }

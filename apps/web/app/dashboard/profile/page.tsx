@@ -627,7 +627,7 @@ function getAuthAnswers(authType: string) {
     h1b:            { authorized: "Yes", sponsorship: "Yes", visaStatus: "H-1B" },
     o1:             { authorized: "Yes", sponsorship: "Yes", visaStatus: "O-1" },
     other_visa:     { authorized: "Yes", sponsorship: "Yes", visaStatus: "Other Visa" },
-    not_authorized: { authorized: "No",  sponsorship: "No",  visaStatus: "Not Authorized" },
+    not_authorized: { authorized: "No",  sponsorship: "",    visaStatus: "" },  // Sponsorship ambiguous — review on application
   }
   return map[authType] || { authorized: "", sponsorship: "", visaStatus: "" }
 }
