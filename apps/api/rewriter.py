@@ -279,16 +279,36 @@ async def generate_all_rewrites(
             elif isinstance(s, dict):
                 current_skills_lower.add((s.get("name", "") or "").lower())
 
-        new_skills = [s for s in unhighlighted if s.lower() not in current_skills_lower]
+        # CRITICAL: Only add short skill names (max 5 words), NOT full sentences
+        # The gap analyzer sometimes returns JD responsibilities as "skills"
+        new_skills = []
+        for s in unhighlighted:
+            s_clean = s.strip()
+            if not s_clean:
+                continue
+            # Skip if already in skills
+            if s_clean.lower() in current_skills_lower:
+                continue
+            # Skip full sentences (more than 5 words = not a skill name)
+            if len(s_clean.split()) > 5:
+                continue
+            # Skip if too long (>50 chars = probably a sentence)
+            if len(s_clean) > 50:
+                continue
+            # Skip duplicates within new_skills
+            if s_clean.lower() in {ns.lower() for ns in new_skills}:
+                continue
+            new_skills.append(s_clean)
+
         if new_skills:
             recommendations.append({
                 "section": "skills",
                 "field": "skills_list",
                 "original": ", ".join(s if isinstance(s, str) else s.get("name", "") for s in current_skills[:10]),
-                "suggested": "Add: " + ", ".join(new_skills[:8]),
+                "suggested": "Add: " + ", ".join(new_skills[:12]),
                 "reason": f"You have experience with these skills but they're not in your skills section. Adding them improves ATS match.",
                 "confidence": 0.9,
-                "keywords_added": new_skills[:8],
+                "keywords_added": new_skills[:12],
                 "truthful": True,
                 "is_gap": False,
             })

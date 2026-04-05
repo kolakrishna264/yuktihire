@@ -114,22 +114,15 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 {% if skills %}
 <div class="section">
   <div class="section-title">Technical Skills</div>
-  {% if skills is string %}
-  <p style="font-size:10pt;">{{ skills }}</p>
-  {% elif skills is iterable %}
-    {% set categories = {} %}
-    {% for skill in skills %}
-      {% if skill is mapping %}
-        {% set cat = skill.category or 'Skills' %}
-        {# group by category #}
-      {% endif %}
-    {% endfor %}
-    <p style="font-size:10pt;">
-    {% for skill in skills %}
-      {% if skill is mapping %}{{ skill.name }}{% else %}{{ skill }}{% endif %}{% if not loop.last %} · {% endif %}
-    {% endfor %}
-    </p>
-  {% endif %}
+  <p style="font-size:10pt;">
+  {% set seen_skills = [] %}
+  {% for skill in skills %}
+    {% set skill_name = skill.name if skill is mapping else skill %}
+    {% if skill_name and skill_name|length < 60 and skill_name not in seen_skills %}
+      {% if seen_skills %}· {% endif %}{{ skill_name }}{% if seen_skills.append(skill_name) %}{% endif %}
+    {% endif %}
+  {% endfor %}
+  </p>
 </div>
 {% endif %}
 
@@ -208,6 +201,25 @@ def render_html(resume_content: dict) -> str:
         }
     if "name" not in data:
         data["name"] = data["contact"].get("full_name", "")
+
+    # Clean up skills: deduplicate and remove long sentences
+    if "skills" in data and isinstance(data["skills"], list):
+        seen = set()
+        clean_skills = []
+        for s in data["skills"]:
+            name = s.get("name", s) if isinstance(s, dict) else s
+            if not name or not isinstance(name, str):
+                continue
+            name_lower = name.lower().strip()
+            # Skip duplicates
+            if name_lower in seen:
+                continue
+            # Skip long sentences (>60 chars or >5 words = not a skill)
+            if len(name) > 60 or len(name.split()) > 6:
+                continue
+            seen.add(name_lower)
+            clean_skills.append(s)
+        data["skills"] = clean_skills
 
     return template.render(**data)
 

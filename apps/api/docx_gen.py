@@ -137,18 +137,25 @@ def generate_docx_sync(resume_content: dict) -> bytes:
                 run = bp.add_run(bullet.lstrip("•- "))
                 set_font(run, size=10)
 
-    # Skills
-    skills = resume_content.get("skills", [])
-    if skills:
-        add_section_heading(doc, "Technical Skills")
-        if isinstance(skills, str):
-            p = doc.add_paragraph()
-            run = p.add_run(skills)
-            set_font(run, size=10.5)
-        else:
-            # Group by category
+    # Skills — clean up duplicates and long sentences first
+    raw_skills = resume_content.get("skills", [])
+    if raw_skills:
+        # Deduplicate and filter out long sentences
+        seen_skills = set()
+        clean_skills = []
+        for skill in (raw_skills if isinstance(raw_skills, list) else [raw_skills]):
+            name = skill.get("name", skill) if isinstance(skill, dict) else str(skill)
+            if not name or len(name) > 60 or len(name.split()) > 6:
+                continue
+            if name.lower().strip() in seen_skills:
+                continue
+            seen_skills.add(name.lower().strip())
+            clean_skills.append(skill)
+
+        if clean_skills:
+            add_section_heading(doc, "Technical Skills")
             by_category: dict[str, list] = {}
-            for skill in skills:
+            for skill in clean_skills:
                 if isinstance(skill, dict):
                     cat = skill.get("category", "Skills")
                     by_category.setdefault(cat, []).append(skill.get("name", ""))
