@@ -714,29 +714,84 @@ async def export_resume_for_extension(
             except Exception:
                 pass
 
-            # Still corrupted? Try to enrich from user profile
-            if not content.get("experiences"):
-                try:
-                    profile_result = await db.execute(
-                        text("SELECT * FROM profiles WHERE user_id = :uid"),
-                        {"uid": current_user.id},
-                    )
-                    p = profile_result.mappings().first()
-                    user_result = await db.execute(
-                        text("SELECT full_name, first_name, last_name, email FROM users WHERE id = :uid"),
-                        {"uid": current_user.id},
-                    )
-                    u = user_result.mappings().first()
-                    if u:
-                        content["name"] = u.get("full_name") or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
-                        content["email"] = u.get("email", "")
-                    if p:
-                        content["phone"] = p.get("phone", "")
-                        content["location"] = p.get("location", "")
-                        content["linkedin"] = p.get("linkedin", "")
-                        content["summary"] = p.get("summary") or p.get("headline") or ""
-                except Exception:
-                    pass
+            # Enrich from user profile — add experiences, education, projects from profile tables
+            try:
+                user_result = await db.execute(
+                    text("SELECT full_name, first_name, last_name, email FROM users WHERE id = :uid"),
+                    {"uid": current_user.id},
+                )
+                u = user_result.mappings().first()
+                if u and not content.get("name"):
+                    content["name"] = u.get("full_name") or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
+                    content["email"] = u.get("email", "")
+
+                profile_result = await db.execute(
+                    text("SELECT * FROM profiles WHERE user_id = :uid"),
+                    {"uid": current_user.id},
+                )
+                p = profile_result.mappings().first()
+                if p:
+                    if not content.get("phone"): content["phone"] = p.get("phone", "")
+                    if not content.get("location"): content["location"] = p.get("location", "")
+                    if not content.get("linkedin"): content["linkedin"] = p.get("linkedin", "")
+                    if not content.get("summary"): content["summary"] = p.get("summary") or p.get("headline") or ""
+
+                    profile_id = p.get("id")
+                    if profile_id:
+                        # Load experiences from profile
+                        if not content.get("experiences"):
+                            exp_result = await db.execute(
+                                text("SELECT * FROM work_experiences WHERE profile_id = :pid ORDER BY sort_order, start_date DESC"),
+                                {"pid": profile_id},
+                            )
+                            exps = []
+                            for e in exp_result.mappings().all():
+                                exps.append({
+                                    "title": e.get("title", ""),
+                                    "company": e.get("company", ""),
+                                    "location": e.get("location", ""),
+                                    "start_date": str(e["start_date"]) if e.get("start_date") else "",
+                                    "end_date": str(e["end_date"]) if e.get("end_date") else "",
+                                    "current": e.get("current", False),
+                                    "bullets": e.get("bullets") or [],
+                                    "skills_used": e.get("skills_used") or [],
+                                })
+                            if exps: content["experiences"] = exps
+
+                        # Load education from profile
+                        if not content.get("educations"):
+                            edu_result = await db.execute(
+                                text("SELECT * FROM educations WHERE profile_id = :pid ORDER BY sort_order"),
+                                {"pid": profile_id},
+                            )
+                            edus = []
+                            for ed in edu_result.mappings().all():
+                                edus.append({
+                                    "degree": ed.get("degree", ""),
+                                    "field": ed.get("field", ""),
+                                    "school": ed.get("school", ""),
+                                    "end_date": str(ed["end_date"]) if ed.get("end_date") else "",
+                                    "gpa": ed.get("gpa", ""),
+                                })
+                            if edus: content["educations"] = edus
+
+                        # Load projects from profile
+                        if not content.get("projects"):
+                            proj_result = await db.execute(
+                                text("SELECT * FROM projects WHERE profile_id = :pid ORDER BY sort_order"),
+                                {"pid": profile_id},
+                            )
+                            projs = []
+                            for pr in proj_result.mappings().all():
+                                projs.append({
+                                    "name": pr.get("name", ""),
+                                    "description": pr.get("description", ""),
+                                    "bullets": pr.get("bullets") or [],
+                                    "skills": pr.get("skills") or [],
+                                })
+                            if projs: content["projects"] = projs
+            except Exception as e:
+                print(f"[Export] Profile enrichment error: {e}")
 
         name = row.get("name", "Resume").replace(" ", "_")
 
