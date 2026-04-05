@@ -121,15 +121,15 @@ var YuktiEngine = (function () {
 
   // ── LAYER 3: Answer Strategy ───────────────────────────────────────────
 
-  // priority: profile > resume > saved context > AI > needsReview
+  // priority: profile > rules > resume/context > AI > needsReview
   var ANSWER_STRATEGY = {
-    // Deterministic — from profile
+    // Deterministic — from profile, never AI
     identity:      "profile",
-    // Rule-based — select from known options
-    authorization: "rules",
+    // Rule-based first, then AI for anything not mapped
+    authorization: "rules_or_ai",
     consent:       "rules",
-    logistics:     "rules",
-    // Sensitive — from explicit profile settings, else needsReview
+    logistics:     "rules_or_ai",
+    // Sensitive — from explicit profile settings, else use profile defaults
     sensitive:     "profile_or_skip",
     // AI-generated
     motivation:    "ai",
@@ -312,25 +312,32 @@ var YuktiEngine = (function () {
     // 7. Placeholder
     if (el.placeholder) texts.push(el.placeholder)
 
-    // 8. name/id as fallback
+    // 8. name/id as fallback — but clean up Greenhouse IDs like "question_14412335008"
     var nameId = (el.name || el.id || "").replace(/[_\-\[\]]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim()
-    if (nameId) texts.push(nameId)
+    // Skip pure numbers, question IDs, and auto-generated strings
+    if (nameId && !/^\d+$/.test(nameId) && !/^question\s*\d+/.test(nameId) && nameId.length > 2) {
+      texts.push(nameId)
+    }
 
-    // Deduplicate and pick best (shortest non-empty, non-generic)
+    // Deduplicate and filter out junk labels
     var unique = []
     var seenLower = new Set()
     for (var j = 0; j < texts.length; j++) {
       var t = texts[j].replace(/\s+/g, " ").trim()
-      if (t && !seenLower.has(t.toLowerCase()) && t.toLowerCase() !== "select" && t.toLowerCase() !== "select...") {
-        seenLower.add(t.toLowerCase())
-        unique.push(t)
-      }
+      // Skip: empty, "select", pure numbers, question IDs, single characters
+      if (!t || t.length < 2) continue
+      if (seenLower.has(t.toLowerCase())) continue
+      if (/^(select|select\.\.\.|choose|--|option)$/i.test(t)) continue
+      if (/^\d+$/.test(t)) continue
+      if (/^question\s*\d+/i.test(t)) continue
+      seenLower.add(t.toLowerCase())
+      unique.push(t)
     }
 
-    // Return the shortest meaningful label (>2 chars, <150 chars)
+    // Return the shortest MEANINGFUL label — must contain at least one letter
     unique.sort(function(a, b) { return a.length - b.length })
     for (var k = 0; k < unique.length; k++) {
-      if (unique[k].length > 2 && unique[k].length < 150) return unique[k]
+      if (unique[k].length > 2 && unique[k].length < 200 && /[a-zA-Z]/.test(unique[k])) return unique[k]
     }
     return unique[0] || ""
   }
@@ -527,11 +534,15 @@ var YuktiEngine = (function () {
     }
 
     // ── Rule-based answers ──
-    if (strategy === "rules") {
+    if (strategy === "rules" || strategy === "rules_or_ai") {
       var ruleAnswer = getRuleAnswer(intent, pd, block)
-      if (ruleAnswer !== null) {
+      if (ruleAnswer !== null && ruleAnswer !== "") {
         return { value: ruleAnswer, source: "rules", confidence: "high" }
       }
+      if (strategy === "rules") {
+        return { value: null, source: "none", confidence: "low" }
+      }
+      // rules_or_ai: fall through to AI
     }
 
     // ── Profile or skip (sensitive) ──
@@ -562,30 +573,39 @@ var YuktiEngine = (function () {
       github: pd.github,
       portfolio: pd.portfolio,
       country: "United States",
-      currentCompany: pd.headline,
-      currentTitle: pd.headline,
+      currentCompany: pd.headline || pd.currentCompany || "",
+      currentTitle: pd.currentTitle || pd.headline || "",
       startDate: pd.earliestStart || "2 weeks from offer",
+      publications: pd.publications || "",
+      yearsExp: pd.yearsExperience || "",
+      salary: pd.salary || pd.desiredSalary || "",
+      skills: pd.skills || "",
+      education: pd.education || pd.degree || "",
     }
     return map[intent] !== undefined ? map[intent] : null
   }
 
   function getRuleAnswer(intent, pd, block) {
     var map = {
-      workAuth:        pd.workAuthorization || "Yes",
-      sponsorship:     pd.sponsorship || "Yes",
-      relocation:      pd.relocation || "Yes",
-      remotePref:      "Yes",
-      dfwArea:         "Yes",
-      travelWilling:   "Yes",
-      termsConsent:    true,
-      privacyConsent:  true,
-      smsConsent:      "Yes",
-      bgCheck:         "Yes",
-      aiPolicy:        "Yes",
+      workAuth:          pd.workAuthorization || "Yes",
+      sponsorship:       pd.sponsorship || "Yes",
+      visaType:          pd.visaType || "",
+      relocation:        pd.relocation || "Yes",
+      remotePref:        "Yes",
+      dfwArea:           "Yes",
+      locationPref:      pd.location || "",
+      travelWilling:     "Yes",
+      termsConsent:      true,
+      privacyConsent:    true,
+      smsConsent:        "Yes",
+      bgCheck:           "Yes",
+      aiPolicy:          "Yes",
       interviewedBefore: pd.interviewedBefore || "No",
-      contractPref:    "Full-time",
-      noticePeriod:    pd.earliestStart || "2 weeks",
-      startDate:       pd.earliestStart || "2 weeks from offer",
+      contractPref:      "Full-time",
+      noticePeriod:      pd.earliestStart || "2 weeks",
+      startDate:         pd.earliestStart || "2 weeks from offer",
+      shiftAvail:        "Flexible",
+      codingLang:        pd.codingLanguage || "Python",
     }
     return map[intent] !== undefined ? map[intent] : null
   }
@@ -655,6 +675,11 @@ var YuktiEngine = (function () {
   function fillNativeSelect(el, value, options) {
     var valueLower = value.toLowerCase().trim()
 
+    // GUARD: If value is very long (>50 chars), it's not meant for a select dropdown
+    if (valueLower.length > 50) {
+      return { ok: false, reason: "value too long for select dropdown" }
+    }
+
     // Build scored matches
     var bestMatch = null
     var bestScore = 0
@@ -663,6 +688,7 @@ var YuktiEngine = (function () {
       var opt = el.options[i]
       var t = opt.text.toLowerCase().trim()
       var v = opt.value.toLowerCase().trim()
+      if (!t && !v) continue // skip empty options
       var score = 0
 
       if (t === valueLower || v === valueLower) score = 100
@@ -671,10 +697,13 @@ var YuktiEngine = (function () {
       else if (t.includes(valueLower)) score = 60
       else if (valueLower.includes(t) && t.length > 3) score = 50
       // Yes/No normalization
-      else if (valueLower === "yes" && (t === "yes" || v === "yes" || v === "true")) score = 90
-      else if (valueLower === "no" && (t === "no" || v === "no" || v === "false")) score = 90
-      // Country code
-      else if (valueLower === "united states" && (t.includes("united states") || t.includes("+1") || v === "us" || v === "usa" || v === "1")) score = 85
+      else if (valueLower === "yes" && (t === "yes" || v === "yes" || v === "true" || t.startsWith("yes"))) score = 90
+      else if (valueLower === "no" && (t === "no" || v === "no" || v === "false" || t.startsWith("no"))) score = 90
+      // Country code normalization
+      else if (valueLower === "united states" && (t.includes("united states") || t.includes("+1") || v === "us" || v === "usa" || v === "1" || v === "+1")) score = 85
+      // Boolean to Yes/No
+      else if (value === true && (t === "yes" || v === "true")) score = 90
+      else if (value === false && (t === "no" || v === "false")) score = 90
 
       if (score > bestScore) { bestScore = score; bestMatch = opt }
     }
@@ -732,6 +761,12 @@ var YuktiEngine = (function () {
     return new Promise(function(resolve) {
       var el = block.element
       var valueLower = value.toLowerCase().trim()
+
+      // GUARD: If value is very long, it's not meant for a dropdown
+      if (valueLower.length > 80) {
+        resolve({ ok: false, reason: "value too long for dropdown" })
+        return
+      }
 
       // Click to open
       el.click()
