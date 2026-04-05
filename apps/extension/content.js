@@ -477,11 +477,28 @@ if (document.location.hostname.includes("yuktihire.com")) {
           setStatus("AI: " + field.label.slice(0, 25) + "...")
           setBar(Math.min(90, 10 + pass * 15 + ai * 3))
 
-          var prompt = field.label
+          // ── Build shape-aware prompt ──
+          var shape = field.answerShape || "essay"
+          var prompt = ""
+
           if (field.options && field.options.length > 0) {
-            prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text.'
-          } else if (["motivation", "behavioral", "technical", "openEnded"].indexOf(field.category) !== -1) {
-            prompt = 'Answer this job application question professionally (200-400 words if open-ended, 1-2 sentences if short):\n\n"' + field.label + '"'
+            // Has options → always pick from them
+            prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text, nothing else.'
+          } else if (shape === "boolean") {
+            prompt = 'Answer this yes/no question with ONLY "Yes" or "No":\n"' + field.label + '"'
+          } else if (shape === "numeric") {
+            prompt = 'Answer with ONLY a number (e.g. "5" or "3-5"):\n"' + field.label + '"'
+          } else if (shape === "short_text") {
+            prompt = 'Answer in 1-10 words maximum:\n"' + field.label + '"'
+          } else if (shape === "location") {
+            prompt = 'Answer with ONLY a city/state location (e.g. "Arlington, TX"):\n"' + field.label + '"'
+          } else if (shape === "date_or_timeline") {
+            prompt = 'Answer with ONLY a short timeline (e.g. "2 weeks from offer" or "No deadlines"):\n"' + field.label + '"'
+          } else if (shape === "enum_choice") {
+            prompt = 'Answer with the single best short choice for:\n"' + field.label + '"\nReply with ONLY the answer text, nothing else.'
+          } else {
+            // essay
+            prompt = 'Answer this job application question professionally (200-400 words):\n\n"' + field.label + '"'
             if (field.helperText) prompt += '\n\nContext: ' + field.helperText.slice(0, 300)
           }
 
@@ -489,6 +506,32 @@ if (document.location.hostname.includes("yuktihire.com")) {
             var answer = await sendMsg({ type: "GENERATE_ANSWER", data: { question: prompt } })
             if (answer?.ok && answer.data?.answer) {
               var val = answer.data.answer.trim()
+
+              // ── Enforce answer length by shape ──
+              if (shape === "boolean") {
+                // Extract just yes/no from any response
+                var valLow = val.toLowerCase()
+                if (valLow.includes("yes") || valLow.startsWith("y")) val = "Yes"
+                else if (valLow.includes("no") || valLow.startsWith("n")) val = "No"
+                else val = val.split(/[.\n]/)[0].trim()  // First sentence only
+              } else if (shape === "numeric") {
+                // Extract just the number
+                var numMatch = val.match(/\d+/)
+                if (numMatch) val = numMatch[0]
+              } else if (shape === "short_text") {
+                // Max 15 words
+                var words = val.split(/\s+/)
+                if (words.length > 15) val = words.slice(0, 15).join(" ")
+              } else if (shape === "date_or_timeline") {
+                // Max 30 words, first sentence
+                val = val.split(/[.\n]/)[0].trim()
+                var tw = val.split(/\s+/)
+                if (tw.length > 30) val = tw.slice(0, 30).join(" ")
+              } else if (shape === "location") {
+                // First line only, max 50 chars
+                val = val.split("\n")[0].trim().slice(0, 50)
+              }
+
               var el = document.querySelector(field.selector)
               if (el) {
                 var fb = { element: el, container: el.parentElement, inputType: field.inputType, options: [], radioGroupName: null }

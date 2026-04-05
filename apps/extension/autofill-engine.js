@@ -15,91 +15,103 @@ var YuktiEngine = (function () {
 
   // ── LAYER 1: Question Intent Taxonomy ──────────────────────────────────
 
+  // ── ANSWER SHAPES ──
+  // Every intent has a shape that controls the output format
+  // boolean: "Yes" / "No" only
+  // enum_choice: pick from available options
+  // numeric: number or short numeric phrase (e.g. "5", "3-5 years")
+  // short_text: max 15 words
+  // location: city/state format
+  // date_or_timeline: short factual timeline
+  // essay: longer AI response (200-400 words)
+
   // US-only product — optimized for US job application patterns
   var INTENT_PATTERNS = {
-    // ── Tier 1: Identity / Contact (deterministic from profile) ──
-    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name"], category: "identity" },
-    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name"], category: "identity" },
-    fullName:        { patterns: ["full name", "your name", "candidate name", "applicant name", "fullname", "name *"], category: "identity" },
-    preferredName:   { patterns: ["preferred name", "preferred first", "nickname", "goes by", "known as"], category: "identity" },
-    email:           { patterns: ["email", "e-mail", "email address"], category: "identity" },
-    phone:           { patterns: ["phone", "mobile", "telephone", "cell", "contact number", "phone number"], category: "identity" },
-    address:         { patterns: ["street address", "address line", "mailing address", "home address", "your address", "address from which", "what is your address"], category: "identity" },
-    city:            { patterns: ["city", "town"], category: "identity" },
-    state:           { patterns: ["state"], category: "identity" },
-    zip:             { patterns: ["zip", "zip code", "postal code"], category: "identity" },
-    country:         { patterns: ["country"], category: "identity", maxLabelLen: 30 },
-    location:        { patterns: ["location", "where are you located", "based in", "current location"], category: "identity" },
-    linkedin:        { patterns: ["linkedin", "linkedin profile", "linkedin url", "linkedin link"], category: "identity" },
-    github:          { patterns: ["github", "github url", "github profile"], category: "identity" },
-    portfolio:       { patterns: ["portfolio", "website", "personal site", "personal url", "personal website", "home page"], category: "identity" },
+    // ── Tier 1: Identity / Contact (deterministic) ──
+    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name"], category: "identity", shape: "short_text" },
+    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name"], category: "identity", shape: "short_text" },
+    fullName:        { patterns: ["full name", "your name", "candidate name", "applicant name", "fullname", "name *"], category: "identity", shape: "short_text" },
+    preferredName:   { patterns: ["preferred name", "preferred first", "nickname", "goes by", "known as"], category: "identity", shape: "short_text" },
+    email:           { patterns: ["email", "e-mail", "email address"], category: "identity", shape: "short_text" },
+    phone:           { patterns: ["phone", "mobile", "telephone", "cell", "contact number", "phone number"], category: "identity", shape: "short_text" },
+    address:         { patterns: ["street address", "address line", "mailing address", "home address", "your address", "address from which", "what is your address"], category: "identity", shape: "location" },
+    city:            { patterns: ["city", "town"], category: "identity", shape: "location" },
+    state:           { patterns: ["state"], category: "identity", shape: "location" },
+    zip:             { patterns: ["zip", "zip code", "postal code"], category: "identity", shape: "short_text" },
+    country:         { patterns: ["country"], category: "identity", maxLabelLen: 30, shape: "enum_choice" },
+    location:        { patterns: ["location", "where are you located", "based in", "current location"], category: "identity", shape: "location" },
+    linkedin:        { patterns: ["linkedin", "linkedin profile", "linkedin url", "linkedin link"], category: "identity", shape: "short_text" },
+    github:          { patterns: ["github", "github url", "github profile"], category: "identity", shape: "short_text" },
+    portfolio:       { patterns: ["portfolio", "website", "personal site", "personal url", "personal website", "home page"], category: "identity", shape: "short_text" },
 
     // ── Tier 1: Professional (from profile) ──
-    currentCompany:  { patterns: ["current company", "current employer", "company name", "employer name", "present company"], category: "professional" },
-    currentTitle:    { patterns: ["current title", "current role", "job title", "current position", "present title"], category: "professional" },
-    yearsExp:        { patterns: ["years of experience", "how many years", "years experience", "total experience", "work experience"], category: "professional" },
-    skills:          { patterns: ["skills", "key skills", "technical skills", "core competencies"], category: "professional" },
-    certifications:  { patterns: ["certifications", "certification", "certified", "licenses"], category: "professional" },
-    education:       { patterns: ["education", "highest degree", "degree", "university", "school", "academic"], category: "professional" },
-    gradYear:        { patterns: ["graduation year", "year of graduation", "grad year", "when did you graduate"], category: "professional" },
-    publications:    { patterns: ["publication", "publications", "research", "google scholar", "semantic scholar", "papers"], category: "professional" },
+    currentCompany:  { patterns: ["current company", "current employer", "company name", "employer name", "present company"], category: "professional", shape: "short_text" },
+    currentTitle:    { patterns: ["current title", "current role", "job title", "current position", "present title"], category: "professional", shape: "short_text" },
+    yearsExp:        { patterns: ["years of experience", "how many years", "years experience", "total experience", "work experience"], category: "professional", shape: "numeric" },
+    skills:          { patterns: ["skills", "key skills", "technical skills", "core competencies"], category: "professional", shape: "short_text" },
+    certifications:  { patterns: ["certifications", "certification", "certified", "licenses"], category: "professional", shape: "short_text" },
+    education:       { patterns: ["education", "highest degree", "degree", "university", "school", "academic"], category: "professional", shape: "short_text" },
+    gradYear:        { patterns: ["graduation year", "year of graduation", "grad year", "when did you graduate"], category: "professional", shape: "numeric" },
+    publications:    { patterns: ["publication", "publications", "research", "google scholar", "semantic scholar", "papers"], category: "professional", shape: "short_text" },
 
-    // ── Tier 1: US Work Authorization (from stored preferences) ──
-    workAuth:        { patterns: ["authorized to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"], category: "authorization" },
-    sponsorship:     { patterns: ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "require sponsorship", "need sponsorship", "require visa", "employer sponsorship", "employment visa", "immigration"], category: "authorization" },
-    visaType:        { patterns: ["visa type", "visa status", "immigration status", "opt", "cpt", "stem opt", "green card", "citizenship", "ead"], category: "authorization" },
+    // ── Tier 1: US Work Authorization ──
+    workAuth:        { patterns: ["authorized to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"], category: "authorization", shape: "boolean" },
+    sponsorship:     { patterns: ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "require sponsorship", "need sponsorship", "require visa", "employer sponsorship", "employment visa", "immigration"], category: "authorization", shape: "boolean" },
+    visaType:        { patterns: ["visa type", "visa status", "immigration status", "opt", "cpt", "stem opt", "green card", "citizenship", "ead"], category: "authorization", shape: "short_text" },
 
-    // ── Tier 2: AI Contextual (answered by AI using job context) ──
-    relocation:      { patterns: ["relocat", "willing to move", "open to moving"], category: "contextual" },
+    // ── Contextual (strict shapes — NOT essays) ──
+    relocation:      { patterns: ["relocat", "willing to move", "open to moving", "open to relocation"], category: "contextual", shape: "boolean" },
+    remotePref:      { patterns: ["remote", "hybrid", "in-person", "on-site", "work from home", "in one of our offices"], category: "contextual", shape: "boolean" },
+    travelWilling:   { patterns: ["travel", "travel willingness", "travel required", "willing to travel"], category: "contextual", shape: "boolean" },
+    dfwArea:         { patterns: ["dfw area", "located in the dfw", "dallas", "fort worth"], category: "contextual", shape: "boolean" },
+    locationPref:    { patterns: ["location preference", "preferred location", "preferred office", "which office"], category: "contextual", shape: "location" },
+    shiftAvail:      { patterns: ["shift", "availability", "schedule preference", "working hours"], category: "contextual", shape: "short_text" },
+    contractPref:    { patterns: ["contract", "full-time", "part-time", "employment type", "engagement type"], category: "contextual", shape: "enum_choice" },
+    salaryExpect:    { patterns: ["salary expectation", "expected salary", "desired salary", "compensation expectation", "salary requirement"], category: "contextual", shape: "short_text" },
+    startDateCtx:    { patterns: ["earliest start", "when can you start", "start date", "earliest you would", "available to start"], category: "contextual", shape: "date_or_timeline" },
+    deadlines:       { patterns: ["deadline", "timeline consideration", "timeline constraints", "any deadlines"], category: "contextual", shape: "date_or_timeline" },
+    timeBreakdown:   { patterns: ["ideal breakdown", "how do you spend", "time in a working week"], category: "contextual", shape: "short_text" },
 
-    // Motivation
-    whyCompany:      { patterns: ["why this company", "why do you want to work", "why anthropic", "why are you interested in", "what interests you about", "what attracts you"], category: "motivation" },
-    whyRole:         { patterns: ["why this role", "why this position", "what excites you about this role", "interest in this role", "why are you applying"], category: "motivation" },
-    whyFit:          { patterns: ["why should we hire", "why are you a good fit", "what makes you a good candidate", "what do you bring"], category: "motivation" },
+    // ── Logistics (boolean / short) ──
+    interviewedBefore: { patterns: ["interviewed before", "interviewed at", "ever interviewed", "previously applied", "applied before"], category: "logistics", shape: "boolean" },
 
-    // Technical
-    techExperience:  { patterns: ["experience with", "proficiency in", "familiar with", "knowledge of", "expertise in", "worked with"], category: "technical" },
-    projectDesc:     { patterns: ["describe a project", "relevant project", "technical achievement", "most proud of", "piece of work"], category: "technical" },
-    codingLang:      { patterns: ["coding language", "programming language", "preferred language", "python or typescript", "interview language"], category: "technical" },
-    researchBlog:    { patterns: ["research blog", "blog post", "next research", "red.anthropic"], category: "technical" },
+    // ── Motivation (essay) ──
+    whyCompany:      { patterns: ["why this company", "why do you want to work", "why anthropic", "why are you interested in", "what interests you about", "what attracts you"], category: "motivation", shape: "essay" },
+    whyRole:         { patterns: ["why this role", "why this position", "what excites you about this role", "interest in this role", "why are you applying"], category: "motivation", shape: "essay" },
+    whyFit:          { patterns: ["why should we hire", "why are you a good fit", "what makes you a good candidate", "what do you bring"], category: "motivation", shape: "essay" },
 
-    // Behavioral
-    leadership:      { patterns: ["leadership example", "led a team", "management experience", "leadership style"], category: "behavioral" },
-    conflict:        { patterns: ["conflict resolution", "disagreement", "handled a conflict", "difficult coworker"], category: "behavioral" },
-    failure:         { patterns: ["failure", "mistake", "learned from", "setback", "challenge you overcame"], category: "behavioral" },
-    teamwork:        { patterns: ["teamwork", "collaboration", "worked with a team", "team player", "cross-functional"], category: "behavioral" },
+    // ── Technical (essay for descriptions, enum for choices) ──
+    techExperience:  { patterns: ["experience with", "proficiency in", "familiar with", "knowledge of", "expertise in", "worked with"], category: "technical", shape: "essay" },
+    projectDesc:     { patterns: ["describe a project", "relevant project", "technical achievement", "most proud of", "piece of work"], category: "technical", shape: "essay" },
+    codingLang:      { patterns: ["coding language", "programming language", "preferred language", "python or typescript", "interview language"], category: "technical", shape: "enum_choice" },
+    researchBlog:    { patterns: ["research blog", "blog post", "next research", "red.anthropic"], category: "technical", shape: "essay" },
+    engBackground:   { patterns: ["engineering background", "describe your background", "technical background"], category: "technical", shape: "essay" },
+    cybersecurity:   { patterns: ["cybersecurity", "security product", "threat detection", "siem", "edr"], category: "technical", shape: "essay" },
+    builtAI:         { patterns: ["built products", "integrate ai", "ai/ml models", "machine learning"], category: "technical", shape: "boolean" },
+    rapidPrototyping:{ patterns: ["rapid prototyping", "direct customer", "working closely with research"], category: "technical", shape: "enum_choice" },
 
-    // Contextual — answered by AI using job context (location, remote type, etc.)
-    locationPref:    { patterns: ["location preference", "preferred location", "preferred office", "which office"], category: "contextual" },
-    remotePref:      { patterns: ["remote", "hybrid", "in-person", "on-site", "work from home", "in one of our offices"], category: "contextual" },
-    travelWilling:   { patterns: ["travel", "travel willingness", "travel required", "willing to travel"], category: "contextual" },
-    shiftAvail:      { patterns: ["shift", "availability", "schedule preference", "working hours"], category: "contextual" },
-    contractPref:    { patterns: ["contract", "full-time", "part-time", "employment type", "engagement type"], category: "contextual" },
-    dfwArea:         { patterns: ["dfw area", "located in the dfw", "dallas", "fort worth"], category: "contextual" },
-    salaryExpect:    { patterns: ["salary expectation", "expected salary", "desired salary", "compensation expectation", "salary requirement"], category: "contextual" },
-    startDateCtx:    { patterns: ["earliest start", "when can you start", "start date", "earliest you would", "available to start"], category: "contextual" },
-    timeBreakdown:   { patterns: ["ideal breakdown", "how do you spend", "time in a working week"], category: "contextual" },
+    // ── Behavioral (essay) ──
+    leadership:      { patterns: ["leadership example", "led a team", "management experience", "leadership style"], category: "behavioral", shape: "essay" },
+    conflict:        { patterns: ["conflict resolution", "disagreement", "handled a conflict", "difficult coworker"], category: "behavioral", shape: "essay" },
+    failure:         { patterns: ["failure", "mistake", "learned from", "setback", "challenge you overcame"], category: "behavioral", shape: "essay" },
+    teamwork:        { patterns: ["teamwork", "collaboration", "worked with a team", "team player", "cross-functional"], category: "behavioral", shape: "essay" },
 
-    // Logistics — simple rule-based (profile-stored answers)
-    interviewedBefore: { patterns: ["interviewed before", "interviewed at", "ever interviewed", "previously applied", "applied before"], category: "logistics" },
+    // ── Consent (boolean) ──
+    termsConsent:    { patterns: ["terms", "terms of service", "terms and conditions", "agree to"], category: "consent", shape: "boolean" },
+    privacyConsent:  { patterns: ["privacy", "privacy policy", "privacy notice", "data processing"], category: "consent", shape: "boolean" },
+    smsConsent:      { patterns: ["sms", "text message", "receive text", "opt in", "opt-in", "messaging"], category: "consent", shape: "boolean" },
+    bgCheck:         { patterns: ["background check", "background screening", "criminal record"], category: "consent", shape: "boolean" },
+    aiPolicy:        { patterns: ["ai policy", "ai partnership", "confirm your understanding", "acknowledge"], category: "consent", shape: "boolean" },
 
-    // Compliance / Consent
-    termsConsent:    { patterns: ["terms", "terms of service", "terms and conditions", "agree to"], category: "consent" },
-    privacyConsent:  { patterns: ["privacy", "privacy policy", "privacy notice", "data processing"], category: "consent" },
-    smsConsent:      { patterns: ["sms", "text message", "receive text", "opt in", "opt-in", "messaging"], category: "consent" },
-    bgCheck:         { patterns: ["background check", "background screening", "criminal record"], category: "consent" },
-    aiPolicy:        { patterns: ["ai policy", "ai partnership", "confirm your understanding", "acknowledge"], category: "consent" },
+    // ── Sensitive (review only) ──
+    gender:          { patterns: ["gender"], category: "sensitive", excludePatterns: ["transgender"], shape: "enum_choice" },
+    race:            { patterns: ["race"], category: "sensitive", shape: "enum_choice" },
+    ethnicity:       { patterns: ["ethnicity", "ethnic", "hispanic", "latino", "latina", "latinx", "hispanic/latino"], category: "sensitive", shape: "enum_choice" },
+    veteran:         { patterns: ["veteran"], category: "sensitive", shape: "enum_choice" },
+    disability:      { patterns: ["disability", "disabled", "accommodation"], category: "sensitive", shape: "enum_choice" },
 
-    // Sensitive / Self-ID — NEVER auto-fill, always REVIEW
-    gender:          { patterns: ["gender"], category: "sensitive", excludePatterns: ["transgender"] },
-    race:            { patterns: ["race"], category: "sensitive" },
-    ethnicity:       { patterns: ["ethnicity", "ethnic", "hispanic", "latino", "latina", "latinx", "hispanic/latino"], category: "sensitive" },
-    veteran:         { patterns: ["veteran"], category: "sensitive" },
-    disability:      { patterns: ["disability", "disabled", "accommodation"], category: "sensitive" },
-    // pronouns is defined above in identity section with category: "sensitive"
-
-    // Open-ended
-    additionalInfo:  { patterns: ["additional information", "anything else", "additional comments", "is there anything", "cover letter"], category: "openEnded" },
+    // ── Open-ended (essay) ──
+    additionalInfo:  { patterns: ["additional information", "anything else", "additional comments", "is there anything", "cover letter"], category: "openEnded", shape: "essay" },
   }
 
   // ── LAYER 2: UI Interaction Detection ──────────────────────────────────
@@ -137,8 +149,8 @@ var YuktiEngine = (function () {
     consent:       "rules",
     logistics:     "profile_or_ai",  // interviewedBefore from prefs
     professional:  "profile_or_ai",
-    // Tier 2 — AI contextual (uses job context)
-    contextual:    "ai",            // relocation, DFW, remote, salary, start date
+    // Tier 2 — Profile first, then AI (for relocation, start date, etc.)
+    contextual:    "profile_or_ai", // checks stored pref first, falls to AI only if empty
     motivation:    "ai",
     technical:     "ai",
     behavioral:    "ai",
@@ -245,9 +257,10 @@ var YuktiEngine = (function () {
       intent:          classification.intent,
       category:        classification.category,
       confidence:      classification.confidence,
-      suggestedAnswer: null,  // filled in resolve step
+      answerShape:     classification.shape || "essay",
+      suggestedAnswer: null,
       answerSource:    null,
-      fillStrategy:    inputType, // how to interact
+      fillStrategy:    inputType,
       status:          "pending",
       selector:        getSelector(el),
       radioGroupName:  radioGroupName || null,
@@ -517,24 +530,55 @@ var YuktiEngine = (function () {
       }
     }
 
-    // Fallback: textarea with long helper text → open-ended
-    if (bestIntent === "unknown" && inputType === "longText") {
-      bestIntent = "additionalInfo"
-      bestCategory = "openEnded"
-      bestConfidence = 40
+    // Get shape from matched intent
+    var bestShape = "essay"  // default
+    if (bestIntent !== "unknown" && INTENT_PATTERNS[bestIntent]) {
+      bestShape = INTENT_PATTERNS[bestIntent].shape || "essay"
     }
 
-    // Fallback: select with yes/no options → likely authorization question
-    if (bestIntent === "unknown" && (inputType === "nativeSelect" || inputType === "customSelect")) {
-      var elText = textLower
-      if (elText.includes("yes") || elText.includes("no")) {
-        bestIntent = "yesNoQuestion"
-        bestCategory = "logistics"
+    // ── Shape inference from input type when intent is unknown ──
+    if (bestIntent === "unknown") {
+      // Textarea → essay
+      if (inputType === "longText") {
+        bestIntent = "additionalInfo"
+        bestCategory = "openEnded"
+        bestShape = "essay"
+        bestConfidence = 40
+      }
+      // Select with yes/no options → boolean
+      else if ((inputType === "nativeSelect" || inputType === "customSelect")) {
+        bestShape = "enum_choice"
+        bestCategory = "contextual"
         bestConfidence = 30
+      }
+      // Short text input → short_text
+      else if (inputType === "shortText") {
+        bestShape = "short_text"
+        bestConfidence = 20
       }
     }
 
-    return { intent: bestIntent, category: bestCategory, confidence: bestConfidence }
+    // ── Shape override from question text patterns ──
+    // These catch questions the intent system missed
+    if (bestShape === "essay" || bestShape === "short_text") {
+      var tl = textLower
+      // Boolean patterns — force boolean shape
+      if (/^(are you|do you|have you|will you|is your|can you|would you|did you)/.test(tl) &&
+          !tl.includes("describe") && !tl.includes("explain") && !tl.includes("tell us") &&
+          tl.length < 100) {
+        bestShape = "boolean"
+      }
+      // Numeric patterns
+      if (/how many|number of|years of|total years|amount of/.test(tl)) {
+        bestShape = "numeric"
+      }
+      // Timeline patterns
+      if (/deadline|timeline|when.*start|earliest|notice period|how soon/.test(tl) && !tl.includes("describe")) {
+        bestShape = "date_or_timeline"
+      }
+    }
+
+    return { intent: bestIntent, category: bestCategory, confidence: bestConfidence, shape: bestShape }
   }
 
   // ── 4. Answer Resolver ────────────────────────────────────────────────
@@ -633,6 +677,12 @@ var YuktiEngine = (function () {
       workAuth: pd.workAuthorization || "",
       sponsorship: pd.sponsorship || "",
       visaType: pd.visaStatus || pd.visaType || "",
+      // Contextual with stored fallback
+      relocation: pd.relocation || "",  // "Yes"/"No" — NOT the location itself
+      remotePref: pd.remotePref || "",
+      interviewedBefore: pd.interviewedBefore || "",
+      startDateCtx: pd.earliestStart || "",
+      deadlines: "",  // Usually empty / "No deadlines"
       // Tier 1: Professional
       currentCompany: pd.headline || pd.currentCompany || "",
       currentTitle: pd.currentTitle || pd.headline || "",
@@ -1387,6 +1437,7 @@ var YuktiEngine = (function () {
             options: block.options.map(function(o) { return o.text }),
             category: block.category,
             intent: block.intent,
+            answerShape: block.answerShape,
           })
           continue
         }
