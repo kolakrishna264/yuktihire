@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('apps/api/app/routers/tracker.py'\\).read\\(\\)\\); print\\('tracker.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('apps/api/app/routers/jobs.py'\\).read\\(\\)\\); print\\('jobs.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('apps/api/app/routers/insights.py'\\).read\\(\\)\\); print\\('insights.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('apps/api/app/routers/preferences.py'\\).read\\(\\)\\); print\\('preferences.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('apps/api/app/routers/extension.py'\\).read\\(\\)\\); print\\('extension.py: OK'\\)\")"
+    ]
+  }
+}

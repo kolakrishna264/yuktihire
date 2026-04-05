@@ -19,6 +19,10 @@ class CaptureData(BaseModel):
     extracted_company: Optional[str] = None
     extracted_description: Optional[str] = None
     source_domain: Optional[str] = None
+    location: Optional[str] = None
+    salary: Optional[str] = None
+    work_type: Optional[str] = None
+    experience_level: Optional[str] = None
 
 
 @router.get("/status")
@@ -82,7 +86,7 @@ async def capture_job(
 
         title = data.extracted_title or data.page_title or "Untitled Position"
         company = data.extracted_company or _extract_domain(data.source_domain or data.url)
-        desc_text = (data.extracted_description or "")[:5000]
+        desc_text = (data.extracted_description or "")[:15000]
         print(f"[Extension] Saving: {title} @ {company} | desc length: {len(desc_text)} | url: {data.url}")
 
         # Insert with description for JD storage + notes as backup
@@ -90,8 +94,10 @@ async def capture_job(
         job_id = str(uuid.uuid4())
         await db.execute(
             text("""
-                INSERT INTO job_applications (id, user_id, role, company, url, description, notes, source, status, created_at, updated_at)
-                VALUES (:id, :uid, :role, :company, :url, :description, :notes, :source, 'SAVED', NOW(), NOW())
+                INSERT INTO job_applications (id, user_id, role, company, url, description, notes, source, status,
+                    location, salary, work_type, experience_level, created_at, updated_at)
+                VALUES (:id, :uid, :role, :company, :url, :description, :notes, :source, 'SAVED',
+                    :location, :salary, :work_type, :experience_level, NOW(), NOW())
             """),
             {
                 "id": job_id,
@@ -102,6 +108,10 @@ async def capture_job(
                 "description": desc_text if desc_text else None,
                 "notes": desc_text if desc_text else None,
                 "source": f"Extension ({data.source_domain or 'web'})",
+                "location": data.location,
+                "salary": data.salary,
+                "work_type": data.work_type,
+                "experience_level": data.experience_level,
             },
         )
         await db.commit()
