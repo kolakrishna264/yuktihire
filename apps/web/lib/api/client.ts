@@ -28,13 +28,24 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
   if (!res.ok) {
     let message = `API error: ${res.status}`
+    let errorType = "error"
+    let detail: any = null
     try {
       const body = await res.json()
-      message = body?.detail || body?.message || message
-    } catch {
-      // ignore parse error
-    }
-    throw new Error(message)
+      detail = body?.detail
+      if (typeof detail === "object") {
+        message = detail?.message || message
+        errorType = detail?.type || (detail?.upgradeRequired ? "plan_limit" : "error")
+      } else {
+        message = detail || body?.message || message
+      }
+    } catch {}
+
+    const err = new Error(message) as any
+    err.status = res.status
+    err.errorType = errorType  // "throttle" | "plan_limit" | "error"
+    err.detail = detail
+    throw err
   }
 
   // 204 No Content

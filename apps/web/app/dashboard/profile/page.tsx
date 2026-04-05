@@ -14,7 +14,7 @@ import { User, Briefcase, GraduationCap, Zap, Plus, Trash2, Save, X, FileText } 
 import { apiFetch } from "@/lib/api/client"
 import { ProfileAutoSetup } from "@/components/ProfileAutoSetup"
 
-type Tab = "basics" | "experience" | "education" | "skills" | "application"
+type Tab = "basics" | "experience" | "education" | "skills" | "application" | "answers"
 
 export default function ProfilePage() {
   const [tab, setTab] = useState<Tab>("basics")
@@ -49,6 +49,7 @@ export default function ProfilePage() {
     { id: "education", label: "Education", icon: GraduationCap },
     { id: "skills", label: "Skills", icon: Zap },
     { id: "application", label: "Application Info", icon: Zap },
+    { id: "answers", label: "Saved Answers", icon: Zap },
   ]
 
   return (
@@ -138,6 +139,7 @@ export default function ProfilePage() {
           {tab === "education" && <EducationTab />}
           {tab === "skills" && <SkillsTab />}
           {tab === "application" && <ApplicationInfoTab />}
+          {tab === "answers" && <AnswerMemoryTab />}
         </>
       )}
     </div>
@@ -787,6 +789,100 @@ function ApplicationInfoTab() {
       {saved && (
         <p className="text-xs text-emerald-600 font-medium">✓ Saved — the extension will use these answers for autofill.</p>
       )}
+    </div>
+  )
+}
+
+// ── Saved Answers Tab ───────────────────────────────────────────────────
+
+function AnswerMemoryTab() {
+  const [answers, setAnswers] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState("")
+
+  useEffect(() => {
+    apiFetch("/extension/answers")
+      .then((data: any) => { setAnswers(Array.isArray(data) ? data : []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiFetch(`/extension/answers/${id}`, { method: "DELETE" })
+      setAnswers(prev => prev.filter(a => a.id !== id))
+    } catch {}
+  }
+
+  const handleEdit = async (id: string) => {
+    try {
+      await apiFetch(`/extension/answers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ question_hash: "", question_text: "", answer: editText }),
+      })
+      setAnswers(prev => prev.map(a => a.id === id ? { ...a, answer: editText, source: "edited" } : a))
+      setEditingId(null)
+    } catch {}
+  }
+
+  const sourceBadge = (source: string) => {
+    const colors: Record<string, string> = {
+      ai: "bg-amber-50 text-amber-700",
+      edited: "bg-blue-50 text-blue-700",
+      profile: "bg-emerald-50 text-emerald-700",
+      rules: "bg-purple-50 text-purple-700",
+      memory: "bg-indigo-50 text-indigo-700",
+    }
+    return colors[source] || "bg-gray-50 text-gray-700"
+  }
+
+  if (loading) return <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-muted/30 rounded-lg animate-pulse" />)}</div>
+
+  if (answers.length === 0) return (
+    <div className="text-center py-8">
+      <p className="text-sm font-medium">No saved answers yet</p>
+      <p className="text-xs text-muted-foreground mt-1">When the extension fills application questions using AI, answers are saved here for reuse.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {answers.length} saved answer{answers.length !== 1 ? "s" : ""} — reused automatically when the same question appears on future applications.
+      </p>
+      {answers.map((a) => (
+        <div key={a.id} className="border rounded-lg p-3 space-y-2">
+          <div className="flex items-start justify-between">
+            <p className="text-xs font-semibold text-gray-700 flex-1">{a.questionText || a.questionHash}</p>
+            <div className="flex items-center gap-1.5 ml-2 shrink-0">
+              <span className={`text-[9px] font-semibold px-2 py-0.5 rounded-full ${sourceBadge(a.source)}`}>
+                {(a.source || "ai").toUpperCase()}
+              </span>
+              {a.useCount > 1 && <span className="text-[9px] text-muted-foreground">{a.useCount}x used</span>}
+            </div>
+          </div>
+
+          {editingId === a.id ? (
+            <div className="space-y-2">
+              <textarea value={editText} onChange={(e) => setEditText(e.target.value)}
+                className="w-full text-xs border rounded-lg p-2 min-h-[80px] resize-none" />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => handleEdit(a.id)} className="text-xs h-7">Save</Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingId(null)} className="text-xs h-7">Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 whitespace-pre-wrap">{(a.answer || "").slice(0, 300)}{(a.answer || "").length > 300 ? "..." : ""}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button onClick={() => { setEditingId(a.id); setEditText(a.answer || "") }}
+              className="text-[10px] text-blue-600 hover:underline">Edit</button>
+            <button onClick={() => handleDelete(a.id)}
+              className="text-[10px] text-red-600 hover:underline">Delete</button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

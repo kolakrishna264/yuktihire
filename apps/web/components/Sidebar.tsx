@@ -17,12 +17,16 @@ import {
   Zap,
   ChevronRight,
   LogOut,
+  Rss,
+  Shield,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { apiFetch } from "@/lib/api/client"
 
 const navItems = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/jobs", label: "My Jobs", icon: Briefcase },
+  { href: "/dashboard/feed", label: "Job Feed", icon: Rss },
   { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
   { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
   { href: "/dashboard/answers", label: "AI Answers", icon: MessageSquare },
@@ -37,12 +41,14 @@ export function Sidebar() {
   const router = useRouter()
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
       setUserEmail(data.user?.email ?? null)
     })
+    apiFetch("/permissions").then((p: any) => setIsAdmin(p?.isAdmin === true)).catch(() => {})
   }, [])
 
   const handleSignOut = async () => {
@@ -98,6 +104,17 @@ export function Sidebar() {
             </Link>
           )
         })}
+        {isAdmin && (
+          <Link href="/dashboard/admin"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
+              "hover:bg-accent hover:text-accent-foreground",
+              pathname.startsWith("/dashboard/admin") ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground"
+            )}>
+            <Shield className={cn("w-4 h-4 shrink-0", pathname.startsWith("/dashboard/admin") ? "text-primary" : "")} />
+            <span className="flex-1">Admin</span>
+          </Link>
+        )}
       </nav>
 
       {/* Upgrade CTA */}
