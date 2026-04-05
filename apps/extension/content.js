@@ -1636,7 +1636,6 @@ if (document.location.hostname.includes("yuktihire.com")) {
       sendResponse(getFormAnalysis())
     }
     if (msg.type === "FILL_SAFE_FIELDS") {
-      // Reset fill tracking at start of new fill session
       if (typeof filledElements !== "undefined") filledElements.clear()
       sendResponse(fillSafeFields(msg.data))
     }
@@ -1647,8 +1646,56 @@ if (document.location.hostname.includes("yuktihire.com")) {
       sendResponse({ submitted: detectSubmissionSuccess() })
     }
 
+    // ── NEW ENGINE MESSAGES ──
+
+    if (msg.type === "ENGINE_FILL_ALL") {
+      // Phase 1: Scan + classify + fill deterministic/rule-based fields
+      var inputCount = document.querySelectorAll('input, select, textarea').length
+      if (inputCount < 2) return false
+      if (typeof YuktiEngine === "undefined") { sendResponse({ filled: [], needsAI: [], needsAsync: [], total: 0 }); return }
+      var result = YuktiEngine.fillAll(msg.data)
+      sendResponse(result)
+    }
+
+    if (msg.type === "ENGINE_FILL_ASYNC") {
+      // Phase 2: Fill a custom dropdown asynchronously
+      if (typeof YuktiEngine === "undefined") { sendResponse({ ok: false }); return }
+      var el = document.querySelector(msg.selector)
+      if (!el) { sendResponse({ ok: false, reason: "element not found" }); return }
+      var asyncBlock = { element: el, container: el.parentElement, inputType: "customSelect" }
+      YuktiEngine.fillAsync(asyncBlock, msg.value).then(function(r) { sendResponse(r) })
+      return true
+    }
+
+    if (msg.type === "ENGINE_FILL_BY_SELECTOR") {
+      // Phase 3: Fill a specific field by selector (for AI answers)
+      var target = document.querySelector(msg.selector)
+      if (!target) { sendResponse({ ok: false }); return }
+      var blockType = target.tagName === "SELECT" ? "nativeSelect" : target.tagName === "TEXTAREA" ? "longText" : "shortText"
+      var fakeBlock = { element: target, container: target.parentElement, inputType: blockType, options: [], radioGroupName: null }
+      if (typeof YuktiEngine !== "undefined") {
+        var fr = YuktiEngine.fill(fakeBlock, msg.value)
+        sendResponse(fr)
+      } else {
+        // Fallback
+        try {
+          target.value = msg.value
+          target.dispatchEvent(new Event("input", { bubbles: true }))
+          target.dispatchEvent(new Event("change", { bubbles: true }))
+          sendResponse({ ok: true })
+        } catch(e) { sendResponse({ ok: false }) }
+      }
+    }
+
+    if (msg.type === "ENGINE_GET_EMPTY") {
+      if (typeof YuktiEngine === "undefined") { sendResponse([]); return }
+      var inputCount2 = document.querySelectorAll('input, select, textarea').length
+      if (inputCount2 < 2) return false
+      sendResponse(YuktiEngine.getEmptyBlocks())
+    }
+
+    // Legacy — keep for backward compatibility
     if (msg.type === "FIND_AND_FILL_QUESTION") {
-      // Only respond from frames that have form inputs
       var fqqCheck = document.querySelectorAll('input, select, textarea')
       if (fqqCheck.length < 2) return false
       findAndFillQuestionAsync(msg.question, msg.answer).then(function(result) {
@@ -1668,28 +1715,6 @@ if (document.location.hostname.includes("yuktihire.com")) {
         sendResponse(result)
       })
       return true
-    }
-
-    if (msg.type === "GET_EMPTY_FIELDS") {
-      // Return ALL empty fields on the page — for AI to fill
-      var emptyFields = getEmptyFields()
-      sendResponse(emptyFields)
-    }
-
-    if (msg.type === "FILL_BY_SELECTOR") {
-      // Fill a specific element by selector with a value
-      try {
-        var target = document.querySelector(msg.selector)
-        if (!target) { sendResponse({ ok: false }); return }
-        if (msg.inputType === "select" || target.tagName === "SELECT") {
-          var sr = trySelectFill(target, msg.value, { selector: msg.selector, inputType: "select" })
-          sendResponse(sr)
-        } else {
-          var tr = tryTextFill(target, msg.value, { selector: msg.selector, inputType: target.type || "text" })
-          if (tr.ok) tryClickDropdownOption(target, msg.value)
-          sendResponse(tr)
-        }
-      } catch(e) { sendResponse({ ok: false, error: e.message }) }
     }
     return false
   })

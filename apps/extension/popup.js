@@ -188,249 +188,162 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // ── FILL FORM (Universal — works on any portal) ────────────────────
+  // ── FILL FORM — 4-Phase Intelligent Engine ────────────────────────
   $("#autofill-btn")?.addEventListener("click", async () => {
     if (!currentTabId) { showStatus("Open a job page first", "info"); return }
 
     const btn = $("#autofill-btn")
     btn.disabled = true
-    btn.innerHTML = "⚡ Scanning..."
     const logs = []
     const logsEl = $("#fill-logs")
     if (logsEl) logsEl.innerHTML = ""
 
-    // Step 1: Get profile + preferences from API
+    // ── PHASE 1: Load profile data ──
+    btn.innerHTML = "⚡ Loading profile..."
     showStatus("Loading your profile...", "info")
     const profile = await sendMessage({ type: "GET_AUTOFILL_DATA" })
     if (!profile.ok) {
       showStatus("Could not load profile data", "error")
-      btn.disabled = false; btn.innerHTML = "⚡ Fill Form"
-      return
+      btn.disabled = false; btn.innerHTML = "⚡ Fill Form"; return
     }
+    const pd = profile.data || {}
 
-    // Step 2: Universal fill — try all frames (forms are often in iframes)
-    showStatus("Filling all fields...", "info")
-    btn.innerHTML = "⚡ Filling fields..."
+    // ── PHASE 2: Engine fill — scan, classify, resolve, fill all deterministic fields ──
+    btn.innerHTML = "⚡ Scanning form..."
+    showStatus("Scanning and filling form fields...", "info")
 
-    // Try sending to all frames — collect results from whichever frame has the form
-    let universalResult = { filled: [], skipped: [], failed: [] }
+    let engineResult = { filled: [], needsAI: [], needsAsync: [], skipped: [], total: 0 }
     try {
-      // Method 1: sendMessage (goes to first responding frame)
-      universalResult = await chrome.tabs.sendMessage(currentTabId, {
-        type: "UNIVERSAL_FILL", data: profile.data
-      }).catch(() => ({ filled: [], skipped: [], failed: [] }))
+      engineResult = await chrome.tabs.sendMessage(currentTabId, {
+        type: "ENGINE_FILL_ALL", data: pd
+      }).catch(() => engineResult)
     } catch {}
 
-    // If main frame found 0 fields, the form is likely in an iframe
-    // Use executeScript with allFrames to reach it
-    if (!universalResult?.filled?.length) {
-      try {
-        btn.innerHTML = "⚡ Scanning iframes..."
-        const iframeResults = await chrome.scripting.executeScript({
-          target: { tabId: currentTabId, allFrames: true },
-          func: (profileData) => {
-            // This runs in EVERY frame — only the frame with form controls will fill
-            if (typeof universalFill === "function") {
-              return universalFill(profileData)
-            }
-            // Fallback: directly find and fill inputs in this frame
-            const inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), select, textarea')
-            if (inputs.length < 3) return { filled: [], skipped: [], failed: [] }
-
-            const filled = []
-            const answers = {
-              "first name": profileData.firstName, "last name": profileData.lastName,
-              "email": profileData.email, "phone": profileData.phone,
-              "linkedin": profileData.linkedin, "location": profileData.location,
-              "github": profileData.github,
-            }
-
-            inputs.forEach(inp => {
-              if (inp.value && inp.value.trim()) return  // Skip filled
-              const label = (
-                inp.getAttribute("aria-label") ||
-                inp.placeholder ||
-                (inp.closest("label")?.textContent || "").trim() ||
-                (document.querySelector(`label[for="${inp.id}"]`)?.textContent || "").trim() ||
-                inp.name || ""
-              ).toLowerCase()
-
-              for (const [key, val] of Object.entries(answers)) {
-                if (val && label.includes(key)) {
-                  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-                  if (setter) setter.call(inp, val)
-                  else inp.value = val
-                  inp.dispatchEvent(new Event("input", { bubbles: true }))
-                  inp.dispatchEvent(new Event("change", { bubbles: true }))
-                  filled.push({ label: label.slice(0, 40), value: String(val).slice(0, 30), key })
-                  break
-                }
-              }
-            })
-            return { filled, skipped: [], failed: [] }
-          },
-          args: [profile.data],
-        })
-
-        // Merge results from all frames
-        for (const frame of (iframeResults || [])) {
-          if (frame.result?.filled?.length) {
-            universalResult = frame.result
-            break
-          }
-        }
-      } catch (e) {
-        console.log("[YuktiHire] iframe fill error:", e)
-      }
-    }
-
-    universalResult?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value}`))
-    universalResult?.failed?.forEach(f => logs.push(`✗ ${f}`))
-
-    // Step 3: Targeted question fill for fields the universal scan may have missed
-    // (custom dropdowns that need async click-wait-select)
-    showStatus("Filling custom dropdowns...", "info")
-    const pd = profile.data || {}
-    const targetedQuestions = [
-      // EEO (custom dropdowns on Greenhouse/Lever)
-      { q: "gender", a: pd.gender || "Male" },
-      { q: "hispanic/latino", a: pd.hispanicLatino || "No" },
-      { q: "are you hispanic/latino", a: pd.hispanicLatino || "No" },
-      { q: "race", a: pd.race || "Asian" },
-      { q: "veteran status", a: pd.veteranStatus || "I am not a protected veteran" },
-      { q: "disability status", a: pd.disabilityStatus || "No, I do not have a disability" },
-      // Yes/No questions (custom selects on Greenhouse, Rippling, Lever, Workday)
-      { q: "open to relocation", a: pd.relocation || "Yes" },
-      { q: "open to working in-person", a: "Yes" },
-      { q: "do you require visa sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "require employment visa sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "require employer sponsorship", a: pd.sponsorship || "Yes" },
-      { q: "authorized to work", a: pd.workAuthorization || "Yes" },
-      { q: "located in the dfw", a: "Yes" },
-      { q: "dfw area", a: "Yes" },
-      { q: "interviewed before", a: pd.interviewedBefore || "No" },
-      { q: "interviewed at", a: pd.interviewedBefore || "No" },
-      { q: "ai policy", a: "Yes" },
-      { q: "confirm your understanding", a: "Yes" },
-      // Consent / SMS
-      { q: "receive text message", a: "Yes" },
-      { q: "agree to receive", a: "Yes" },
-      // Timeline
-      { q: "earliest you would want to start", a: pd.earliestStart || "2 weeks from offer" },
-      { q: "earliest start", a: pd.earliestStart || "2 weeks from offer" },
-      // Address (text input only)
-      { q: "address from which you plan", a: pd.address || pd.location || "" },
-    ]
-
-    for (const qa of targetedQuestions) {
-      if (!qa.a) continue
-      try {
-        btn.innerHTML = `⚡ ${qa.q.slice(0, 20)}...`
-        const r = await chrome.tabs.sendMessage(currentTabId, {
-          type: "FIND_AND_FILL_QUESTION", question: qa.q, answer: qa.a
-        }).catch(() => null)
-        if (r?.ok) logs.push(`✓ ${qa.q}: ${r.selected || qa.a}`)
-        await new Promise(res => setTimeout(res, 200))
-      } catch {}
-    }
-
-    // Step 4: Find ALL remaining empty fields and fill with AI
-    showStatus("Finding remaining empty fields...", "info")
-    btn.innerHTML = "⚡ AI scanning..."
-
-    let emptyFields = []
-    try {
-      emptyFields = await chrome.tabs.sendMessage(currentTabId, { type: "GET_EMPTY_FIELDS" }).catch(() => [])
-      if (!Array.isArray(emptyFields)) emptyFields = []
-    } catch { emptyFields = [] }
-
-    // If no empty fields from main frame, try iframes
-    if (emptyFields.length === 0) {
+    // If main frame has no form, try iframes
+    if (!engineResult?.total && !engineResult?.filled?.length) {
       try {
         const ifrResults = await chrome.scripting.executeScript({
           target: { tabId: currentTabId, allFrames: true },
-          func: () => {
-            if (typeof getEmptyFields === "function") return getEmptyFields()
-            return []
+          func: (profileData) => {
+            if (typeof YuktiEngine !== "undefined") return YuktiEngine.fillAll(profileData)
+            return { filled: [], needsAI: [], needsAsync: [], total: 0 }
           },
+          args: [pd],
         })
         for (const fr of (ifrResults || [])) {
-          if (fr.result?.length) { emptyFields = fr.result; break }
+          if (fr.result?.filled?.length || fr.result?.needsAI?.length) {
+            engineResult = fr.result; break
+          }
         }
       } catch {}
     }
 
-    if (emptyFields.length > 0) {
-      showStatus(`Filling ${emptyFields.length} remaining fields with AI...`, "info")
+    engineResult?.filled?.forEach(f => logs.push(`✓ ${f.label}: ${f.value} [${f.source}]`))
 
-      for (const field of emptyFields) {
-        const label = field.label || field.placeholder || ""
+    // ── PHASE 3: Fill custom dropdowns (async — click, wait, select) ──
+    if (engineResult?.needsAsync?.length) {
+      btn.innerHTML = `⚡ Dropdowns (${engineResult.needsAsync.length})...`
+      showStatus("Filling custom dropdowns...", "info")
+      for (const asyncField of engineResult.needsAsync) {
+        try {
+          const r = await chrome.tabs.sendMessage(currentTabId, {
+            type: "ENGINE_FILL_ASYNC", selector: asyncField.selector, value: asyncField.value
+          }).catch(() => null)
+          if (r?.ok) logs.push(`✓ ${asyncField.label.slice(0, 40)}: ${r.selected || asyncField.value}`)
+          await new Promise(res => setTimeout(res, 300))
+        } catch {}
+      }
+    }
+
+    // ── PHASE 4: AI fill — every remaining empty field gets an AI answer ──
+    if (engineResult?.needsAI?.length) {
+      showStatus(`AI answering ${engineResult.needsAI.length} questions...`, "info")
+
+      for (const field of engineResult.needsAI) {
+        const label = field.label || ""
         if (!label) continue
         btn.innerHTML = `⚡ AI: ${label.slice(0, 18)}...`
 
-        // For select fields with options, pick the best option
-        if (field.inputType === "select" && field.options?.length > 0) {
-          // Use AI to pick the best option
-          const optionsStr = field.options.join(", ")
-          const answer = await sendMessage({
-            type: "GENERATE_ANSWER",
-            data: {
-              question: `For the field "${label}", which option should I select? Options: ${optionsStr}. Reply with ONLY the exact option text, nothing else.`
-            }
-          })
-          if (answer.ok && answer.data?.answer) {
-            const picked = answer.data.answer.trim()
-            const r = await chrome.tabs.sendMessage(currentTabId, {
-              type: "FILL_BY_SELECTOR", selector: field.selector, value: picked, inputType: "select"
-            }).catch(() => null)
-            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)} → ${picked.slice(0, 20)}`)
-          }
-        }
-        // For custom-select (dropdown), use targeted question fill
-        else if (field.inputType === "custom-select") {
-          const answer = await sendMessage({
-            type: "GENERATE_ANSWER",
-            data: {
-              question: `For the field "${label}", what should the answer be? Reply with ONLY the answer, nothing else. If it's a yes/no question, reply "Yes" or "No".`
-            }
-          })
-          if (answer.ok && answer.data?.answer) {
-            const r = await chrome.tabs.sendMessage(currentTabId, {
-              type: "FIND_AND_FILL_QUESTION", question: label.slice(0, 60), answer: answer.data.answer.trim()
-            }).catch(() => null)
-            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
-          }
-        }
-        // For text/textarea, generate AI answer
-        else {
-          const answer = await sendMessage({
-            type: "GENERATE_ANSWER",
-            data: { question: label }
-          })
-          if (answer.ok && answer.data?.answer) {
-            const r = await chrome.tabs.sendMessage(currentTabId, {
-              type: "FILL_BY_SELECTOR", selector: field.selector, value: answer.data.answer
-            }).catch(() => null)
-            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
-          }
+        // Build smart prompt based on field category
+        let prompt = label
+        if (field.helperText) prompt += "\n\nContext: " + field.helperText.slice(0, 300)
+
+        // For selects with options, ask AI to pick
+        if (field.options?.length > 0) {
+          prompt = `For the question "${label}", pick the BEST option. Options: ${field.options.join(", ")}. Reply with ONLY the exact option text.`
+          if (field.helperText) prompt += `\nContext: ${field.helperText.slice(0, 200)}`
         }
 
-        // For radio/checkbox, try AI
-        if (field.inputType === "radio" || field.inputType === "checkbox") {
-          const answer = await sendMessage({
-            type: "GENERATE_ANSWER",
-            data: {
-              question: `For the question "${label}", should the answer be Yes or No? Reply with ONLY "Yes" or "No".`
-            }
-          })
-          if (answer.ok && answer.data?.answer) {
-            const r = await chrome.tabs.sendMessage(currentTabId, {
-              type: "FIND_AND_FILL_QUESTION", question: label.slice(0, 60), answer: answer.data.answer.trim()
-            }).catch(() => null)
-            if (r?.ok) logs.push(`✓ AI: ${label.slice(0, 30)}`)
-          }
+        // For open-ended / motivation, give richer context
+        if (field.category === "motivation" || field.category === "behavioral" || field.category === "technical" || field.category === "openEnded") {
+          prompt = `Answer this job application question professionally (200-400 words if open-ended, 1-2 sentences if short):\n\n"${label}"\n\nContext: ${field.helperText?.slice(0, 300) || "No additional context."}`
         }
 
+        try {
+          const answer = await sendMessage({ type: "GENERATE_ANSWER", data: { question: prompt } })
+          if (answer.ok && answer.data?.answer) {
+            const value = answer.data.answer.trim()
+            let fillOk = false
+
+            // Fill based on input type
+            if (field.inputType === "nativeSelect" || field.inputType === "customSelect") {
+              const r = await chrome.tabs.sendMessage(currentTabId, {
+                type: "ENGINE_FILL_ASYNC", selector: field.selector, value: value
+              }).catch(() => null)
+              fillOk = r?.ok
+              // Fallback: try native select fill
+              if (!fillOk) {
+                const r2 = await chrome.tabs.sendMessage(currentTabId, {
+                  type: "ENGINE_FILL_BY_SELECTOR", selector: field.selector, value: value
+                }).catch(() => null)
+                fillOk = r2?.ok
+              }
+            } else {
+              const r = await chrome.tabs.sendMessage(currentTabId, {
+                type: "ENGINE_FILL_BY_SELECTOR", selector: field.selector, value: value
+              }).catch(() => null)
+              fillOk = r?.ok
+            }
+
+            if (fillOk) logs.push(`✓ AI: ${label.slice(0, 35)}`)
+            else logs.push(`— AI: ${label.slice(0, 35)} (fill failed)`)
+          }
+        } catch {}
+
+        await new Promise(res => setTimeout(res, 200))
+      }
+    }
+
+    // ── PHASE 5: Final sweep — find any remaining empty fields ──
+    let remaining = []
+    try {
+      remaining = await chrome.tabs.sendMessage(currentTabId, { type: "ENGINE_GET_EMPTY" }).catch(() => [])
+      if (!Array.isArray(remaining)) remaining = []
+    } catch {}
+
+    if (remaining.length > 0) {
+      btn.innerHTML = `⚡ Final sweep (${remaining.length})...`
+      for (const field of remaining) {
+        if (!field.label) continue
+        btn.innerHTML = `⚡ ${field.label.slice(0, 18)}...`
+
+        let prompt = field.label
+        if (field.options?.length) {
+          prompt = `Pick the best option for "${field.label}": ${field.options.join(", ")}. Reply ONLY with the option text.`
+        }
+
+        try {
+          const answer = await sendMessage({ type: "GENERATE_ANSWER", data: { question: prompt } })
+          if (answer.ok && answer.data?.answer) {
+            const v = answer.data.answer.trim()
+            if (field.inputType === "customSelect" || field.inputType === "nativeSelect") {
+              await chrome.tabs.sendMessage(currentTabId, { type: "ENGINE_FILL_ASYNC", selector: field.selector, value: v }).catch(() => null)
+            } else {
+              await chrome.tabs.sendMessage(currentTabId, { type: "ENGINE_FILL_BY_SELECTOR", selector: field.selector, value: v }).catch(() => null)
+            }
+            logs.push(`✓ Sweep: ${field.label.slice(0, 35)}`)
+          }
+        } catch {}
         await new Promise(res => setTimeout(res, 200))
       }
     }
