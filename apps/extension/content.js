@@ -2945,39 +2945,15 @@ if (document.location.hostname.includes("yuktihire.com")) {
       "require visa": pd.sponsorship || "",
       "employment visa": pd.sponsorship || "",
       "employer sponsorship": pd.sponsorship || "",
-      // Relocation
-      "relocation": pd.relocation || "",
-      "open to relocation": pd.relocation || "",
-      "willing to relocate": pd.relocation || "",
-      // EEO — ONLY from user's explicit settings, NEVER hardcoded
-      "gender": pd.gender || "",
-      "sex": pd.gender || "",
-      "hispanic": pd.hispanicLatino || "",
-      "hispanic/latino": pd.hispanicLatino || "",
-      "latino": pd.hispanicLatino || "",
-      "ethnicity": pd.hispanicLatino || "",
-      "race": pd.race || "",
-      "veteran": pd.veteranStatus || "",
-      "veteran status": pd.veteranStatus || "",
-      "disability": pd.disabilityStatus || "",
-      "disability status": pd.disabilityStatus || "",
-      "pronouns": pd.pronouns || "",
-      // Application
-      "earliest start": pd.earliestStart || "",
-      "start date": pd.earliestStart || "",
-      "when can you start": pd.earliestStart || "",
-      "availability": pd.earliestStart || "",
+      // Relocation, remote, salary, start date — NOT here (Tier 2: AI contextual)
+      // EEO fields — NOT here (Tier 3: review only, never auto-fill)
+      // Application logistics
       "interviewed before": pd.interviewedBefore || "",
       "ever interviewed": pd.interviewedBefore || "",
-      // Policy
+      // Consent (safe to auto-fill)
       "ai policy": "Yes",
-      "in-person": "Yes",
-      "on-site": "Yes",
       "acknowledge": "Yes",
       "confirm your understanding": "Yes",
-      "consent": "Yes",
-      "text message": "Yes",
-      "sms": "Yes",
     }
   }
 

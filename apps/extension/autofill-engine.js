@@ -47,11 +47,12 @@ var YuktiEngine = (function () {
     gradYear:        { patterns: ["graduation year", "year of graduation", "grad year", "when did you graduate"], category: "professional" },
     publications:    { patterns: ["publication", "publications", "research", "google scholar", "semantic scholar", "papers"], category: "professional" },
 
-    // Work Authorization
+    // Work Authorization — Tier 1 (from stored profile preferences)
     workAuth:        { patterns: ["authorized to work", "authorised to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"], category: "authorization" },
     sponsorship:     { patterns: ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "immigration", "require sponsorship", "need sponsorship", "require visa", "employer sponsorship", "employment visa"], category: "authorization" },
     visaType:        { patterns: ["visa type", "visa status", "immigration status", "opt", "cpt", "stem opt", "green card", "citizenship"], category: "authorization" },
-    relocation:      { patterns: ["relocat", "willing to move", "open to moving"], category: "authorization" },
+    // Relocation — Tier 2 (contextual, depends on job location)
+    relocation:      { patterns: ["relocat", "willing to move", "open to moving"], category: "contextual" },
 
     // Motivation
     whyCompany:      { patterns: ["why this company", "why do you want to work", "why anthropic", "why are you interested in", "what interests you about", "what attracts you"], category: "motivation" },
@@ -70,14 +71,19 @@ var YuktiEngine = (function () {
     failure:         { patterns: ["failure", "mistake", "learned from", "setback", "challenge you overcame"], category: "behavioral" },
     teamwork:        { patterns: ["teamwork", "collaboration", "worked with a team", "team player", "cross-functional"], category: "behavioral" },
 
-    // Logistics
-    locationPref:    { patterns: ["location preference", "preferred location", "preferred office", "which office"], category: "logistics" },
-    remotePref:      { patterns: ["remote", "hybrid", "in-person", "on-site", "work from home", "in one of our offices"], category: "logistics" },
-    travelWilling:   { patterns: ["travel", "travel willingness", "travel required", "willing to travel"], category: "logistics" },
-    shiftAvail:      { patterns: ["shift", "availability", "schedule preference", "working hours"], category: "logistics" },
-    contractPref:    { patterns: ["contract", "full-time", "part-time", "employment type", "engagement type"], category: "logistics" },
-    dfwArea:         { patterns: ["dfw area", "located in the dfw", "dallas", "fort worth"], category: "logistics" },
-    timeBreakdown:   { patterns: ["ideal breakdown", "how do you spend", "time in a working week"], category: "logistics" },
+    // Contextual — answered by AI using job context (location, remote type, etc.)
+    locationPref:    { patterns: ["location preference", "preferred location", "preferred office", "which office"], category: "contextual" },
+    remotePref:      { patterns: ["remote", "hybrid", "in-person", "on-site", "work from home", "in one of our offices"], category: "contextual" },
+    travelWilling:   { patterns: ["travel", "travel willingness", "travel required", "willing to travel"], category: "contextual" },
+    shiftAvail:      { patterns: ["shift", "availability", "schedule preference", "working hours"], category: "contextual" },
+    contractPref:    { patterns: ["contract", "full-time", "part-time", "employment type", "engagement type"], category: "contextual" },
+    dfwArea:         { patterns: ["dfw area", "located in the dfw", "dallas", "fort worth"], category: "contextual" },
+    salaryExpect:    { patterns: ["salary expectation", "expected salary", "desired salary", "compensation expectation", "salary requirement"], category: "contextual" },
+    startDateCtx:    { patterns: ["earliest start", "when can you start", "start date", "earliest you would", "available to start"], category: "contextual" },
+    timeBreakdown:   { patterns: ["ideal breakdown", "how do you spend", "time in a working week"], category: "contextual" },
+
+    // Logistics — simple rule-based (profile-stored answers)
+    interviewedBefore: { patterns: ["interviewed before", "interviewed at", "ever interviewed", "previously applied", "applied before"], category: "logistics" },
 
     // Compliance / Consent
     termsConsent:    { patterns: ["terms", "terms of service", "terms and conditions", "agree to"], category: "consent" },
@@ -86,16 +92,16 @@ var YuktiEngine = (function () {
     bgCheck:         { patterns: ["background check", "background screening", "criminal record"], category: "consent" },
     aiPolicy:        { patterns: ["ai policy", "ai partnership", "confirm your understanding", "acknowledge"], category: "consent" },
 
-    // Sensitive / Self-ID
+    // Sensitive / Self-ID — NEVER auto-fill, always REVIEW
     gender:          { patterns: ["gender"], category: "sensitive", excludePatterns: ["transgender"] },
     race:            { patterns: ["race"], category: "sensitive" },
     ethnicity:       { patterns: ["ethnicity", "ethnic", "hispanic", "latino", "latina", "latinx", "hispanic/latino"], category: "sensitive" },
     veteran:         { patterns: ["veteran"], category: "sensitive" },
     disability:      { patterns: ["disability", "disabled", "accommodation"], category: "sensitive" },
+    // pronouns is defined above in identity section with category: "sensitive"
 
     // Open-ended
     additionalInfo:  { patterns: ["additional information", "anything else", "additional comments", "is there anything", "cover letter"], category: "openEnded" },
-    interviewedBefore: { patterns: ["interviewed before", "interviewed at", "ever interviewed", "previously applied", "applied before"], category: "logistics" },
   }
 
   // ── LAYER 2: UI Interaction Detection ──────────────────────────────────
@@ -121,22 +127,26 @@ var YuktiEngine = (function () {
 
   // ── LAYER 3: Answer Strategy ───────────────────────────────────────────
 
-  // priority: profile > rules > resume/context > AI > needsReview
+  // 3-Tier answer strategy:
+  //   Tier 1 (profile):     deterministic from stored profile — always safe
+  //   Tier 2 (contextual):  AI with job context — location, remote, salary
+  //   Tier 3 (review):      sensitive fields — NEVER auto-fill
   var ANSWER_STRATEGY = {
-    // Deterministic — from profile, never AI
+    // Tier 1 — Safe deterministic (profile data)
     identity:      "profile",
-    // Rule-based first, then AI for anything not mapped
-    authorization: "rules_or_ai",
+    authorization: "profile",       // work auth + sponsorship from stored prefs
+    // Tier 1.5 — Rule-based with profile fallback
     consent:       "rules",
-    logistics:     "rules_or_ai",
-    // Sensitive — from explicit profile settings, else use profile defaults
-    sensitive:     "profile_or_skip",
-    // AI-generated
+    logistics:     "profile_or_ai",  // interviewedBefore from prefs
+    professional:  "profile_or_ai",
+    // Tier 2 — AI contextual (uses job context)
+    contextual:    "ai",            // relocation, DFW, remote, salary, start date
     motivation:    "ai",
     technical:     "ai",
     behavioral:    "ai",
     openEnded:     "ai",
-    professional:  "profile_or_ai",
+    // Tier 3 — Manual review only (NEVER auto-fill)
+    sensitive:     "review_only",
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -536,45 +546,40 @@ var YuktiEngine = (function () {
     var intent = block.intent
     var pd = profileData
 
-    // ── Profile-based answers ──
+    // ── Tier 3: Sensitive — ALWAYS review, never auto-fill ──
+    if (strategy === "review_only") {
+      return { value: null, source: "needsReview", confidence: "review" }
+    }
+
+    // ── Tier 1: Profile-based answers (deterministic) ──
     if (strategy === "profile" || strategy === "profile_or_ai") {
       var profileAnswer = getProfileAnswer(intent, pd)
       if (profileAnswer !== null && profileAnswer !== undefined && profileAnswer !== "") {
         return { value: profileAnswer, source: "profile", confidence: "high" }
       }
       if (strategy === "profile") {
+        // Profile field missing — skip (user needs to set it in profile)
         return { value: null, source: "none", confidence: "low" }
       }
-      // Fall through to AI
+      // profile_or_ai: fall through to AI
     }
 
-    // ── Rule-based answers ──
-    if (strategy === "rules" || strategy === "rules_or_ai") {
+    // ── Tier 1.5: Rule-based answers ──
+    if (strategy === "rules") {
       var ruleAnswer = getRuleAnswer(intent, pd, block)
       if (ruleAnswer !== null && ruleAnswer !== "") {
         return { value: ruleAnswer, source: "rules", confidence: "high" }
       }
-      if (strategy === "rules") {
-        return { value: null, source: "none", confidence: "low" }
-      }
-      // rules_or_ai: fall through to AI
+      return { value: null, source: "none", confidence: "low" }
     }
 
-    // ── Profile or skip (sensitive) ──
-    if (strategy === "profile_or_skip") {
-      var sensitiveAnswer = getSensitiveAnswer(intent, pd)
-      if (sensitiveAnswer !== null) {
-        return { value: sensitiveAnswer, source: "profile", confidence: "high" }
-      }
-      return { value: null, source: "needsReview", confidence: "low" }
-    }
-
-    // ── AI-generated (will be handled in popup.js) ──
+    // ── Tier 2: AI contextual (uses job description + user location) ──
     return { value: null, source: "ai", confidence: "medium" }
   }
 
   function getProfileAnswer(intent, pd) {
     var map = {
+      // Tier 1: Identity (always from profile)
       firstName: pd.firstName,
       lastName: pd.lastName,
       fullName: pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
@@ -587,52 +592,30 @@ var YuktiEngine = (function () {
       linkedin: pd.linkedin,
       github: pd.github,
       portfolio: pd.portfolio,
-      country: pd.country || "United States",  // Default to US only for country code selects
+      country: pd.country || "United States",
+      // Tier 1: Authorization (from stored preferences)
+      workAuth: pd.workAuthorization || "",
+      sponsorship: pd.sponsorship || "",
+      visaType: pd.visaType || "",
+      // Tier 1: Professional (from profile)
       currentCompany: pd.headline || pd.currentCompany || "",
       currentTitle: pd.currentTitle || pd.headline || "",
-      startDate: pd.earliestStart || "",
       publications: pd.publications || "",
       yearsExp: pd.yearsExperience || "",
-      salary: pd.salary || pd.desiredSalary || "",
       skills: pd.skills || "",
       education: pd.education || pd.degree || "",
+      // Logistics (from stored prefs)
+      interviewedBefore: pd.interviewedBefore || "",
     }
     return map[intent] !== undefined ? map[intent] : null
   }
 
   function getRuleAnswer(intent, pd, block) {
+    // Only consent-type fields use rules — everything else is profile or AI
     var map = {
-      workAuth:          pd.workAuthorization || "Yes",
-      sponsorship:       pd.sponsorship || "Yes",
-      visaType:          pd.visaType || "",
-      relocation:        pd.relocation || "Yes",
-      remotePref:        pd.remotePref || "",
-      dfwArea:           "",  // Location-specific — only fill if user sets it
-      locationPref:      pd.location || "",
-      travelWilling:     pd.travelWilling || "",
       termsConsent:      true,
       privacyConsent:    true,
-      smsConsent:        pd.smsConsent || "",
-      bgCheck:           pd.bgCheck || "",
       aiPolicy:          "Yes",
-      interviewedBefore: pd.interviewedBefore || "",
-      contractPref:      pd.contractPref || "",
-      noticePeriod:      pd.earliestStart || "",
-      startDate:         pd.earliestStart || "",
-      shiftAvail:        pd.shiftAvail || "",
-      codingLang:        pd.codingLanguage || "",
-    }
-    return map[intent] !== undefined ? map[intent] : null
-  }
-
-  function getSensitiveAnswer(intent, pd) {
-    var map = {
-      gender:    pd.gender,
-      race:      pd.race,
-      ethnicity: pd.hispanicLatino,
-      veteran:   pd.veteranStatus,
-      disability: pd.disabilityStatus,
-      pronouns:  pd.pronouns,
     }
     return map[intent] !== undefined ? map[intent] : null
   }
