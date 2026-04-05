@@ -57,7 +57,94 @@ async def admin_stats(
         except Exception:
             stats[key] = 0
 
+    # Autofill metrics
+    af_queries = {
+        "autofillSessions": "SELECT COUNT(*) FROM autofill_sessions",
+        "autofillFieldsFilled": "SELECT COALESCE(SUM(fields_filled), 0) FROM autofill_sessions",
+        "autofillFieldsFailed": "SELECT COALESCE(SUM(fields_failed), 0) FROM autofill_sessions",
+        "autofillAIAnswers": "SELECT COALESCE(SUM(fields_ai), 0) FROM autofill_sessions",
+        "autofillMemoryReused": "SELECT COALESCE(SUM(fields_memory), 0) FROM autofill_sessions",
+        "savedAnswers": "SELECT COUNT(*) FROM answer_memory",
+    }
+    for key, sql in af_queries.items():
+        try:
+            result = await db.execute(text(sql))
+            stats[key] = result.scalar() or 0
+        except Exception:
+            stats[key] = 0
+
     return stats
+
+
+@router.get("/autofill-quality")
+async def admin_autofill_quality(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin dashboard: autofill quality metrics."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin only")
+
+    quality = {}
+
+    # Top portals by failure rate
+    try:
+        result = await db.execute(text("""
+            SELECT portal_domain,
+                   COUNT(*) as sessions,
+                   COALESCE(AVG(fields_failed), 0) as avg_failed,
+                   COALESCE(AVG(fields_filled), 0) as avg_filled
+            FROM autofill_sessions
+            WHERE portal_domain IS NOT NULL
+            GROUP BY portal_domain
+            ORDER BY avg_failed DESC LIMIT 10
+        """))
+        quality["portalStats"] = [
+            {"domain": r["portal_domain"], "sessions": r["sessions"],
+             "avgFailed": round(float(r["avg_failed"]), 1), "avgFilled": round(float(r["avg_filled"]), 1)}
+            for r in result.mappings().all()
+        ]
+    except Exception:
+        quality["portalStats"] = []
+
+    # Most common repeated questions (answer memory)
+    try:
+        result = await db.execute(text("""
+            SELECT question_text, SUM(use_count) as total_uses, COUNT(DISTINCT user_id) as unique_users
+            FROM answer_memory
+            WHERE question_text IS NOT NULL
+            GROUP BY question_text
+            ORDER BY total_uses DESC LIMIT 15
+        """))
+        quality["topQuestions"] = [
+            {"question": r["question_text"][:80], "uses": r["total_uses"], "users": r["unique_users"]}
+            for r in result.mappings().all()
+        ]
+    except Exception:
+        quality["topQuestions"] = []
+
+    # Average readiness score
+    try:
+        result = await db.execute(text("SELECT AVG(readiness_score) FROM autofill_sessions"))
+        quality["avgReadiness"] = round(float(result.scalar() or 0))
+    except Exception:
+        quality["avgReadiness"] = 0
+
+    # Memory reuse rate
+    try:
+        result = await db.execute(text("""
+            SELECT COALESCE(SUM(fields_memory), 0) as memory_total,
+                   COALESCE(SUM(fields_ai), 0) as ai_total
+            FROM autofill_sessions
+        """))
+        row = result.mappings().first()
+        memory = row.get("memory_total", 0) if row else 0
+        ai = row.get("ai_total", 0) if row else 0
+        quality["memoryReuseRate"] = round(memory / max(memory + ai, 1) * 100)
+    except Exception:
+        quality["memoryReuseRate"] = 0
+
+    return quality
 
 
 # ── User Management ──────────────────────────────────────────────────────

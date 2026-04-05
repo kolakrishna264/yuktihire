@@ -174,6 +174,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "SAVE_AUTOFILL_SESSION") {
+    apiCall("/extension/autofill-session", {
+      method: "POST",
+      body: JSON.stringify(msg.data),
+    })
+      .then(data => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false }))
+    return true
+  }
+
   if (msg.type === "SAVE_ANSWER_MEMORY") {
     apiCall("/extension/save-answer", {
       method: "POST",

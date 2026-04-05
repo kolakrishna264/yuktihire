@@ -171,6 +171,8 @@ class SaveAnswerData(BaseModel):
     question_hash: str
     question_text: str
     answer: str
+    source: Optional[str] = "ai"
+    category: Optional[str] = None
 
 
 @router.post("/save-answer")
@@ -183,28 +185,179 @@ async def save_answer_memory(
     try:
         import uuid
         now = datetime.now(timezone.utc)
-        # Upsert: update if same question_hash exists, otherwise insert
         existing = await db.execute(
-            text("SELECT id FROM answer_memory WHERE user_id = :uid AND question_hash = :qh"),
+            text("SELECT id, use_count FROM answer_memory WHERE user_id = :uid AND question_hash = :qh"),
             {"uid": current_user.id, "qh": data.question_hash},
         )
-        if existing.first():
+        row = existing.first()
+        if row:
             await db.execute(
-                text("UPDATE answer_memory SET answer = :answer, question_text = :qt, updated_at = :now WHERE user_id = :uid AND question_hash = :qh"),
-                {"uid": current_user.id, "qh": data.question_hash, "answer": data.answer, "qt": data.question_text, "now": now},
+                text("""UPDATE answer_memory SET answer = :answer, question_text = :qt, source = :src,
+                        category = :cat, use_count = :uc, updated_at = :now
+                        WHERE user_id = :uid AND question_hash = :qh"""),
+                {"uid": current_user.id, "qh": data.question_hash, "answer": data.answer,
+                 "qt": data.question_text, "src": data.source, "cat": data.category,
+                 "uc": (row[1] or 0) + 1, "now": now},
             )
         else:
             await db.execute(
-                text("""INSERT INTO answer_memory (id, user_id, question_hash, question_text, answer, created_at, updated_at)
-                        VALUES (:id, :uid, :qh, :qt, :answer, :now, :now)"""),
+                text("""INSERT INTO answer_memory (id, user_id, question_hash, question_text, answer, source, category, use_count, created_at, updated_at)
+                        VALUES (:id, :uid, :qh, :qt, :answer, :src, :cat, 1, :now, :now)"""),
                 {"id": str(uuid.uuid4()), "uid": current_user.id, "qh": data.question_hash,
-                 "qt": data.question_text, "answer": data.answer, "now": now},
+                 "qt": data.question_text, "answer": data.answer, "src": data.source,
+                 "cat": data.category, "now": now},
             )
         await db.commit()
         return {"status": "saved"}
     except Exception as e:
         print(f"[Extension] save-answer error: {e}")
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/answers")
+async def list_answer_memory(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all saved answers for this user."""
+    try:
+        result = await db.execute(
+            text("SELECT * FROM answer_memory WHERE user_id = :uid ORDER BY updated_at DESC"),
+            {"uid": current_user.id},
+        )
+        rows = result.mappings().all()
+        return [
+            {
+                "id": r.get("id"),
+                "questionHash": r.get("question_hash"),
+                "questionText": r.get("question_text"),
+                "answer": r.get("answer"),
+                "source": r.get("source", "ai"),
+                "category": r.get("category"),
+                "useCount": r.get("use_count", 1),
+                "updatedAt": r["updated_at"].isoformat() if r.get("updated_at") else None,
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+@router.patch("/answers/{answer_id}")
+async def update_answer(
+    answer_id: str,
+    data: SaveAnswerData,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a saved answer."""
+    try:
+        await db.execute(
+            text("UPDATE answer_memory SET answer = :answer, source = 'edited', updated_at = NOW() WHERE id = :id AND user_id = :uid"),
+            {"id": answer_id, "uid": current_user.id, "answer": data.answer},
+        )
+        await db.commit()
+        return {"status": "updated"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.delete("/answers/{answer_id}", status_code=204)
+async def delete_answer(
+    answer_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a saved answer."""
+    await db.execute(
+        text("DELETE FROM answer_memory WHERE id = :id AND user_id = :uid"),
+        {"id": answer_id, "uid": current_user.id},
+    )
+    await db.commit()
+
+
+class AutofillSessionData(BaseModel):
+    portal_domain: Optional[str] = None
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    fields_total: int = 0
+    fields_filled: int = 0
+    fields_review: int = 0
+    fields_failed: int = 0
+    fields_ai: int = 0
+    fields_memory: int = 0
+    readiness_score: int = 0
+    duration_ms: int = 0
+
+
+@router.post("/autofill-session")
+async def save_autofill_session(
+    data: AutofillSessionData,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Track an autofill session for analytics."""
+    try:
+        import uuid
+        await db.execute(
+            text("""INSERT INTO autofill_sessions (id, user_id, portal_domain, job_title, company,
+                    fields_total, fields_filled, fields_review, fields_failed, fields_ai, fields_memory,
+                    readiness_score, duration_ms, created_at)
+                    VALUES (:id, :uid, :domain, :title, :company, :total, :filled, :review, :failed,
+                    :ai, :memory, :readiness, :duration, NOW())"""),
+            {"id": str(uuid.uuid4()), "uid": current_user.id, "domain": data.portal_domain,
+             "title": data.job_title, "company": data.company, "total": data.fields_total,
+             "filled": data.fields_filled, "review": data.fields_review, "failed": data.fields_failed,
+             "ai": data.fields_ai, "memory": data.fields_memory, "readiness": data.readiness_score,
+             "duration": data.duration_ms},
+        )
+        await db.commit()
+        return {"status": "saved"}
+    except Exception as e:
+        print(f"[Extension] autofill-session error: {e}")
+        return {"status": "error"}
+
+
+@router.get("/autofill-stats")
+async def get_autofill_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get autofill analytics for this user."""
+    try:
+        result = await db.execute(
+            text("""SELECT
+                    COUNT(*) as total_sessions,
+                    COALESCE(SUM(fields_filled), 0) as total_filled,
+                    COALESCE(SUM(fields_review), 0) as total_review,
+                    COALESCE(SUM(fields_ai), 0) as total_ai,
+                    COALESCE(SUM(fields_memory), 0) as total_memory,
+                    COALESCE(SUM(fields_failed), 0) as total_failed,
+                    COALESCE(AVG(readiness_score), 0) as avg_readiness,
+                    COALESCE(SUM(duration_ms), 0) as total_duration_ms
+                    FROM autofill_sessions WHERE user_id = :uid"""),
+            {"uid": current_user.id},
+        )
+        row = result.mappings().first()
+        if not row:
+            return {"totalSessions": 0}
+
+        # Estimate time saved: ~2 min per manual field vs ~2 sec autofill
+        total_filled = row.get("total_filled", 0)
+        time_saved_min = round(total_filled * 1.5)  # ~1.5 min saved per field
+
+        return {
+            "totalSessions": row.get("total_sessions", 0),
+            "totalFieldsFilled": total_filled,
+            "totalFieldsReview": row.get("total_review", 0),
+            "totalAIAnswers": row.get("total_ai", 0),
+            "totalMemoryReused": row.get("total_memory", 0),
+            "totalFailed": row.get("total_failed", 0),
+            "avgReadiness": round(float(row.get("avg_readiness", 0))),
+            "estimatedTimeSavedMin": time_saved_min,
+        }
+    except Exception:
+        return {"totalSessions": 0}
 
 
 class UpdateJDData(BaseModel):

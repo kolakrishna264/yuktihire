@@ -59,6 +59,10 @@ async def lifespan(app: FastAPI):
                     # SaaS: AI answer usage tracking
                     "ALTER TABLE usage_limits ADD COLUMN IF NOT EXISTS ai_answers_used INTEGER DEFAULT 0",
                     "ALTER TABLE usage_limits ADD COLUMN IF NOT EXISTS ai_answers_max INTEGER DEFAULT 10",
+                    # Answer memory extra columns
+                    "ALTER TABLE answer_memory ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'ai'",
+                    "ALTER TABLE answer_memory ADD COLUMN IF NOT EXISTS category VARCHAR(50)",
+                    "ALTER TABLE answer_memory ADD COLUMN IF NOT EXISTS use_count INTEGER DEFAULT 1",
                 ]:
                     try:
                         await conn.execute(sql_text(col_sql))
@@ -128,9 +132,28 @@ async def lifespan(app: FastAPI):
                         question_hash VARCHAR(100) NOT NULL,
                         question_text TEXT,
                         answer TEXT NOT NULL,
+                        source VARCHAR(20) DEFAULT 'ai',
+                        category VARCHAR(50),
+                        use_count INTEGER DEFAULT 1,
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW(),
                         UNIQUE(user_id, question_hash)
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS autofill_sessions (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL REFERENCES users(id),
+                        portal_domain VARCHAR(255),
+                        job_title VARCHAR(500),
+                        company VARCHAR(255),
+                        fields_total INTEGER DEFAULT 0,
+                        fields_filled INTEGER DEFAULT 0,
+                        fields_review INTEGER DEFAULT 0,
+                        fields_failed INTEGER DEFAULT 0,
+                        fields_ai INTEGER DEFAULT 0,
+                        fields_memory INTEGER DEFAULT 0,
+                        readiness_score INTEGER DEFAULT 0,
+                        duration_ms INTEGER DEFAULT 0,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
                     )""",
                 ]
                 for table_sql in saas_tables:

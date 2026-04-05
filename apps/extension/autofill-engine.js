@@ -888,6 +888,52 @@ var YuktiEngine = (function () {
     } catch (e) {}
   }
 
+  // ── 8. Portal Reliability Adapters ──────────────────────────────────────
+  // Lightweight pre-processors for specific ATS portals
+
+  function detectPortal() {
+    var host = location.hostname.toLowerCase()
+    if (host.includes("greenhouse")) return "greenhouse"
+    if (host.includes("lever.co")) return "lever"
+    if (host.includes("rippling")) return "rippling"
+    if (host.includes("myworkday") || host.includes("workday")) return "workday"
+    if (host.includes("icims")) return "icims"
+    if (host.includes("smartrecruiters")) return "smartrecruiters"
+    if (host.includes("ashby")) return "ashby"
+    return "generic"
+  }
+
+  function applyPortalAdapter(blocks) {
+    var portal = detectPortal()
+    if (portal === "greenhouse") {
+      // Greenhouse: inputs often have name="question_XXXXX" — already handled in readQuestionText
+      // Custom selects use React-Select — already handled by fillCustomSelectAsync
+      return blocks
+    }
+    if (portal === "lever") {
+      // Lever: uses div-based custom fields with data-qa attributes
+      for (var i = 0; i < blocks.length; i++) {
+        if (blocks[i].questionText === "" && blocks[i].element) {
+          var qa = blocks[i].element.getAttribute("data-qa")
+          if (qa) blocks[i].questionText = qa.replace(/-/g, " ").replace(/_/g, " ")
+        }
+      }
+      return blocks
+    }
+    if (portal === "workday") {
+      // Workday: uses data-automation-id for labels
+      for (var i = 0; i < blocks.length; i++) {
+        if (blocks[i].questionText === "" && blocks[i].element) {
+          var aid = blocks[i].element.getAttribute("data-automation-id")
+          if (aid) blocks[i].questionText = aid.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/-/g, " ")
+        }
+      }
+      return blocks
+    }
+    // Rippling, iCIMS, etc. — generic engine handles them
+    return blocks
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // PUBLIC API
   // ═══════════════════════════════════════════════════════════════════════
@@ -932,7 +978,8 @@ var YuktiEngine = (function () {
     // Returns { blocks, filled, skipped, needsAI, needsReview }
     fillAll: function(profileData) {
       var blocks = scanPage()
-      var results = { filled: [], skipped: [], needsAI: [], needsReview: [], needsAsync: [], total: blocks.length }
+      blocks = applyPortalAdapter(blocks)  // Apply portal-specific fixes
+      var results = { filled: [], skipped: [], needsAI: [], needsReview: [], needsAsync: [], total: blocks.length, portal: detectPortal() }
 
       for (var i = 0; i < blocks.length; i++) {
         var block = blocks[i]

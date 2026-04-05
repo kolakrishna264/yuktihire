@@ -320,6 +320,7 @@ if (document.location.hostname.includes("yuktihire.com")) {
       document.getElementById("yh-submit-bar").style.display = "none"
 
       var totalFilled = 0, totalReview = 0, totalFailed = 0
+      var startTime = Date.now()
 
       // Step 1: Get profile
       setStatus("Loading profile...")
@@ -458,11 +459,30 @@ if (document.location.hostname.includes("yuktihire.com")) {
       }
 
       // Final
+      var endTime = Date.now()
       setBar(100)
       setStatus("Done — " + totalFilled + " filled")
       setStats(totalFilled, totalReview, totalFailed)
       btn.disabled = false
       btn.textContent = "Fill Everything"
+
+      // Track autofill session for analytics
+      sendMsg({
+        type: "SAVE_AUTOFILL_SESSION",
+        data: {
+          portal_domain: location.hostname,
+          job_title: document.getElementById("yh-job-title")?.textContent || "",
+          company: document.getElementById("yh-job-company")?.textContent || "",
+          fields_total: totalFilled + totalReview + totalFailed,
+          fields_filled: totalFilled,
+          fields_review: totalReview,
+          fields_failed: totalFailed,
+          fields_ai: 0,  // TODO: track separately
+          fields_memory: 0,
+          readiness_score: pd.readiness?.score || 0,
+          duration_ms: endTime - startTime,
+        }
+      })
 
       // Check for submit readiness
       showSubmitBar()
