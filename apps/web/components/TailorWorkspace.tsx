@@ -217,9 +217,15 @@ export function TailorWorkspace() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      window.open(`${window.location.origin}/api/v1/exports?format=pdf&resume_id=${selectedResumeId}`, "_blank")
-                      toast.info("PDF export — use the Resumes page to download")
+                    onClick={async () => {
+                      try {
+                        toast.info("Generating PDF...")
+                        const { apiDownload } = await import("@/lib/api/client")
+                        await apiDownload(`/extension/export?resume_id=${selectedResumeId}&format=pdf`, "resume.pdf")
+                        toast.success("PDF downloaded!")
+                      } catch (e: any) {
+                        toast.error(e.message || "PDF download failed")
+                      }
                     }}
                   >
                     Download PDF
@@ -227,9 +233,15 @@ export function TailorWorkspace() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      window.open(`${window.location.origin}/api/v1/exports?format=docx&resume_id=${selectedResumeId}`, "_blank")
-                      toast.info("DOCX export — use the Resumes page to download")
+                    onClick={async () => {
+                      try {
+                        toast.info("Generating DOCX...")
+                        const { apiDownload } = await import("@/lib/api/client")
+                        await apiDownload(`/extension/export?resume_id=${selectedResumeId}&format=docx`, "resume.docx")
+                        toast.success("DOCX downloaded!")
+                      } catch (e: any) {
+                        toast.error(e.message || "DOCX download failed")
+                      }
                     }}
                   >
                     Download Word

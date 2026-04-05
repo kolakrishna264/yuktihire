@@ -53,3 +53,36 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 
   return res.json()
 }
+
+/**
+ * Download a file from the API with authentication.
+ * Fetches as blob and triggers browser download.
+ */
+export async function apiDownload(path: string, filename: string) {
+  const token = await getAuthToken()
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
+
+  if (!res.ok) {
+    let message = `Download failed: ${res.status}`
+    try {
+      const body = await res.json()
+      message = body?.detail?.message || body?.detail || message
+    } catch {}
+    throw new Error(message)
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}

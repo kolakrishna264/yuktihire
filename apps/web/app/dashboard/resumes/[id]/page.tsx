@@ -137,13 +137,31 @@ export default function ResumeDetailPage() {
             <CardContent className="p-4">
               <p className="text-sm font-semibold mb-3">Export</p>
               <div className="space-y-2">
-                <Button variant="outline" size="sm" className="w-full">
+                <Button variant="outline" size="sm" className="w-full"
+                  onClick={async () => {
+                    try {
+                      const { apiDownload } = await import("@/lib/api/client")
+                      await apiDownload(`/extension/export?resume_id=${id}&format=pdf`, "resume.pdf")
+                    } catch (e: any) {
+                      const { toast } = await import("sonner")
+                      toast.error(e.message || "PDF download failed")
+                    }
+                  }}>
                   <Download className="w-3.5 h-3.5" />
                   Download PDF
                 </Button>
-                <Button variant="outline" size="sm" className="w-full text-muted-foreground">
+                <Button variant="outline" size="sm" className="w-full"
+                  onClick={async () => {
+                    try {
+                      const { apiDownload } = await import("@/lib/api/client")
+                      await apiDownload(`/extension/export?resume_id=${id}&format=docx`, "resume.docx")
+                    } catch (e: any) {
+                      const { toast } = await import("sonner")
+                      toast.error(e.message || "DOCX download failed")
+                    }
+                  }}>
                   <Download className="w-3.5 h-3.5" />
-                  Download DOCX <Badge variant="warning" className="ml-1">Pro</Badge>
+                  Download DOCX
                 </Button>
               </div>
             </CardContent>
