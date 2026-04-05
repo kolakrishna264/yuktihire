@@ -91,6 +91,17 @@ if (document.location.hostname.includes("yuktihire.com")) {
       .yh-log-warn .yh-log-icon { color:#f59e0b; }
       .yh-log-fail .yh-log-icon { color:#ef4444; }
       .yh-status-msg { padding:6px 14px; font-size:10px; font-weight:500; text-align:center; }
+      .yh-confidence { font-size:9px; font-weight:600; padding:1px 5px; border-radius:99px; margin-left:4px; }
+      .yh-conf-high { background:#ecfdf5; color:#059669; }
+      .yh-conf-medium { background:#ede9fe; color:#7c3aed; }
+      .yh-conf-low { background:#fef3c7; color:#92400e; }
+      .yh-conf-review { background:#fef2f2; color:#dc2626; }
+      .yh-submit-bar { padding:10px 14px; background:#f0fdf4; border-top:1px solid #bbf7d0; display:none; text-align:center; }
+      .yh-submit-bar p { font-size:11px; font-weight:600; color:#15803d; margin-bottom:6px; }
+      .yh-submit-btns { display:flex; gap:6px; justify-content:center; }
+      .yh-resume-hint { padding:6px 14px; background:#fffbeb; border-bottom:1px solid #fde68a; font-size:10px; color:#92400e; display:none; }
+      .yh-ats-bar { padding:6px 14px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:10px; display:none; }
+      .yh-ats-score { font-size:18px; font-weight:800; color:#6c63ff; }
     `
     document.head.appendChild(style)
 
@@ -107,6 +118,10 @@ if (document.location.hostname.includes("yuktihire.com")) {
           <strong id="yh-job-title">Detecting job...</strong>
           <span id="yh-job-company"></span>
         </div>
+        <div class="yh-ats-bar" id="yh-ats-bar">
+          ATS Match: <span class="yh-ats-score" id="yh-ats-score">--</span>%
+          <button class="yh-btn" id="yh-auto-tailor" style="float:right;padding:3px 8px;font-size:9px">Auto Tailor</button>
+        </div>
         <div class="yh-actions">
           <button class="yh-btn" id="yh-save">Save Job</button>
           <button class="yh-btn yh-btn-primary" id="yh-fill">Fill Everything</button>
@@ -115,12 +130,20 @@ if (document.location.hostname.includes("yuktihire.com")) {
           <button class="yh-btn" id="yh-download">Download Resume</button>
           <button class="yh-btn" id="yh-dash">Dashboard</button>
         </div>
+        <div class="yh-resume-hint" id="yh-resume-hint">Attach your resume to the file input highlighted below</div>
         <div class="yh-progress" id="yh-progress" style="display:none">
           <div class="yh-status-msg" id="yh-status">Scanning form...</div>
           <div class="yh-progress-bar"><div class="yh-progress-fill" id="yh-bar"></div></div>
           <div class="yh-stats" id="yh-stats"></div>
         </div>
         <div class="yh-log-area" id="yh-logs"></div>
+        <div class="yh-submit-bar" id="yh-submit-bar">
+          <p>All required fields filled</p>
+          <div class="yh-submit-btns">
+            <button class="yh-btn" id="yh-review">Review Form</button>
+            <button class="yh-btn yh-btn-primary" id="yh-submit-click">Submit Application</button>
+          </div>
+        </div>
       </div>
     `
     document.body.appendChild(panel)
@@ -154,11 +177,16 @@ if (document.location.hostname.includes("yuktihire.com")) {
       } catch(e) {}
     }
 
-    // Logging
-    function addLog(text, type) {
+    // ── Helpers ──
+    function addLog(text, type, confidence) {
       var el = document.getElementById("yh-logs")
       var icon = type === "ok" ? "&#10003;" : type === "warn" ? "&#9888;" : type === "fail" ? "&#10007;" : "&#8226;"
-      el.innerHTML += '<div class="yh-log yh-log-' + type + '"><span class="yh-log-icon">' + icon + '</span>' + text + '</div>'
+      var confBadge = ""
+      if (confidence) {
+        var cls = "yh-conf-" + confidence
+        confBadge = '<span class="yh-confidence ' + cls + '">' + confidence.toUpperCase() + '</span>'
+      }
+      el.innerHTML += '<div class="yh-log yh-log-' + type + '"><span class="yh-log-icon">' + icon + '</span><span style="flex:1">' + text + '</span>' + confBadge + '</div>'
       el.scrollTop = el.scrollHeight
     }
     function clearLogs() { document.getElementById("yh-logs").innerHTML = "" }
@@ -171,139 +199,311 @@ if (document.location.hostname.includes("yuktihire.com")) {
         '<span class="yh-stat-warn">' + warn + ' review</span>' +
         '<span class="yh-stat-fail">' + fail + ' failed</span>'
     }
+    function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms) }) }
+    function sendMsg(msg) { return new Promise(function(r) { chrome.runtime.sendMessage(msg, function(resp) { r(resp) }) }) }
+
+    // ── Confidence mapping ──
+    function getConfidence(source, category) {
+      if (source === "profile") return "high"
+      if (source === "rules") return "medium"
+      if (category === "sensitive") return "review"
+      if (source === "ai") return "low"
+      return "medium"
+    }
+
+    // ── Resume upload detection ──
+    function detectResumeInputs() {
+      var fileInputs = document.querySelectorAll('input[type="file"]')
+      var resumeInputs = []
+      for (var i = 0; i < fileInputs.length; i++) {
+        var fi = fileInputs[i]
+        var container = fi.closest("[class*='field'], [class*='question'], [class*='upload']") || fi.parentElement
+        var labelText = container ? (container.textContent || "").toLowerCase() : ""
+        if (labelText.includes("resume") || labelText.includes("cv") || fi.accept?.includes("pdf") || fi.accept?.includes("doc")) {
+          resumeInputs.push({ element: fi, type: "resume", label: "Resume/CV" })
+        } else if (labelText.includes("cover letter")) {
+          resumeInputs.push({ element: fi, type: "coverLetter", label: "Cover Letter" })
+        }
+      }
+      return resumeInputs
+    }
+
+    function highlightResumeInputs() {
+      var inputs = detectResumeInputs()
+      for (var i = 0; i < inputs.length; i++) {
+        var el = inputs[i].element
+        var container = el.closest("[class*='field'], [class*='upload']") || el.parentElement
+        if (container) {
+          container.style.outline = "3px solid #f59e0b"
+          container.style.outlineOffset = "2px"
+          container.style.borderRadius = "8px"
+        }
+      }
+      if (inputs.length > 0) {
+        document.getElementById("yh-resume-hint").style.display = "block"
+      }
+      return inputs
+    }
+
+    // ── Submit button detection ──
+    function detectSubmitButton() {
+      var selectors = [
+        'button[type="submit"]', 'input[type="submit"]',
+        'button[class*="submit"]', 'button[class*="apply"]',
+        'a[class*="submit"]', 'a[class*="apply"]',
+      ]
+      var btn = null
+      for (var s = 0; s < selectors.length; s++) {
+        btn = document.querySelector(selectors[s])
+        if (btn) return btn
+      }
+      // Text-based search
+      var allBtns = document.querySelectorAll("button, input[type='submit'], a[role='button']")
+      var submitWords = ["submit", "apply", "send application", "submit application"]
+      for (var b = 0; b < allBtns.length; b++) {
+        var text = (allBtns[b].textContent || allBtns[b].value || "").toLowerCase().trim()
+        for (var w = 0; w < submitWords.length; w++) {
+          if (text.includes(submitWords[w])) return allBtns[b]
+        }
+      }
+      return null
+    }
+
+    function checkAllRequiredFilled() {
+      if (typeof YuktiEngine === "undefined") return false
+      var blocks = YuktiEngine.scan()
+      for (var i = 0; i < blocks.length; i++) {
+        if (blocks[i].required && blocks[i].isEmpty) return false
+      }
+      return true
+    }
+
+    function showSubmitBar() {
+      if (checkAllRequiredFilled()) {
+        document.getElementById("yh-submit-bar").style.display = "block"
+      }
+    }
+
+    // ── Multi-step form detection (MutationObserver) ──
+    var lastFormHash = ""
+    function getFormHash() {
+      var inputs = document.querySelectorAll("input, select, textarea")
+      return inputs.length + ":" + (inputs[0]?.name || "") + ":" + (inputs[inputs.length - 1]?.name || "")
+    }
+
+    // Watch for page changes (Next button clicks, multi-step forms)
+    var observer = new MutationObserver(function() {
+      var newHash = getFormHash()
+      if (newHash !== lastFormHash && lastFormHash !== "") {
+        // Form structure changed — new fields appeared
+        addLog("New form section detected — ready to fill", "warn")
+        document.getElementById("yh-fill").disabled = false
+        document.getElementById("yh-fill").textContent = "Fill Everything"
+      }
+      lastFormHash = newHash
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    lastFormHash = getFormHash()
 
     // ── SAVE JOB ──
     document.getElementById("yh-save").addEventListener("click", function() {
       chrome.runtime.sendMessage({ type: "OPEN_POPUP" })
     })
 
-    // ── FILL EVERYTHING (continuous loop) ──
+    // ── FILL EVERYTHING (continuous loop with all features) ──
     document.getElementById("yh-fill").addEventListener("click", async function() {
       var btn = document.getElementById("yh-fill")
       btn.disabled = true
       btn.textContent = "Filling..."
       clearLogs()
       showProgress()
+      document.getElementById("yh-submit-bar").style.display = "none"
 
       var totalFilled = 0, totalReview = 0, totalFailed = 0
 
       // Step 1: Get profile
       setStatus("Loading profile...")
       setBar(5)
-      var profile = await new Promise(function(r) {
-        chrome.runtime.sendMessage({ type: "GET_AUTOFILL_DATA" }, function(resp) { r(resp) })
-      })
+      var profile = await sendMsg({ type: "GET_AUTOFILL_DATA" })
       if (!profile || !profile.ok) {
         addLog("Could not load profile data", "fail")
         btn.disabled = false; btn.textContent = "Fill Everything"; return
       }
-      addLog("Profile loaded", "ok")
+      addLog("Profile loaded", "ok", "high")
 
-      // Step 2: Continuous fill loop (up to 5 passes)
+      // Step 2: Detect resume upload fields
+      var resumeInputs = highlightResumeInputs()
+      if (resumeInputs.length > 0) {
+        addLog("Resume upload detected — attach manually", "warn", "review")
+        totalReview++
+      }
+
+      // Step 3: Continuous fill loop (up to 5 passes)
       var maxPasses = 5
       for (var pass = 1; pass <= maxPasses; pass++) {
         setStatus("Pass " + pass + "/" + maxPasses + " — scanning...")
         setBar(10 + (pass - 1) * 15)
 
-        // Engine fill
         var result = null
         if (typeof YuktiEngine !== "undefined") {
           result = YuktiEngine.fillAll(profile.data)
         }
         if (!result) { addLog("Engine not loaded", "fail"); break }
 
-        // Log filled
+        // Log filled with confidence
         var passFilled = 0
         result.filled.forEach(function(f) {
-          addLog(f.label + ": " + f.value + (f.verified ? "" : " (unverified)"), f.verified ? "ok" : "warn")
+          var conf = getConfidence(f.source, "")
+          var statusType = f.verified ? "ok" : "warn"
+          addLog(f.label + ": " + f.value, statusType, conf)
           if (f.verified) passFilled++; else totalReview++
         })
         totalFilled += passFilled
 
         // Log review needed
         result.needsReview.forEach(function(r) {
-          addLog(r.label + " — needs review", "warn")
+          addLog(r.label + " — needs review", "warn", "review")
           totalReview++
         })
 
         // Fill async custom dropdowns
-        if (result.needsAsync.length > 0) {
-          setStatus("Pass " + pass + " — dropdowns...")
-          for (var a = 0; a < result.needsAsync.length; a++) {
-            var af = result.needsAsync[a]
-            try {
-              var asyncBlock = { element: document.querySelector(af.selector), container: null, inputType: "customSelect" }
-              if (asyncBlock.element) {
-                asyncBlock.container = asyncBlock.element.parentElement
-                var ar = await YuktiEngine.fillAsync(asyncBlock, af.value)
-                if (ar.ok) { addLog(af.label.slice(0, 40) + ": " + (ar.selected || af.value), "ok"); totalFilled++ }
-                else { addLog(af.label.slice(0, 40) + " — dropdown failed", "fail"); totalFailed++ }
-              }
-            } catch(e) { addLog(af.label.slice(0, 40) + " — error", "fail"); totalFailed++ }
-            await new Promise(function(r) { setTimeout(r, 300) })
-          }
-        }
-
-        // AI fill for remaining
-        if (result.needsAI.length > 0) {
-          setStatus("Pass " + pass + " — AI answering " + result.needsAI.length + " questions...")
-          for (var ai = 0; ai < result.needsAI.length; ai++) {
-            var field = result.needsAI[ai]
-            if (!field.label) continue
-            setBar(Math.min(90, 10 + pass * 15 + ai * 3))
-
-            // Build prompt
-            var prompt = field.label
-            if (field.options && field.options.length > 0) {
-              prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text.'
-            } else if (field.category === "motivation" || field.category === "behavioral" || field.category === "technical" || field.category === "openEnded") {
-              prompt = 'Answer this job application question professionally (200-400 words if open-ended, 1-2 sentences if short):\n\n"' + field.label + '"'
-              if (field.helperText) prompt += '\n\nContext: ' + field.helperText.slice(0, 300)
+        for (var a = 0; a < result.needsAsync.length; a++) {
+          var af = result.needsAsync[a]
+          setStatus("Pass " + pass + " — dropdown: " + af.label.slice(0, 20))
+          try {
+            var asyncEl = document.querySelector(af.selector)
+            if (asyncEl) {
+              var ar = await YuktiEngine.fillAsync({ element: asyncEl, container: asyncEl.parentElement, inputType: "customSelect" }, af.value)
+              if (ar.ok) { addLog(af.label.slice(0, 35) + ": " + (ar.selected || af.value), "ok", "medium"); totalFilled++ }
+              else { addLog(af.label.slice(0, 35), "fail"); totalFailed++ }
             }
-
-            try {
-              var answer = await new Promise(function(r) {
-                chrome.runtime.sendMessage({ type: "GENERATE_ANSWER", data: { question: prompt } }, function(resp) { r(resp) })
-              })
-              if (answer && answer.ok && answer.data && answer.data.answer) {
-                var val = answer.data.answer.trim()
-                var el = document.querySelector(field.selector)
-                if (el) {
-                  var fakeBlock = { element: el, container: el.parentElement, inputType: field.inputType, options: [], radioGroupName: null }
-                  var fr = YuktiEngine.fill(fakeBlock, val)
-                  if (fr.ok) { addLog("AI: " + field.label.slice(0, 35), "ok"); totalFilled++ }
-                  else if (fr.reason === "needs_async") {
-                    var ar2 = await YuktiEngine.fillAsync(fakeBlock, val)
-                    if (ar2.ok) { addLog("AI: " + field.label.slice(0, 35), "ok"); totalFilled++ }
-                    else { addLog("AI: " + field.label.slice(0, 35) + " (fill failed)", "warn"); totalFailed++ }
-                  }
-                  else { addLog("AI: " + field.label.slice(0, 35) + " (fill failed)", "warn"); totalFailed++ }
-                }
-              }
-            } catch(e) { addLog("AI error: " + field.label.slice(0, 30), "fail"); totalFailed++ }
-            await new Promise(function(r) { setTimeout(r, 200) })
-          }
+          } catch(e) { totalFailed++ }
+          await sleep(300)
         }
 
-        // Check if new fields appeared
+        // AI fill
+        for (var ai = 0; ai < result.needsAI.length; ai++) {
+          var field = result.needsAI[ai]
+          if (!field.label) continue
+          setStatus("AI: " + field.label.slice(0, 25) + "...")
+          setBar(Math.min(90, 10 + pass * 15 + ai * 3))
+
+          var prompt = field.label
+          if (field.options && field.options.length > 0) {
+            prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text.'
+          } else if (["motivation", "behavioral", "technical", "openEnded"].indexOf(field.category) !== -1) {
+            prompt = 'Answer this job application question professionally (200-400 words if open-ended, 1-2 sentences if short):\n\n"' + field.label + '"'
+            if (field.helperText) prompt += '\n\nContext: ' + field.helperText.slice(0, 300)
+          }
+
+          try {
+            var answer = await sendMsg({ type: "GENERATE_ANSWER", data: { question: prompt } })
+            if (answer?.ok && answer.data?.answer) {
+              var val = answer.data.answer.trim()
+              var el = document.querySelector(field.selector)
+              if (el) {
+                var fb = { element: el, container: el.parentElement, inputType: field.inputType, options: [], radioGroupName: null }
+                var fr = YuktiEngine.fill(fb, val)
+                if (fr.ok) { addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++ }
+                else if (fr.reason === "needs_async") {
+                  var ar2 = await YuktiEngine.fillAsync(fb, val)
+                  if (ar2.ok) { addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++ }
+                  else { addLog("AI: " + field.label.slice(0, 30), "fail"); totalFailed++ }
+                } else { addLog("AI: " + field.label.slice(0, 30), "fail"); totalFailed++ }
+              }
+            }
+          } catch(e) { totalFailed++ }
+          await sleep(200)
+        }
+
+        // Check for new fields
         if (pass < maxPasses) {
-          await new Promise(function(r) { setTimeout(r, 500) })
+          await sleep(500)
           var newEmpty = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
+          // Filter out file inputs from "empty" count
+          newEmpty = newEmpty.filter(function(b) { return b.inputType !== "file" })
           if (newEmpty.length === 0) {
-            addLog("All fields filled — done!", "ok")
+            addLog("All fields filled!", "ok", "high")
             break
           }
-          addLog(newEmpty.length + " fields remaining — rescanning...", "warn")
+          addLog(newEmpty.length + " fields remaining — pass " + (pass + 1), "warn")
         }
       }
 
-      // Final summary
+      // Final
       setBar(100)
-      setStatus("Done!")
+      setStatus("Done — " + totalFilled + " filled")
       setStats(totalFilled, totalReview, totalFailed)
       btn.disabled = false
       btn.textContent = "Fill Everything"
+
+      // Check for submit readiness
+      showSubmitBar()
     })
+
+    // ── SUBMIT DETECTION ──
+    document.getElementById("yh-review").addEventListener("click", function() {
+      // Scroll to top of form
+      var form = document.querySelector("form")
+      if (form) form.scrollIntoView({ behavior: "smooth" })
+      document.getElementById("yh-submit-bar").style.display = "none"
+    })
+    document.getElementById("yh-submit-click").addEventListener("click", function() {
+      var submitBtn = detectSubmitButton()
+      if (submitBtn) {
+        submitBtn.scrollIntoView({ behavior: "smooth", block: "center" })
+        submitBtn.style.outline = "3px solid #22c55e"
+        submitBtn.style.outlineOffset = "2px"
+        addLog("Submit button highlighted — click it to apply", "ok", "high")
+      } else {
+        addLog("Submit button not found — submit manually", "warn")
+      }
+      document.getElementById("yh-submit-bar").style.display = "none"
+    })
+
+    // ── AUTO TAILOR ──
+    document.getElementById("yh-auto-tailor").addEventListener("click", async function() {
+      var btn = document.getElementById("yh-auto-tailor")
+      btn.disabled = true; btn.textContent = "Tailoring..."
+
+      // Get JD from page
+      var jd = (document.body?.innerText || "").slice(0, 15000)
+      var result = await sendMsg({ type: "QUICK_TAILOR", data: { job_description: jd } })
+      if (result?.ok) {
+        addLog("Tailoring started — check dashboard for results", "ok", "medium")
+        // Poll for ATS score
+        var sessionId = result.data?.sessionId
+        if (sessionId) {
+          var polls = 0
+          var pollInterval = setInterval(async function() {
+            polls++
+            if (polls > 30) { clearInterval(pollInterval); return }
+            var status = await sendMsg({ type: "TAILOR_STATUS", sessionId: sessionId })
+            if (status?.ok && status.data?.status === "COMPLETED") {
+              clearInterval(pollInterval)
+              if (status.data.atsScore) {
+                document.getElementById("yh-ats-score").textContent = status.data.atsScore.overall || "--"
+              }
+              addLog("Tailoring complete! ATS: " + (status.data.atsScore?.overall || "N/A") + "%", "ok", "high")
+              btn.disabled = false; btn.textContent = "Auto Tailor"
+            }
+          }, 2000)
+        }
+      } else {
+        addLog("Tailoring failed — upload a resume first", "fail")
+        btn.disabled = false; btn.textContent = "Auto Tailor"
+      }
+    })
+
+    // ── Tailoring sync: show ATS score on load ──
+    setTimeout(async function() {
+      try {
+        var status = await sendMsg({ type: "CHECK_AUTH" })
+        if (status?.ok) {
+          document.getElementById("yh-ats-bar").style.display = "block"
+        }
+      } catch(e) {}
+    }, 2000)
 
     // ── OTHER BUTTONS ──
     document.getElementById("yh-tailor").addEventListener("click", function() {
