@@ -126,6 +126,36 @@ async def lifespan(app: FastAPI):
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     )""",
+                    """CREATE TABLE IF NOT EXISTS processing_jobs (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL REFERENCES users(id),
+                        job_type VARCHAR(50) NOT NULL,
+                        status VARCHAR(20) DEFAULT 'queued',
+                        attempts INTEGER DEFAULT 0,
+                        payload_json TEXT,
+                        result_json TEXT,
+                        error_message TEXT,
+                        related_job_id VARCHAR,
+                        related_resume_id VARCHAR,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        completed_at TIMESTAMPTZ
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS ai_usage_logs (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR NOT NULL,
+                        job_type VARCHAR(50),
+                        model_name VARCHAR(100),
+                        provider VARCHAR(50) DEFAULT 'anthropic',
+                        prompt_category VARCHAR(50),
+                        tokens_input INTEGER,
+                        tokens_output INTEGER,
+                        latency_ms INTEGER,
+                        success BOOLEAN DEFAULT TRUE,
+                        related_job_id VARCHAR,
+                        related_resume_id VARCHAR,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
                     """CREATE TABLE IF NOT EXISTS answer_memory (
                         id VARCHAR PRIMARY KEY,
                         user_id VARCHAR NOT NULL REFERENCES users(id),
@@ -207,6 +237,12 @@ async def lifespan(app: FastAPI):
     print("[Startup] Background tasks launched — app ready")
 
     yield
+    # Cleanup
+    try:
+        from app.core.queue import close_redis
+        await close_redis()
+    except Exception:
+        pass
     await engine.dispose()
 
 
@@ -227,6 +263,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Structured request logging
+from app.core.logger import RequestLoggingMiddleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # Global exception handler — ensures CORS headers on 500 errors
 from fastapi.responses import JSONResponse
@@ -326,6 +366,60 @@ async def sync_now(background_tasks: BackgroundTasks):
             traceback.print_exc()
     background_tasks.add_task(_run)
     return {"status": "sync_started"}
+
+
+# ── Async Job API ────────────────────────────────────────────────────────
+
+@app.post(API_PREFIX + "/jobs/create")
+async def create_async_job(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an async processing job. Returns job_id for polling."""
+    from app.core.queue import enqueue_job
+    job_type = request.get("job_type", "")
+    payload = request.get("payload", {})
+    related_job_id = request.get("related_job_id")
+    related_resume_id = request.get("related_resume_id")
+
+    if job_type not in ["tailor_resume", "generate_cover_letter", "generate_interview_prep",
+                        "generate_company_intel", "generate_outreach", "generate_ai_answer",
+                        "parse_resume", "compute_ats_score"]:
+        raise HTTPException(400, "Invalid job type")
+
+    job_id = await enqueue_job(db, current_user.id, job_type, payload, related_job_id, related_resume_id)
+    return {"jobId": job_id, "status": "queued"}
+
+
+@app.get(API_PREFIX + "/jobs/{job_id}")
+async def get_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get status and result of an async job."""
+    from app.core.queue import get_job_status, get_job_result
+    status = await get_job_status(db, job_id)
+    if status["status"] == "completed":
+        result = await get_job_result(db, job_id)
+        return {**status, **result}
+    return status
+
+
+@app.post(API_PREFIX + "/jobs/{job_id}/retry")
+async def retry_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry a failed job."""
+    from app.core.queue import requeue_job, get_job_status
+    status = await get_job_status(db, job_id)
+    if status["status"] != "failed":
+        raise HTTPException(400, "Can only retry failed jobs")
+    await requeue_job(db, job_id)
+    return {"status": "requeued"}
 
 
 @app.get("/test-greenhouse")
