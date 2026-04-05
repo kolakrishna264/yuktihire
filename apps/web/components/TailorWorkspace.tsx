@@ -37,6 +37,14 @@ export function TailorWorkspace() {
   const { data: resumes = [] } = useResumes()
   const { data: resumeData } = useResume(selectedResumeId)
 
+  // Auto-select default or first resume
+  useEffect(() => {
+    if (resumes.length > 0 && !selectedResumeId) {
+      const defaultResume = resumes.find((r: any) => r.isDefault) || resumes[0]
+      if (defaultResume) setSelectedResumeId(defaultResume.id)
+    }
+  }, [resumes, selectedResumeId])
+
   // Load JD from tracked job if tracker param exists
   const { data: trackerJob } = useTrackerDetail(trackerId)
   useEffect(() => {
@@ -45,7 +53,7 @@ export function TailorWorkspace() {
       const jd = trackerJob.description || trackerJob.notes || (trackerJob as any).jobDescription || ""
       if (jd && jd.length > 20) {
         setPrefilledJD(jd)
-        toast.success(`JD loaded from "${trackerJob.title}" — select a resume and click Analyze`)
+        toast.success(`JD loaded from "${trackerJob.title}" — analyzing automatically...`)
       } else if (trackerJob.url) {
         // No JD stored — try to auto-fetch from URL
         setPrefilledJD("")
