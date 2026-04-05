@@ -1694,27 +1694,11 @@ if (document.location.hostname.includes("yuktihire.com")) {
       sendResponse(YuktiEngine.getEmptyBlocks())
     }
 
-    // Legacy — keep for backward compatibility
-    if (msg.type === "FIND_AND_FILL_QUESTION") {
-      var fqqCheck = document.querySelectorAll('input, select, textarea')
-      if (fqqCheck.length < 2) return false
-      findAndFillQuestionAsync(msg.question, msg.answer).then(function(result) {
-        sendResponse(result)
-      })
-      return true
-    }
-
-    if (msg.type === "UNIVERSAL_FILL") {
-      var quickCheck = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]), select, textarea')
-      var visibleInputs = 0
-      for (var qi = 0; qi < quickCheck.length; qi++) {
-        if (quickCheck[qi].offsetParent || quickCheck[qi].type === "hidden") visibleInputs++
-      }
-      if (visibleInputs < 2) return false
-      universalFill(msg.data).then(function(result) {
-        sendResponse(result)
-      })
-      return true
+    // Legacy handlers — DISABLED to prevent contamination
+    // All filling now goes through ENGINE_FILL_ALL / ENGINE_FILL_ASYNC / ENGINE_FILL_BY_SELECTOR
+    if (msg.type === "FIND_AND_FILL_QUESTION" || msg.type === "UNIVERSAL_FILL") {
+      sendResponse({ ok: false, reason: "deprecated — use ENGINE_FILL_ALL" })
+      return false
     }
     return false
   })

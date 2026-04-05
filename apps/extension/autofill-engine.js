@@ -312,32 +312,47 @@ var YuktiEngine = (function () {
     // 7. Placeholder
     if (el.placeholder) texts.push(el.placeholder)
 
-    // 8. name/id as fallback — but clean up Greenhouse IDs like "question_14412335008"
-    var nameId = (el.name || el.id || "").replace(/[_\-\[\]]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim()
-    // Skip pure numbers, question IDs, and auto-generated strings
-    if (nameId && !/^\d+$/.test(nameId) && !/^question\s*\d+/.test(nameId) && nameId.length > 2) {
+    // 8. name/id as fallback — heavily filter auto-generated IDs
+    var nameId = (el.name || el.id || "")
+      .replace(/[_\-\[\]]/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .trim()
+    // Skip: pure numbers, any string containing "question" + numbers, auto-generated hashes
+    if (nameId && nameId.length > 2 &&
+        !/^\d+$/.test(nameId) &&
+        !/question.*\d{4,}/i.test(nameId) &&      // "question 14412335008 question answer"
+        !/^[a-f0-9]{8,}$/i.test(nameId) &&         // hex hashes
+        !/^(q|field|input|custom)\s*\d+/i.test(nameId) &&  // "q123", "field456"
+        !/^\d+\s*(question|answer|field)/i.test(nameId)) { // "14412335008 question"
       texts.push(nameId)
     }
 
-    // Deduplicate and filter out junk labels
+    // Deduplicate and filter junk
     var unique = []
     var seenLower = new Set()
     for (var j = 0; j < texts.length; j++) {
       var t = texts[j].replace(/\s+/g, " ").trim()
-      // Skip: empty, "select", pure numbers, question IDs, single characters
       if (!t || t.length < 2) continue
       if (seenLower.has(t.toLowerCase())) continue
-      if (/^(select|select\.\.\.|choose|--|option)$/i.test(t)) continue
+      // Filter out generic/junk labels
+      if (/^(select|select\.\.\.|choose|choose\.\.\.|--|option|none)$/i.test(t)) continue
       if (/^\d+$/.test(t)) continue
-      if (/^question\s*\d+/i.test(t)) continue
+      if (/question.*\d{5,}/i.test(t)) continue  // Greenhouse IDs anywhere in string
+      if (/^\d{5,}/.test(t)) continue             // Starts with long number
       seenLower.add(t.toLowerCase())
       unique.push(t)
     }
 
-    // Return the shortest MEANINGFUL label — must contain at least one letter
+    // Return the shortest MEANINGFUL label — must contain at least one real word
     unique.sort(function(a, b) { return a.length - b.length })
     for (var k = 0; k < unique.length; k++) {
-      if (unique[k].length > 2 && unique[k].length < 200 && /[a-zA-Z]/.test(unique[k])) return unique[k]
+      var candidate = unique[k]
+      // Must have letters, be >2 chars, <200 chars, and NOT be mostly numbers
+      if (candidate.length > 2 && candidate.length < 200 &&
+          /[a-zA-Z]{2,}/.test(candidate) &&  // At least 2 consecutive letters
+          (candidate.replace(/[^a-zA-Z]/g, "").length > candidate.length * 0.3)) {  // >30% letters
+        return candidate
+      }
     }
     return unique[0] || ""
   }
@@ -951,12 +966,15 @@ var YuktiEngine = (function () {
         }
 
         if (fillResult.ok) {
-          block.status = "filled"
+          // Verify the fill actually worked
+          var verified = verifyFill(block)
+          block.status = verified ? "filled" : "unverified"
           results.filled.push({
             label: block.questionText.slice(0, 50),
             value: String(answer.value).slice(0, 30),
             source: answer.source,
             method: fillResult.method,
+            verified: verified,
           })
         } else {
           results.skipped.push({ label: block.questionText.slice(0, 50), reason: fillResult.reason })
