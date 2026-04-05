@@ -483,6 +483,17 @@ async def apply_recommendations(
                     applied_count += 1
             new_content["skills"] = current_skills
 
+    # Validate: tailored content must still have essential sections
+    # If tailoring somehow deleted sections, don't save the corruption
+    original_sections = set(k for k in (resume.content or {}).keys() if (resume.content or {}).get(k))
+    new_sections = set(k for k in new_content.keys() if new_content.get(k))
+    lost_sections = original_sections - new_sections
+    if lost_sections:
+        # Restore any sections that were lost during tailoring
+        for section in lost_sections:
+            new_content[section] = (resume.content or {})[section]
+
+    # Save as version (keeps history)
     version = ResumeVersion(
         resume_id=resume.id,
         content=new_content,
@@ -490,7 +501,12 @@ async def apply_recommendations(
         session_id=session_id,
     )
     db.add(version)
-    resume.content = new_content
+
+    # Update main resume content — but ONLY if the new content is valid
+    # (has at least experiences OR summary — not just skills)
+    has_substance = bool(new_content.get("experiences")) or bool(new_content.get("summary"))
+    if has_substance:
+        resume.content = new_content
     await db.flush()
 
     return {

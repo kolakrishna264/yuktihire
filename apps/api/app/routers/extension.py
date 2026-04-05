@@ -690,6 +690,53 @@ async def export_resume_for_extension(
         content = row.get("content")
         if isinstance(content, str):
             content = json.loads(content)
+        if not isinstance(content, dict):
+            content = {}
+
+        # Check if resume content is corrupted (only has skills, missing core sections)
+        has_experiences = bool(content.get("experiences"))
+        has_name = bool(content.get("name") or content.get("full_name") or content.get("contact", {}).get("full_name"))
+        if not has_experiences and not has_name:
+            # Try to rebuild from the latest valid resume version
+            try:
+                ver_result = await db.execute(
+                    text("""SELECT content FROM resume_versions WHERE resume_id = :rid
+                            AND content IS NOT NULL ORDER BY created_at DESC"""),
+                    {"rid": resume_id},
+                )
+                for ver_row in ver_result.mappings().all():
+                    ver_content = ver_row.get("content")
+                    if isinstance(ver_content, str):
+                        ver_content = json.loads(ver_content)
+                    if isinstance(ver_content, dict) and ver_content.get("experiences"):
+                        content = ver_content
+                        break
+            except Exception:
+                pass
+
+            # Still corrupted? Try to enrich from user profile
+            if not content.get("experiences"):
+                try:
+                    profile_result = await db.execute(
+                        text("SELECT * FROM profiles WHERE user_id = :uid"),
+                        {"uid": current_user.id},
+                    )
+                    p = profile_result.mappings().first()
+                    user_result = await db.execute(
+                        text("SELECT full_name, first_name, last_name, email FROM users WHERE id = :uid"),
+                        {"uid": current_user.id},
+                    )
+                    u = user_result.mappings().first()
+                    if u:
+                        content["name"] = u.get("full_name") or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
+                        content["email"] = u.get("email", "")
+                    if p:
+                        content["phone"] = p.get("phone", "")
+                        content["location"] = p.get("location", "")
+                        content["linkedin"] = p.get("linkedin", "")
+                        content["summary"] = p.get("summary") or p.get("headline") or ""
+                except Exception:
+                    pass
 
         name = row.get("name", "Resume").replace(" ", "_")
 
