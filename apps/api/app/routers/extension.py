@@ -286,22 +286,23 @@ async def get_autofill_data(
         except Exception:
             pass
 
-        # Defaults — overridden by saved application info from preferences
+        # Application preferences — ONLY from user's saved settings, no hardcoded defaults
+        # Sensitive fields (gender, race, etc.) are empty unless user explicitly set them
         defaults = {
-            "workAuthorization": "Yes",
-            "sponsorship": "Yes",
-            "relocation": "Yes",
-            "pronouns": "He/him/his",
-            "gender": "Male",
-            "veteranStatus": "I am not a protected veteran",
-            "disabilityStatus": "No, I do not have a disability",
-            "hispanicLatino": "No",
-            "race": "Asian",
-            "earliestStart": "2 weeks from offer",
-            "interviewedBefore": "No",
+            "workAuthorization": "",
+            "sponsorship": "",
+            "relocation": "",
+            "pronouns": "",
+            "gender": "",
+            "veteranStatus": "",
+            "disabilityStatus": "",
+            "hispanicLatino": "",
+            "race": "",
+            "earliestStart": "",
+            "interviewedBefore": "",
             "aiPolicyAcknowledge": "Yes",
         }
-        # Merge saved preferences over defaults
+        # Override with user's saved preferences
         for key in defaults:
             if key in app_info and app_info[key]:
                 defaults[key] = app_info[key]

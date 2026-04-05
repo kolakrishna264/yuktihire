@@ -326,10 +326,19 @@ if (document.location.hostname.includes("yuktihire.com")) {
       setBar(5)
       var profile = await sendMsg({ type: "GET_AUTOFILL_DATA" })
       if (!profile || !profile.ok) {
-        addLog("Could not load profile data", "fail")
+        addLog("Not authenticated — sign in at yuktihire.com first", "fail")
         btn.disabled = false; btn.textContent = "Fill Everything"; return
       }
-      addLog("Profile loaded", "ok", "high")
+      var pd = profile.data || {}
+      // Safety: require minimum profile data
+      if (!pd.firstName && !pd.email) {
+        addLog("Profile incomplete — add your name and email at yuktihire.com/dashboard/profile", "fail")
+        btn.disabled = false; btn.textContent = "Fill Everything"; return
+      }
+      addLog("Profile loaded: " + (pd.firstName || "") + " " + (pd.lastName || ""), "ok", "high")
+      // Warn about missing preferences
+      if (!pd.workAuthorization) addLog("Work authorization not set — go to Profile > Application Info", "warn", "review")
+      if (!pd.gender) addLog("EEO preferences not set — go to Profile > Application Info", "warn", "review")
 
       // Step 2: Detect resume upload fields
       var resumeInputs = highlightResumeInputs()
@@ -2923,45 +2932,43 @@ if (document.location.hostname.includes("yuktihire.com")) {
       // Work
       "current company": pd.headline, "current employer": pd.headline,
       "headline": pd.headline, "summary": pd.summary,
-      // Authorization
-      "authorized to work": pd.workAuthorization || "Yes",
-      "legally authorized": pd.workAuthorization || "Yes",
-      "work authorization": pd.workAuthorization || "Yes",
-      "eligible to work": pd.workAuthorization || "Yes",
-      "right to work": pd.workAuthorization || "Yes",
+      // Authorization — only from user's stored preferences, no hardcoded defaults
+      "authorized to work": pd.workAuthorization || "",
+      "legally authorized": pd.workAuthorization || "",
+      "work authorization": pd.workAuthorization || "",
+      "eligible to work": pd.workAuthorization || "",
+      "right to work": pd.workAuthorization || "",
       // Sponsorship
-      "sponsorship": pd.sponsorship || "Yes",
-      "visa sponsorship": pd.sponsorship || "Yes",
-      "require sponsorship": pd.sponsorship || "Yes",
-      "require visa": pd.sponsorship || "Yes",
-      "employment visa": pd.sponsorship || "Yes",
-      "employer sponsorship": pd.sponsorship || "Yes",
+      "sponsorship": pd.sponsorship || "",
+      "visa sponsorship": pd.sponsorship || "",
+      "require sponsorship": pd.sponsorship || "",
+      "require visa": pd.sponsorship || "",
+      "employment visa": pd.sponsorship || "",
+      "employer sponsorship": pd.sponsorship || "",
       // Relocation
-      "relocation": pd.relocation || "Yes",
-      "open to relocation": pd.relocation || "Yes",
-      "willing to relocate": pd.relocation || "Yes",
-      // Location-specific
-      "dfw area": "Yes", "located in the dfw": "Yes",
-      // EEO
-      "gender": pd.gender || "Male",
-      "sex": pd.gender || "Male",
-      "hispanic": pd.hispanicLatino || "No",
-      "hispanic/latino": pd.hispanicLatino || "No",
-      "latino": pd.hispanicLatino || "No",
-      "ethnicity": pd.hispanicLatino || "No",
-      "race": pd.race || "Asian",
-      "veteran": pd.veteranStatus || "I am not a protected veteran",
-      "veteran status": pd.veteranStatus || "I am not a protected veteran",
-      "disability": pd.disabilityStatus || "No, I do not have a disability",
-      "disability status": pd.disabilityStatus || "No, I do not have a disability",
-      "pronouns": pd.pronouns || "He/him/his",
+      "relocation": pd.relocation || "",
+      "open to relocation": pd.relocation || "",
+      "willing to relocate": pd.relocation || "",
+      // EEO — ONLY from user's explicit settings, NEVER hardcoded
+      "gender": pd.gender || "",
+      "sex": pd.gender || "",
+      "hispanic": pd.hispanicLatino || "",
+      "hispanic/latino": pd.hispanicLatino || "",
+      "latino": pd.hispanicLatino || "",
+      "ethnicity": pd.hispanicLatino || "",
+      "race": pd.race || "",
+      "veteran": pd.veteranStatus || "",
+      "veteran status": pd.veteranStatus || "",
+      "disability": pd.disabilityStatus || "",
+      "disability status": pd.disabilityStatus || "",
+      "pronouns": pd.pronouns || "",
       // Application
-      "earliest start": pd.earliestStart || "2 weeks from offer",
-      "start date": pd.earliestStart || "2 weeks from offer",
-      "when can you start": pd.earliestStart || "2 weeks from offer",
-      "availability": pd.earliestStart || "2 weeks from offer",
-      "interviewed before": pd.interviewedBefore || "No",
-      "ever interviewed": pd.interviewedBefore || "No",
+      "earliest start": pd.earliestStart || "",
+      "start date": pd.earliestStart || "",
+      "when can you start": pd.earliestStart || "",
+      "availability": pd.earliestStart || "",
+      "interviewed before": pd.interviewedBefore || "",
+      "ever interviewed": pd.interviewedBefore || "",
       // Policy
       "ai policy": "Yes",
       "in-person": "Yes",

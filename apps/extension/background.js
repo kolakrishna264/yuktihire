@@ -66,7 +66,11 @@ async function storeTokens(accessToken, refreshToken, expiresAt) {
 }
 
 async function clearTokens() {
-  await chrome.storage.local.remove(["yuktihire_token", "yuktihire_refresh", "yuktihire_expires"])
+  // Clear auth tokens AND all cached user data (profile, preferences)
+  await chrome.storage.local.remove([
+    "yuktihire_token", "yuktihire_refresh", "yuktihire_expires",
+    "yuktihire_profile_cache", "yuktihire_user_id",
+  ])
 }
 
 // ── API Helper ────────────────────────────────────────────────────────────
