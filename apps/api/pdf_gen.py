@@ -35,6 +35,8 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   ul.bullets li { font-size: 9.5pt; margin-bottom: 1.5px; line-height: 1.35; color: #222; }
 
   .skills-text { font-size: 9.5pt; line-height: 1.5; }
+  .skill-cat { margin-bottom: 2px; font-size: 9.5pt; }
+  .skill-cat-name { font-weight: bold; }
 
   .edu-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
   .edu-degree { font-weight: bold; font-size: 10pt; }
@@ -84,7 +86,14 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 </div>
 {% endif %}
 
-{% if skills %}
+{% if skill_categories %}
+<div class="section">
+  <div class="section-title">Technical Skills</div>
+  {% for cat in skill_categories %}
+  <div class="skill-cat"><span class="skill-cat-name">{{ cat.name }} –</span> {{ cat.items | join(', ') }}</div>
+  {% endfor %}
+</div>
+{% elif skills %}
 <div class="section">
   <div class="section-title">Technical Skills</div>
   <p class="skills-text">
@@ -126,6 +135,49 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+def categorize_skills(skills: list) -> list[dict]:
+    """Auto-categorize a flat skills list into grouped categories."""
+    CATEGORIES = {
+        "Languages": ["python", "java", "javascript", "typescript", "c#", "c++", "golang", "go", "ruby", "rust", "scala", "julia", "r", "sql", "bash", "shell", "php", "swift", "kotlin"],
+        "ML/AI Libraries": ["pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost", "lightgbm", "hugging face", "transformers", "opencv", "spacy", "nltk", "langchain", "llama", "openai", "anthropic", "claude", "gemini", "faiss", "pinecone"],
+        "NLP/LLMs": ["nlp", "llm", "gpt", "bert", "rag", "retrieval-augmented", "fine-tuning", "prompt engineering", "embedding", "sentiment", "ner", "named entity", "text classification", "generative ai", "agentic ai"],
+        "Cloud & DevOps": ["aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ci/cd", "github actions", "jenkins", "ec2", "s3", "lambda", "sagemaker", "cloudformation", "devops", "devsecops"],
+        "Data & Databases": ["postgresql", "mongodb", "redis", "mysql", "elasticsearch", "snowflake", "bigquery", "nosql", "vector database", "neo4j", "dynamodb", "cassandra"],
+        "Frameworks": ["react", "angular", "node", "nodejs", "fastapi", "flask", "django", ".net", "spring", "express", "next.js", "vue"],
+        "Data Processing": ["pandas", "numpy", "spark", "pyspark", "kafka", "airflow", "dbt", "hadoop", "matplotlib", "seaborn"],
+        "Tools": ["git", "jira", "confluence", "vs code", "jupyter", "mlflow", "weights & biases", "tensorboard", "prometheus", "grafana", "streamlit"],
+    }
+
+    categorized: dict[str, list[str]] = {}
+    uncategorized: list[str] = []
+
+    for skill in skills:
+        name = skill.get("name", skill) if isinstance(skill, dict) else skill
+        if not name or not isinstance(name, str) or len(name) > 60:
+            continue
+        name = name.strip()
+        placed = False
+        name_lower = name.lower()
+        for cat, keywords in CATEGORIES.items():
+            if any(kw in name_lower for kw in keywords):
+                categorized.setdefault(cat, [])
+                if name not in categorized[cat]:
+                    categorized[cat].append(name)
+                placed = True
+                break
+        if not placed:
+            if name not in uncategorized:
+                uncategorized.append(name)
+
+    result = []
+    for cat in CATEGORIES:
+        if cat in categorized and categorized[cat]:
+            result.append({"name": cat, "items": categorized[cat]})
+    if uncategorized:
+        result.append({"name": "Other", "items": uncategorized})
+    return result
+
+
 async def generate_pdf(resume_content: dict, template_id: str = "standard") -> bytes:
     """
     Render resume content to PDF bytes using WeasyPrint.
@@ -155,6 +207,10 @@ def render_html(resume_content: dict) -> str:
         }
     if "name" not in data:
         data["name"] = data["contact"].get("full_name", "")
+
+    # ── Auto-categorize skills ──
+    if "skills" in data and isinstance(data["skills"], list) and not data.get("skill_categories"):
+        data["skill_categories"] = categorize_skills(data["skills"])
 
     # ── Deduplicate ALL sections ──
 
