@@ -423,6 +423,92 @@ async def get_audit_log(
         return []
 
 
+@router.get("/system-health")
+async def system_health(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """System health metrics for admin dashboard."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin only")
+
+    health = {}
+
+    # Queue size
+    try:
+        result = await db.execute(text("SELECT status, COUNT(*) as cnt FROM processing_jobs GROUP BY status"))
+        queue = {}
+        for r in result.mappings().all():
+            queue[r["status"]] = r["cnt"]
+        health["queue"] = queue
+    except Exception:
+        health["queue"] = {}
+
+    # AI latency (last 24h)
+    try:
+        result = await db.execute(text("""
+            SELECT AVG(latency_ms) as avg_latency,
+                   MAX(latency_ms) as max_latency,
+                   COUNT(*) as total_calls,
+                   SUM(CASE WHEN success = false THEN 1 ELSE 0 END) as failures
+            FROM ai_usage_logs WHERE created_at > NOW() - INTERVAL '24 hours'
+        """))
+        row = result.mappings().first()
+        if row:
+            total = row.get("total_calls", 0) or 0
+            failures = row.get("failures", 0) or 0
+            health["ai"] = {
+                "avgLatencyMs": round(float(row.get("avg_latency", 0) or 0)),
+                "maxLatencyMs": round(float(row.get("max_latency", 0) or 0)),
+                "totalCalls24h": total,
+                "failures24h": failures,
+                "failureRate": round(failures / max(total, 1) * 100, 1),
+            }
+        else:
+            health["ai"] = {"totalCalls24h": 0}
+    except Exception:
+        health["ai"] = {"totalCalls24h": 0}
+
+    # Redis status
+    try:
+        from app.core.queue import get_redis
+        redis = await get_redis()
+        health["redis"] = "connected" if redis else "unavailable"
+        if redis:
+            queue_len = await redis.llen("yukti:jobs")
+            health["redisQueueSize"] = queue_len
+    except Exception:
+        health["redis"] = "unavailable"
+
+    # DB connection pool
+    try:
+        from app.core.database import engine
+        pool = engine.pool
+        health["db"] = {
+            "poolSize": pool.size(),
+            "checkedOut": pool.checkedout(),
+            "overflow": pool.overflow(),
+        }
+    except Exception:
+        health["db"] = {}
+
+    # Recent errors (last 10 failed jobs)
+    try:
+        result = await db.execute(text("""
+            SELECT job_type, error_message, created_at FROM processing_jobs
+            WHERE status = 'failed' ORDER BY created_at DESC LIMIT 10
+        """))
+        health["recentErrors"] = [
+            {"type": r.get("job_type"), "error": (r.get("error_message") or "")[:100],
+             "at": r["created_at"].isoformat() if r.get("created_at") else None}
+            for r in result.mappings().all()
+        ]
+    except Exception:
+        health["recentErrors"] = []
+
+    return health
+
+
 async def _log_admin_action(db: AsyncSession, admin_id: str, action: str, target_id: str, details: str = ""):
     """Write an entry to the audit log."""
     import uuid

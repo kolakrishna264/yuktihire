@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/Skeleton"
 import { Shield, Users, BarChart3, Tag, Flag, Clock, Search, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 
-type Tab = "overview" | "users" | "promo" | "features" | "activity" | "audit" | "quality"
+type Tab = "overview" | "users" | "promo" | "features" | "activity" | "audit" | "quality" | "health"
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview")
@@ -40,6 +40,7 @@ export default function AdminPage() {
     { id: "quality", label: "Autofill Quality", icon: BarChart3 },
     { id: "activity", label: "Activity", icon: Clock },
     { id: "audit", label: "Audit Log", icon: Shield },
+    { id: "health", label: "System Health", icon: BarChart3 },
   ]
 
   return (
@@ -68,6 +69,7 @@ export default function AdminPage() {
       {tab === "quality" && <QualityTab />}
       {tab === "activity" && <ActivityTab />}
       {tab === "audit" && <AuditTab />}
+      {tab === "health" && <HealthTab />}
     </div>
   )
 }
@@ -415,6 +417,87 @@ function AuditTab() {
         </div>
       ))}
       {(!data?.length) && <p className="text-sm text-muted-foreground text-center py-8">No audit entries</p>}
+    </div>
+  )
+}
+
+// ── System Health ──
+
+function HealthTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-health"],
+    queryFn: () => apiFetch("/admin/system-health"),
+    refetchInterval: 10000,
+  })
+
+  if (isLoading) return <Skeleton className="h-40" />
+
+  const queue = data?.queue || {}
+  const ai = data?.ai || {}
+
+  return (
+    <div className="space-y-6">
+      {/* Status indicators */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Redis</p>
+          <p className={`text-sm font-bold ${data?.redis === "connected" ? "text-emerald-600" : "text-red-600"}`}>
+            {data?.redis === "connected" ? "Connected" : "Unavailable"}
+          </p>
+          {data?.redisQueueSize !== undefined && <p className="text-xs text-muted-foreground">{data.redisQueueSize} in queue</p>}
+        </CardContent></Card>
+
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">DB Pool</p>
+          <p className="text-sm font-bold text-blue-600">{data?.db?.checkedOut || 0} / {data?.db?.poolSize || 0}</p>
+          <p className="text-xs text-muted-foreground">checked out / pool size</p>
+        </CardContent></Card>
+
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">AI Latency (24h)</p>
+          <p className="text-sm font-bold text-violet-600">{ai.avgLatencyMs || 0}ms avg</p>
+          <p className="text-xs text-muted-foreground">{ai.maxLatencyMs || 0}ms max</p>
+        </CardContent></Card>
+
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">AI Failure Rate</p>
+          <p className={`text-sm font-bold ${(ai.failureRate || 0) > 5 ? "text-red-600" : "text-emerald-600"}`}>
+            {ai.failureRate || 0}%
+          </p>
+          <p className="text-xs text-muted-foreground">{ai.failures24h || 0} / {ai.totalCalls24h || 0} calls</p>
+        </CardContent></Card>
+      </div>
+
+      {/* Queue breakdown */}
+      {Object.keys(queue).length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Processing Queue</h3>
+          <div className="flex gap-3">
+            {Object.entries(queue).map(([status, count]: [string, any]) => (
+              <Card key={status}><CardContent className="p-3">
+                <p className="text-xs text-muted-foreground capitalize">{status}</p>
+                <p className="text-lg font-bold">{count}</p>
+              </CardContent></Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent errors */}
+      {(data?.recentErrors?.length || 0) > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Recent Failures</h3>
+          <div className="space-y-1">
+            {data.recentErrors.map((e: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 p-2 bg-red-50 rounded text-xs">
+                <Badge variant="secondary" className="text-[9px]">{e.type}</Badge>
+                <span className="flex-1 text-red-700">{e.error}</span>
+                <span className="text-muted-foreground">{e.at ? new Date(e.at).toLocaleString() : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

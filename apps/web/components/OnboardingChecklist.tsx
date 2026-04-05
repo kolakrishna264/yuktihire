@@ -51,58 +51,61 @@ export function OnboardingChecklist() {
       0
     ) > 0
 
+  // Check work auth is set
+  const hasWorkAuth = !!(prefs as any)?.applicationInfo?.workAuthType
+
   const steps: Step[] = useMemo(
     () => [
       {
         id: "resume",
-        label: "Upload a resume",
-        description: "We'll extract your profile automatically",
-        href: "/dashboard/resumes",
+        label: "Upload your resume",
+        description: hasResume ? "Resume uploaded" : "We'll auto-build your profile from it",
+        href: "/dashboard/profile",
         icon: Upload,
         check: () => hasResume,
       },
       {
-        id: "preferences",
-        label: "Set your preferences",
-        description: hasPreferences ? "\u2713 Completed" : "Tell us what you're looking for",
-        href: "/dashboard/preferences",
+        id: "profile",
+        label: "Complete your profile",
+        description: hasProfile ? "Profile ready" : "Review extracted info and fill gaps",
+        href: "/dashboard/profile",
         icon: Settings2,
-        check: () => hasPreferences,
+        check: () => hasProfile,
       },
       {
-        id: "discover",
-        label: "Discover jobs",
-        description: "Browse and search real job listings",
-        href: "/dashboard/discover",
-        icon: Search,
-        check: () => hasTracked,
+        id: "workauth",
+        label: "Set work authorization",
+        description: hasWorkAuth ? "Authorization set" : "Required for accurate autofill",
+        href: "/dashboard/profile",
+        icon: Settings2,
+        check: () => hasWorkAuth,
+      },
+      {
+        id: "extension",
+        label: "Install the Chrome extension",
+        description: "Save jobs and autofill applications from any site",
+        href: "/dashboard/extension",
+        icon: Chrome,
+        check: () => false,
       },
       {
         id: "save",
         label: "Save your first job",
-        description: "Add a job to your tracker pipeline",
-        href: "/dashboard/discover",
+        description: hasTracked ? "Jobs saved" : "Browse or use extension to save jobs",
+        href: "/dashboard/feed",
         icon: Bookmark,
         check: () => hasTracked,
       },
       {
         id: "tailor",
-        label: "Tailor your first resume",
-        description: "AI-optimize your resume for a specific job",
+        label: "Tailor a resume",
+        description: hasTailored ? "Resume tailored" : "AI-optimize your resume for a job",
         href: "/dashboard/tailor",
         icon: Wand2,
         check: () => hasTailored,
       },
-      {
-        id: "extension",
-        label: "Install the extension",
-        description: "Save jobs from any website with one click",
-        href: "/dashboard/extension",
-        icon: Chrome,
-        check: () => false, // Can't detect extension install
-      },
     ],
-    [hasResume, hasPreferences, hasTracked, hasTailored]
+    [hasResume, hasProfile, hasWorkAuth, hasTracked, hasTailored]
   )
 
   const completed = steps.filter((s) => s.check()).length
