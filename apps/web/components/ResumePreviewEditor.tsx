@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
-import { Save, Download, Edit3, Eye } from "lucide-react"
+import { Save, Download, Edit3, Eye, Loader2 } from "lucide-react"
+import { useProfile } from "@/lib/hooks/useProfile"
+import { apiFetch } from "@/lib/api/client"
 
 interface ResumePreviewEditorProps {
   resumeData: any
@@ -15,14 +17,61 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
   const [mode, setMode] = useState<"preview" | "edit">("preview")
   const [content, setContent] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const { data: profile } = useProfile()
 
   useEffect(() => {
     const raw = (resumeData as any)?.resume ?? resumeData
-    if (raw?.content) setContent({ ...raw.content })
-    else if (raw) setContent({ ...raw })
-  }, [resumeData])
+    let c = raw?.content ? { ...raw.content } : (raw ? { ...raw } : {})
 
-  if (!content) return <div className="text-center text-sm text-muted-foreground py-8">Loading resume...</div>
+    // Enrich from profile if resume content is missing sections
+    if (profile) {
+      if (!c.name && !c.full_name) {
+        c.name = profile.fullName || ""
+      }
+      if (!c.email) c.email = (profile as any).email || ""
+      if (!c.phone) c.phone = profile.phone || ""
+      if (!c.location) c.location = profile.location || ""
+      if (!c.linkedin) c.linkedin = profile.linkedinUrl || ""
+      if (!c.github) c.github = profile.githubUrl || ""
+      if (!c.summary && profile.headline) c.summary = profile.headline
+
+      // Pull experiences from profile if missing
+      if (!c.experiences?.length && (profile as any).experiences?.length) {
+        c.experiences = (profile as any).experiences.map((e: any) => ({
+          title: e.title, company: e.company, location: e.location,
+          start_date: e.startDate, end_date: e.endDate, current: e.current,
+          bullets: e.bullets || [], skills_used: e.skillsUsed || [],
+        }))
+      }
+      // Pull education
+      if (!c.educations?.length && (profile as any).educations?.length) {
+        c.educations = (profile as any).educations.map((e: any) => ({
+          degree: e.degree, field: e.field, school: e.school,
+          end_date: e.endDate, gpa: e.gpa,
+        }))
+      }
+      // Pull skills if missing
+      if (!c.skills?.length && (profile as any).skills?.length) {
+        c.skills = (profile as any).skills.map((s: any) => s.name || s)
+      }
+      // Pull projects
+      if (!c.projects?.length && (profile as any).projects?.length) {
+        c.projects = (profile as any).projects.map((p: any) => ({
+          name: p.name, description: p.description, bullets: p.bullets || [], skills: p.skills || [],
+        }))
+      }
+    }
+
+    setContent(c)
+    setLoading(false)
+  }, [resumeData, profile])
+
+  if (loading || !content) return (
+    <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+      <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading resume...
+    </div>
+  )
 
   const handleSave = async () => {
     setSaving(true)
