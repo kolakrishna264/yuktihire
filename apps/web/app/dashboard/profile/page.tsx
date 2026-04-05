@@ -604,90 +604,182 @@ function SkillsTab() {
 
 // ── Application Info Tab ──────────────────────────────────────────────────
 
+// ── Work Authorization Type → deterministic mapping ──
+const WORK_AUTH_TYPES = [
+  { value: "", label: "Select your authorization type..." },
+  { value: "us_citizen", label: "U.S. Citizen" },
+  { value: "green_card", label: "U.S. Permanent Resident (Green Card)" },
+  { value: "opt", label: "OPT (Optional Practical Training)" },
+  { value: "stem_opt", label: "STEM OPT Extension" },
+  { value: "h1b", label: "H-1B Visa" },
+  { value: "o1", label: "O-1 Visa" },
+  { value: "other_visa", label: "Other Work Visa" },
+  { value: "not_authorized", label: "Not Authorized to Work in U.S." },
+]
+
+function getAuthAnswers(authType: string) {
+  // Deterministic Tier 1 mapping — NO AI needed
+  const map: Record<string, { authorized: string; sponsorship: string; visaStatus: string }> = {
+    us_citizen:     { authorized: "Yes", sponsorship: "No",  visaStatus: "U.S. Citizen" },
+    green_card:     { authorized: "Yes", sponsorship: "No",  visaStatus: "U.S. Permanent Resident" },
+    opt:            { authorized: "Yes", sponsorship: "Yes", visaStatus: "OPT" },
+    stem_opt:       { authorized: "Yes", sponsorship: "Yes", visaStatus: "STEM OPT" },
+    h1b:            { authorized: "Yes", sponsorship: "Yes", visaStatus: "H-1B" },
+    o1:             { authorized: "Yes", sponsorship: "Yes", visaStatus: "O-1" },
+    other_visa:     { authorized: "Yes", sponsorship: "Yes", visaStatus: "Other Visa" },
+    not_authorized: { authorized: "No",  sponsorship: "No",  visaStatus: "Not Authorized" },
+  }
+  return map[authType] || { authorized: "", sponsorship: "", visaStatus: "" }
+}
+
 function ApplicationInfoTab() {
   const [form, setForm] = useState({
-    workAuthorization: "Yes",
-    sponsorship: "Yes",
-    gender: "Male",
-    pronouns: "He/him/his",
-    veteranStatus: "I am not a protected veteran",
-    disabilityStatus: "I do not want to answer",
-    hispanicLatino: "No",
-    race: "Asian",
-    relocation: "Yes",
-    earliestStart: "2 weeks from offer",
+    workAuthType: "",
+    workAuthorization: "",
+    sponsorship: "",
+    earliestStart: "",
+    gender: "",
+    pronouns: "",
+    veteranStatus: "",
+    disabilityStatus: "",
+    hispanicLatino: "",
+    race: "",
   })
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Load saved application info from preferences on mount
   useEffect(() => {
     apiFetch("/preferences")
       .then((prefs: any) => {
         if (prefs?.applicationInfo) {
           const ai = prefs.applicationInfo
           setForm((prev) => ({
+            workAuthType: ai.workAuthType || prev.workAuthType,
             workAuthorization: ai.workAuthorization || prev.workAuthorization,
             sponsorship: ai.sponsorship || prev.sponsorship,
+            earliestStart: ai.earliestStart || prev.earliestStart,
             gender: ai.gender || prev.gender,
             pronouns: ai.pronouns || prev.pronouns,
             veteranStatus: ai.veteranStatus || prev.veteranStatus,
             disabilityStatus: ai.disabilityStatus || prev.disabilityStatus,
             hispanicLatino: ai.hispanicLatino || prev.hispanicLatino,
             race: ai.race || prev.race,
-            relocation: ai.relocation || prev.relocation,
-            earliestStart: ai.earliestStart || prev.earliestStart,
           }))
         }
       })
       .catch(() => {})
   }, [])
 
+  // When work auth type changes, auto-set authorization + sponsorship
+  const handleAuthTypeChange = (authType: string) => {
+    const answers = getAuthAnswers(authType)
+    setForm((prev) => ({
+      ...prev,
+      workAuthType: authType,
+      workAuthorization: answers.authorized,
+      sponsorship: answers.sponsorship,
+    }))
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
-      await apiFetch("/preferences", {
-        method: "PUT",
-        body: JSON.stringify(form),
-      })
+      await apiFetch("/preferences", { method: "PUT", body: JSON.stringify(form) })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch {}
     setSaving(false)
   }
 
-  const fields = [
-    { key: "workAuthorization", label: "Are you authorized to work in the U.S.?", options: ["Yes", "No"] },
-    { key: "sponsorship", label: "Do you require visa sponsorship?", options: ["Yes", "No"] },
-    { key: "gender", label: "Gender", options: ["Male", "Female", "Non-binary", "Prefer not to say"] },
-    { key: "pronouns", label: "Pronouns", options: ["He/him/his", "She/her/hers", "They/them/theirs", "Prefer not to say"] },
-    { key: "hispanicLatino", label: "Are you Hispanic/Latino?", options: ["Yes", "No", "Prefer not to say"] },
-    { key: "race", label: "Race / Ethnicity", options: ["American Indian or Alaska Native", "Asian", "Black or African American", "Hispanic or Latino", "Native Hawaiian or Other Pacific Islander", "White", "Two or More Races", "Prefer not to say"] },
-    { key: "veteranStatus", label: "Veteran Status", options: ["I am not a protected veteran", "I identify as one or more of the classifications of protected veteran", "I don't wish to answer"] },
-    { key: "disabilityStatus", label: "Disability Status", options: ["Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"] },
-    { key: "relocation", label: "Open to relocation?", options: ["Yes", "No", "Depends on location"] },
-    { key: "earliestStart", label: "Earliest start date", options: ["Immediately", "1 week from offer", "2 weeks from offer", "1 month from offer", "Flexible"] },
-  ]
+  const authAnswers = getAuthAnswers(form.workAuthType)
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground mb-2">
-        Set your answers once — the extension will use these to auto-fill every application.
-      </p>
-      {fields.map((f) => (
-        <div key={f.key}>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">{f.label}</label>
+    <div className="space-y-6">
+      {/* Work Authorization Section */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">U.S. Work Authorization</h3>
+        <p className="text-xs text-muted-foreground">
+          Select your authorization type — we'll automatically answer work authorization and sponsorship questions on applications.
+        </p>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Your Work Authorization Type</label>
           <select
-            value={(form as any)[f.key]}
-            onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+            value={form.workAuthType}
+            onChange={(e) => handleAuthTypeChange(e.target.value)}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
           >
-            {f.options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
+            {WORK_AUTH_TYPES.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
         </div>
-      ))}
+
+        {form.workAuthType && (
+          <div className="bg-indigo-50 rounded-lg p-3 space-y-1.5">
+            <p className="text-xs font-semibold text-indigo-700">Auto-fill preview:</p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span className="text-gray-500">Authorized to work in U.S.?</span>
+                <span className={`ml-2 font-bold ${authAnswers.authorized === "Yes" ? "text-emerald-600" : "text-red-600"}`}>
+                  {authAnswers.authorized}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">Require sponsorship?</span>
+                <span className={`ml-2 font-bold ${authAnswers.sponsorship === "No" ? "text-emerald-600" : "text-amber-600"}`}>
+                  {authAnswers.sponsorship}
+                </span>
+              </div>
+            </div>
+            <p className="text-[10px] text-indigo-500">These answers will fill automatically on every application — no AI guessing.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Application Preferences */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Application Preferences</h3>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Earliest start date</label>
+          <select value={form.earliestStart} onChange={(e) => setForm((p) => ({ ...p, earliestStart: e.target.value }))}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm">
+            <option value="">Not set</option>
+            <option value="Immediately">Immediately</option>
+            <option value="1 week from offer">1 week from offer</option>
+            <option value="2 weeks from offer">2 weeks from offer</option>
+            <option value="1 month from offer">1 month from offer</option>
+            <option value="Flexible">Flexible</option>
+          </select>
+        </div>
+      </div>
+
+      {/* EEO / Self-Identification (optional) */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Voluntary Self-Identification</h3>
+        <p className="text-xs text-muted-foreground">
+          These are optional. If set, the extension will fill EEO sections. If left blank, those fields will be marked for manual review.
+        </p>
+        {[
+          { key: "gender", label: "Gender", options: ["", "Male", "Female", "Non-binary", "Prefer not to say"] },
+          { key: "pronouns", label: "Pronouns", options: ["", "He/him/his", "She/her/hers", "They/them/theirs", "Prefer not to say"] },
+          { key: "hispanicLatino", label: "Are you Hispanic/Latino?", options: ["", "Yes", "No", "Prefer not to say"] },
+          { key: "race", label: "Race / Ethnicity", options: ["", "American Indian or Alaska Native", "Asian", "Black or African American", "Hispanic or Latino", "Native Hawaiian or Other Pacific Islander", "White", "Two or More Races", "Prefer not to say"] },
+          { key: "veteranStatus", label: "Veteran Status", options: ["", "I am not a protected veteran", "I identify as one or more of the classifications of protected veteran", "I don't wish to answer"] },
+          { key: "disabilityStatus", label: "Disability Status", options: ["", "Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"] },
+        ].map((f) => (
+          <div key={f.key}>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">{f.label}</label>
+            <select value={(form as any)[f.key]} onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm">
+              {f.options.map((opt) => (
+                <option key={opt} value={opt}>{opt || "Not set (manual review on applications)"}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+
       <Button loading={saving} onClick={handleSave} className="w-full sm:w-auto">
         <Save className="w-4 h-4" />
         {saved ? "Saved ✓" : "Save Application Info"}

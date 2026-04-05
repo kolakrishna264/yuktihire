@@ -14,7 +14,7 @@ router = APIRouter(prefix="/preferences", tags=["preferences"])
 
 # Application info field names (camelCase keys used by frontend/extension)
 APP_INFO_KEYS = [
-    "workAuthorization", "sponsorship", "gender", "pronouns",
+    "workAuthType", "workAuthorization", "sponsorship", "gender", "pronouns",
     "veteranStatus", "disabilityStatus", "hispanicLatino", "race",
     "relocation", "earliestStart",
 ]
@@ -31,6 +31,7 @@ class PreferencesUpdate(BaseModel):
     experience_level: Optional[str] = None
     visa_sponsorship: Optional[bool] = None
     # Application info fields (stored as JSON in application_data column)
+    workAuthType: Optional[str] = None  # us_citizen, green_card, opt, stem_opt, h1b, o1, other_visa, not_authorized
     workAuthorization: Optional[str] = None
     sponsorship: Optional[str] = None
     gender: Optional[str] = None

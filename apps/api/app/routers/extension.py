@@ -286,11 +286,12 @@ async def get_autofill_data(
         except Exception:
             pass
 
-        # Application preferences — ONLY from user's saved settings, no hardcoded defaults
-        # Sensitive fields (gender, race, etc.) are empty unless user explicitly set them
+        # Application preferences — from user's saved settings only
         defaults = {
+            "workAuthType": "",
             "workAuthorization": "",
             "sponsorship": "",
+            "visaStatus": "",
             "relocation": "",
             "pronouns": "",
             "gender": "",
@@ -302,10 +303,27 @@ async def get_autofill_data(
             "interviewedBefore": "",
             "aiPolicyAcknowledge": "Yes",
         }
-        # Override with user's saved preferences
         for key in defaults:
             if key in app_info and app_info[key]:
                 defaults[key] = app_info[key]
+
+        # Deterministic Tier 1: derive work auth + sponsorship from workAuthType
+        auth_type = defaults.get("workAuthType", "")
+        if auth_type:
+            AUTH_MAP = {
+                "us_citizen":     {"workAuthorization": "Yes", "sponsorship": "No",  "visaStatus": "U.S. Citizen"},
+                "green_card":     {"workAuthorization": "Yes", "sponsorship": "No",  "visaStatus": "U.S. Permanent Resident"},
+                "opt":            {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "OPT"},
+                "stem_opt":       {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "STEM OPT"},
+                "h1b":            {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "H-1B"},
+                "o1":             {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "O-1"},
+                "other_visa":     {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "Other Visa"},
+                "not_authorized": {"workAuthorization": "No",  "sponsorship": "No",  "visaStatus": "Not Authorized"},
+            }
+            derived = AUTH_MAP.get(auth_type, {})
+            defaults["workAuthorization"] = derived.get("workAuthorization", defaults["workAuthorization"])
+            defaults["sponsorship"] = derived.get("sponsorship", defaults["sponsorship"])
+            defaults["visaStatus"] = derived.get("visaStatus", defaults["visaStatus"])
 
         return {
             "firstName": first_name,

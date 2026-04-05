@@ -598,10 +598,11 @@ var YuktiEngine = (function () {
       github: pd.github,
       portfolio: pd.portfolio,
       country: "United States",  // US-only product
-      // Tier 1: US Work Authorization
+      // Tier 1: US Work Authorization — deterministic from workAuthType
+      // Backend derives these from workAuthType (citizen→Yes/No, H-1B→Yes/Yes, etc.)
       workAuth: pd.workAuthorization || "",
       sponsorship: pd.sponsorship || "",
-      visaType: pd.visaType || "",
+      visaType: pd.visaStatus || pd.visaType || "",
       // Tier 1: Professional
       currentCompany: pd.headline || pd.currentCompany || "",
       currentTitle: pd.currentTitle || pd.headline || "",
