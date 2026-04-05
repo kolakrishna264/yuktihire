@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
   Briefcase,
@@ -7,21 +8,26 @@ import {
   Wand2,
   ArrowRight,
   Sparkles,
-  Chrome,
+  ChromeIcon as Chrome,
   PlusCircle,
   Upload,
   MapPin,
   Globe,
+  CheckCircle2,
+  AlertCircle,
+  MessageSquare,
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Skeleton } from "@/components/ui/Skeleton"
+import { Progress } from "@/components/ui/Progress"
 import { useProfile } from "@/lib/hooks/useProfile"
 import { useResumes } from "@/lib/hooks/useResumes"
 import { useTailor } from "@/lib/hooks/useTailor"
 import { useTrackerList } from "@/lib/hooks/useTracker"
 import { OnboardingChecklist } from "@/components/OnboardingChecklist"
+import { apiFetch } from "@/lib/api/client"
 import type { User } from "@supabase/supabase-js"
 import type { TrackedJob } from "@/types"
 
@@ -30,10 +36,17 @@ interface DashboardShellProps {
 }
 
 export default function DashboardShell({ user }: DashboardShellProps) {
-  useProfile()
+  const { data: profile } = useProfile()
   const { data: resumes, isLoading: resumesLoading } = useResumes()
   const { data: tailoringSessions = [] } = useTailor()
   const { data: trackedJobs = [], isLoading: jobsLoading } = useTrackerList()
+  const [permissions, setPermissions] = useState<any>(null)
+  const [autofillStats, setAutofillStats] = useState<any>(null)
+
+  useEffect(() => {
+    apiFetch("/permissions").then(setPermissions).catch(() => {})
+    apiFetch("/extension/autofill-stats").then(setAutofillStats).catch(() => {})
+  }, [])
 
   const name = user?.email?.split("@")[0] ?? "there"
   const resumeCount = resumes?.length ?? 0
@@ -65,8 +78,64 @@ export default function DashboardShell({ user }: DashboardShellProps) {
       {/* Onboarding Checklist for new users */}
       {isNewUser && <OnboardingChecklist />}
 
-      {/* Profile auto-setup from resume */}
-      {/* Profile setup moved to Profile page only */}
+      {/* Readiness + Plan Card (for returning users) */}
+      {!isNewUser && (
+        <div className="grid sm:grid-cols-2 gap-4 mb-8">
+          {/* Autofill Readiness */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Autofill Readiness</p>
+                <Link href="/dashboard/profile" className="text-xs text-primary hover:underline">Improve</Link>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <Progress value={profile?.completeness ?? 0} className="h-2" />
+                </div>
+                <span className="text-sm font-bold text-primary">{profile?.completeness ?? 0}%</span>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {resumeCount > 0 ? (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-600"><CheckCircle2 className="w-3 h-3" /> Resume uploaded</span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600"><AlertCircle className="w-3 h-3" /> No resume</span>
+                )}
+                {autofillStats?.totalSessions > 0 ? (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-600"><CheckCircle2 className="w-3 h-3" /> {autofillStats.totalFieldsFilled} fields filled</span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><AlertCircle className="w-3 h-3" /> No autofills yet</span>
+                )}
+                {autofillStats?.totalMemoryReused > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-indigo-600"><MessageSquare className="w-3 h-3" /> {autofillStats.totalMemoryReused} answers reused</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Plan Badge */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Your Plan</p>
+                {permissions?.isUnlimited ? (
+                  <Badge className="bg-emerald-50 text-emerald-700 text-[10px]">Unlimited</Badge>
+                ) : (
+                  <Link href="/dashboard/settings/billing">
+                    <Badge variant="secondary" className="text-[10px] cursor-pointer hover:bg-primary/10">Upgrade</Badge>
+                  </Link>
+                )}
+              </div>
+              <p className="text-lg font-bold">{permissions?.effectivePlan || permissions?.plan || "FREE"}</p>
+              {permissions?.isAdmin && <Badge className="text-[9px] bg-primary/10 text-primary mt-1">Admin</Badge>}
+              {autofillStats?.estimatedTimeSavedMin > 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  ~{autofillStats.estimatedTimeSavedMin} min saved with autofill
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -253,6 +322,40 @@ export default function DashboardShell({ user }: DashboardShellProps) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Beta Feedback + Help */}
+      <div className="mt-8 pt-6 border-t border-gray-100">
+        <div className="grid sm:grid-cols-3 gap-3">
+          <a href="mailto:support@yuktihire.com?subject=YuktiHire Feedback" className="block">
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-indigo-200 transition-colors">
+              <MessageSquare className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-gray-700">Send Feedback</p>
+                <p className="text-[10px] text-gray-400">Help us improve YuktiHire</p>
+              </div>
+            </div>
+          </a>
+          <Link href="/dashboard/extension" className="block">
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-indigo-200 transition-colors">
+              <Chrome className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-gray-700">Get Extension</p>
+                <p className="text-[10px] text-gray-400">Install guide + quick start</p>
+              </div>
+            </div>
+          </Link>
+          <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-100">
+            <Globe className="w-4 h-4 text-gray-400 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-gray-700">YuktiHire Beta</p>
+              <div className="flex gap-2 mt-0.5">
+                <a href="/privacy" className="text-[10px] text-indigo-500 hover:underline">Privacy</a>
+                <a href="mailto:support@yuktihire.com" className="text-[10px] text-indigo-500 hover:underline">Contact</a>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

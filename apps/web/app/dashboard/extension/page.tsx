@@ -149,8 +149,26 @@ export default function ExtensionPage() {
         </div>
       </div>
 
+      {/* Autofill Features */}
+      <div className="mb-8">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Autofill Copilot</h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {[
+            { title: "Fill Everything", desc: "One click fills name, email, phone, LinkedIn, work authorization, and more" },
+            { title: "AI Answers", desc: "Generates answers for 'Why this company?', experience questions, and open-ended fields" },
+            { title: "Answer Memory", desc: "Remembers your answers — reuses them on the next application automatically" },
+            { title: "Multi-Step Forms", desc: "Detects when new form sections appear and re-fills them" },
+          ].map((f, i) => (
+            <div key={i} className="p-3 rounded-lg bg-white border border-gray-100">
+              <p className="text-sm font-semibold text-gray-800 mb-1">{f.title}</p>
+              <p className="text-xs text-gray-500">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Auth info */}
-      <Card>
+      <Card className="mb-8">
         <CardContent className="p-5">
           <h3 className="text-sm font-semibold text-gray-800 mb-2">Signing into the extension</h3>
           <p className="text-sm text-gray-500 mb-3">
@@ -173,6 +191,44 @@ export default function ExtensionPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Troubleshooting */}
+      <div className="mb-8">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Troubleshooting</h2>
+        <div className="space-y-2">
+          {[
+            { q: "Extension shows 'Not signed in'", a: "Open yuktihire.com in another tab and sign in. The extension reads your session cookie automatically." },
+            { q: "Autofill isn't filling some fields", a: "Some fields use custom UI components. Click the YH panel > 'Fill Everything' to retry. File uploads must be done manually (browser security)." },
+            { q: "Country dropdown shows wrong value", a: "Go to Profile > Application Info and set your work authorization type. This fixes country/sponsorship fields." },
+            { q: "Extension doesn't appear on a page", a: "The extension only shows on job/career pages. Navigate to a job listing and the YH panel will appear on the right." },
+          ].map((item, i) => (
+            <div key={i} className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+              <p className="text-sm font-semibold text-gray-700">{item.q}</p>
+              <p className="text-xs text-gray-500 mt-1">{item.a}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Test Links */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Test the extension</h2>
+        <p className="text-xs text-gray-500 mb-3">Try the extension on these job portals:</p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { name: "Greenhouse", url: "https://boards.greenhouse.io/anthropic" },
+            { name: "Lever", url: "https://jobs.lever.co/openai" },
+            { name: "Rippling", url: "https://www.rippling.com/careers" },
+            { name: "Workday", url: "https://www.google.com/about/careers/" },
+          ].map((link) => (
+            <a key={link.name} href={link.url} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
+              <ExternalLink className="w-3 h-3" />
+              {link.name}
+            </a>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
