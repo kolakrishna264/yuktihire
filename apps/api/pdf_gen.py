@@ -136,45 +136,135 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 def categorize_skills(skills: list) -> list[dict]:
-    """Auto-categorize a flat skills list into grouped categories."""
-    CATEGORIES = {
-        "Languages": ["python", "java", "javascript", "typescript", "c#", "c++", "golang", "go", "ruby", "rust", "scala", "julia", "r", "sql", "bash", "shell", "php", "swift", "kotlin"],
-        "ML/AI Libraries": ["pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost", "lightgbm", "hugging face", "transformers", "opencv", "spacy", "nltk", "langchain", "llama", "openai", "anthropic", "claude", "gemini", "faiss", "pinecone"],
-        "NLP/LLMs": ["nlp", "llm", "gpt", "bert", "rag", "retrieval-augmented", "fine-tuning", "prompt engineering", "embedding", "sentiment", "ner", "named entity", "text classification", "generative ai", "agentic ai"],
-        "Cloud & DevOps": ["aws", "azure", "gcp", "docker", "kubernetes", "terraform", "ci/cd", "github actions", "jenkins", "ec2", "s3", "lambda", "sagemaker", "cloudformation", "devops", "devsecops"],
-        "Data & Databases": ["postgresql", "mongodb", "redis", "mysql", "elasticsearch", "snowflake", "bigquery", "nosql", "vector database", "neo4j", "dynamodb", "cassandra"],
-        "Frameworks": ["react", "angular", "node", "nodejs", "fastapi", "flask", "django", ".net", "spring", "express", "next.js", "vue"],
-        "Data Processing": ["pandas", "numpy", "spark", "pyspark", "kafka", "airflow", "dbt", "hadoop", "matplotlib", "seaborn"],
-        "Tools": ["git", "jira", "confluence", "vs code", "jupyter", "mlflow", "weights & biases", "tensorboard", "prometheus", "grafana", "streamlit"],
-    }
+    """
+    Universal skill categorizer — works for ANY profession.
+    Maps 500+ skills across 20+ domains into clean resume categories.
+    """
+    # Each category: display name → list of keyword patterns to match
+    # Order matters — first match wins, so put specific before generic
+    CATEGORIES = [
+        ("Programming Languages", [
+            "python", "java", "javascript", "typescript", "c#", "c\\+\\+", "c/c\\+\\+", "golang", "go ", "ruby",
+            "rust", "scala", "julia", "r ", " r,", "sql", "bash", "shell", "php", "swift", "kotlin", "perl",
+            "matlab", "lua", "dart", "elixir", "haskell", "clojure", "groovy", "objective-c", "vba",
+            "assembly", "fortran", "cobol", "sas", "stata", "html", "css", "sass", "less",
+        ]),
+        ("AI/ML", [
+            "pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost", "lightgbm", "catboost",
+            "hugging face", "transformers", "opencv", "spacy", "nltk", "langchain", "llamaindex",
+            "openai", "anthropic", "claude", "gemini", "llama", "gpt", "bert", "faiss", "pinecone",
+            "weaviate", "chroma", "milvus", "onnx", "torchserve", "mlflow", "weights & biases", "wandb",
+            "tensorboard", "machine learning", "deep learning", "neural network", "computer vision",
+            "nlp", "natural language", "llm", "rag", "retrieval-augmented", "fine-tuning", "fine tuning",
+            "prompt engineering", "embedding", "sentiment", "ner", "named entity", "generative ai",
+            "agentic ai", "ai agent", "reinforcement learning", "gan", "diffusion", "stable diffusion",
+            "recommendation", "anomaly detection", "feature engineering", "model training",
+            "classification", "regression", "clustering", "dimensionality reduction",
+        ]),
+        ("Cloud Platforms", [
+            "aws", "amazon web services", "azure", "microsoft azure", "gcp", "google cloud",
+            "ec2", "s3", "lambda", "sagemaker", "bedrock", "cloudformation", "cloudwatch",
+            "ecs", "eks", "fargate", "rds", "dynamodb", "redshift", "kinesis", "sns", "sqs",
+            "azure devops", "azure ml", "cosmos db", "cloud functions", "cloud run", "vertex ai",
+            "bigquery", "dataflow", "pubsub", "heroku", "vercel", "netlify", "railway",
+            "digitalocean", "linode", "oracle cloud", "ibm cloud", "alibaba cloud",
+        ]),
+        ("DevOps & Infrastructure", [
+            "docker", "kubernetes", "k8s", "terraform", "ansible", "puppet", "chef",
+            "ci/cd", "github actions", "gitlab ci", "jenkins", "circleci", "travis",
+            "helm", "istio", "envoy", "nginx", "apache", "haproxy", "consul", "vault",
+            "devops", "devsecops", "infrastructure as code", "iac", "linux", "unix",
+            "monitoring", "prometheus", "grafana", "datadog", "new relic", "splunk", "elk",
+            "logging", "observability", "site reliability", "sre",
+        ]),
+        ("Databases & Storage", [
+            "postgresql", "postgres", "mysql", "mariadb", "sqlite", "oracle db",
+            "mongodb", "redis", "elasticsearch", "opensearch", "cassandra", "couchbase",
+            "neo4j", "graph database", "nosql", "vector database", "snowflake", "databricks",
+            "duckdb", "clickhouse", "timescaledb", "influxdb", "memcached",
+            "supabase", "firebase", "dynamodb",
+        ]),
+        ("Web Frameworks", [
+            "react", "angular", "vue", "svelte", "next.js", "nextjs", "nuxt", "gatsby",
+            "node", "nodejs", "express", "fastapi", "flask", "django", "spring", "spring boot",
+            ".net", "asp.net", "rails", "ruby on rails", "laravel", "phoenix", "gin",
+            "fiber", "actix", "rocket", "rest api", "graphql", "grpc", "websocket",
+        ]),
+        ("Data Engineering", [
+            "spark", "pyspark", "kafka", "airflow", "prefect", "dagster", "dbt",
+            "hadoop", "hive", "pig", "flink", "beam", "nifi", "talend",
+            "etl", "elt", "data pipeline", "data lake", "data warehouse", "data mesh",
+            "pandas", "numpy", "polars", "dask", "vaex", "modin",
+            "matplotlib", "seaborn", "plotly", "bokeh", "dash", "streamlit", "gradio",
+        ]),
+        ("Security", [
+            "cybersecurity", "security", "penetration testing", "pentest", "owasp",
+            "siem", "edr", "soar", "ids", "ips", "firewall", "waf",
+            "encryption", "tls", "ssl", "oauth", "jwt", "saml", "sso",
+            "vulnerability", "threat", "malware", "forensics", "compliance",
+            "iso 27001", "soc 2", "hipaa", "gdpr", "pci dss", "nist",
+        ]),
+        ("Mobile", [
+            "react native", "flutter", "ios", "android", "swiftui", "jetpack compose",
+            "xamarin", "ionic", "cordova", "expo", "mobile app", "responsive design",
+        ]),
+        ("Design & Product", [
+            "figma", "sketch", "adobe xd", "invision", "zeplin", "ui/ux", "ux",
+            "wireframe", "prototype", "design system", "accessibility", "a11y",
+            "product management", "product thinking", "go-to-market", "agile", "scrum",
+            "kanban", "jira", "confluence", "notion", "trello", "asana",
+            "a/b testing", "user research", "analytics",
+        ]),
+        ("Testing & QA", [
+            "jest", "mocha", "pytest", "unittest", "cypress", "selenium", "playwright",
+            "testing", "tdd", "bdd", "qa", "quality assurance", "load testing",
+            "integration testing", "unit testing", "e2e", "postman", "insomnia",
+        ]),
+        ("Tools & Practices", [
+            "git", "github", "gitlab", "bitbucket", "svn", "vs code", "vim",
+            "jupyter", "colab", "intellij", "pycharm", "eclipse",
+            "microservices", "monolith", "event-driven", "message queue", "rabbitmq",
+            "distributed systems", "system design", "api design", "sdk",
+            "oop", "functional programming", "design patterns", "solid",
+            "sdlc", "documentation", "technical writing",
+        ]),
+    ]
 
     categorized: dict[str, list[str]] = {}
-    uncategorized: list[str] = []
+    used: set[str] = set()
 
-    for skill in skills:
-        name = skill.get("name", skill) if isinstance(skill, dict) else skill
-        if not name or not isinstance(name, str) or len(name) > 60:
+    for skill_raw in skills:
+        name = skill_raw.get("name", skill_raw) if isinstance(skill_raw, dict) else skill_raw
+        if not name or not isinstance(name, str) or len(name) > 60 or len(name.split()) > 6:
             continue
         name = name.strip()
-        placed = False
-        name_lower = name.lower()
-        for cat, keywords in CATEGORIES.items():
-            if any(kw in name_lower for kw in keywords):
-                categorized.setdefault(cat, [])
-                if name not in categorized[cat]:
-                    categorized[cat].append(name)
-                placed = True
-                break
-        if not placed:
-            if name not in uncategorized:
-                uncategorized.append(name)
+        if name.lower() in used:
+            continue
+        used.add(name.lower())
 
+        placed = False
+        name_lower = " " + name.lower() + " "  # pad for word boundary matching
+        for cat_name, patterns in CATEGORIES:
+            for pattern in patterns:
+                # Check if pattern appears as substring
+                if pattern in name_lower or pattern in name.lower():
+                    categorized.setdefault(cat_name, []).append(name)
+                    placed = True
+                    break
+            if placed:
+                break
+
+        if not placed:
+            categorized.setdefault("Other Skills", []).append(name)
+
+    # Build result in category order, skip empty
     result = []
-    for cat in CATEGORIES:
-        if cat in categorized and categorized[cat]:
-            result.append({"name": cat, "items": categorized[cat]})
-    if uncategorized:
-        result.append({"name": "Other", "items": uncategorized})
+    for cat_name, _ in CATEGORIES:
+        if cat_name in categorized:
+            result.append({"name": cat_name, "items": categorized[cat_name]})
+    if "Other Skills" in categorized:
+        result.append({"name": "Other Skills", "items": categorized["Other Skills"]})
+
     return result
 
 
