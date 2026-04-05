@@ -169,6 +169,17 @@ def serialize_profile(profile: Profile, user: User) -> dict:
             }
             for s in (getattr(profile, "skills", None) or [])
         ],
+        "projects": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "url": p.url,
+                "bullets": p.bullets or [],
+                "skills": p.skills or [],
+            }
+            for p in (getattr(profile, "projects", None) or [])
+        ],
     }
 
 
@@ -331,6 +342,40 @@ async def delete_skill(
     if not skill:
         raise HTTPException(404, "Skill not found")
     await db.delete(skill)
+
+
+# ── Projects ─────────────────────────────────────────────────────────────
+
+@router.post("/me/projects")
+async def add_project(
+    data: ProjectCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await get_profile_or_404(current_user.id, db)
+    project = Project(profile_id=profile.id, **data.model_dump())
+    db.add(project)
+    await db.flush()
+    return {"id": project.id, "name": project.name}
+
+
+@router.delete("/me/projects/{project_id}", status_code=204)
+async def delete_project(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await get_profile_or_404(current_user.id, db)
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.profile_id == profile.id,
+        )
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Project not found")
+    await db.delete(project)
 
 
 # ── Resume Import ─────────────────────────────────────────────────────────
