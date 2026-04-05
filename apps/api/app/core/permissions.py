@@ -1,9 +1,21 @@
 """
-Permission Engine — Feature gating by plan, promo code, and admin role.
+Permission Engine — PRODUCT limits by plan, promo code, and admin role.
+
+┌──────────────────────────────────────────────────────────────────┐
+│  PRODUCT LIMITS (this file)  vs  SAFETY THROTTLES (rate_limiter) │
+│                                                                   │
+│  Product limits:                 Safety throttles:                │
+│  - Shown in UI                   - Never shown in UI             │
+│  - Per-plan caps                 - Per-minute anti-abuse          │
+│  - PRO = unlimited (None)        - PRO = 60/min (still enforced) │
+│  - Admin = unlimited             - Admin = 120/min               │
+│  - "Upgrade to PRO"              - "Too many requests, wait"     │
+│  - permissions.py                - rate_limiter.py                │
+└──────────────────────────────────────────────────────────────────┘
 
 Plans: FREE → PROMO → PRO (unlimited) → TEAM (unlimited)
 Admin: support@yuktihire.com → role=admin → unlimited everything
-PRO/TEAM: None = unlimited (no limits enforced)
+PRO/TEAM: None = unlimited (no product limits enforced)
 
 Usage:
     await require_permission(user, "can_tailor_resume", db)

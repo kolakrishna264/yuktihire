@@ -20,7 +20,14 @@ from datetime import datetime, timezone
 from app.core.logger import log
 from app.core.permissions import is_admin
 
-# Rate limit tiers: requests per minute
+# ── TECHNICAL SAFETY RATE LIMITS ──────────────────────────────────────────
+# These are NOT product limits. They are backend infrastructure protection.
+# PRO users have unlimited product usage but still have safety throttles.
+# These limits are NEVER shown in the user's plan UI.
+#
+# Product limits (unlimited for PRO) → app/core/permissions.py
+# Safety throttles (always enforced) → this file
+#
 RATE_LIMITS = {
     # endpoint_key: { plan: requests_per_minute }
     "ai_generate":    {"FREE": 5,   "PROMO": 15,  "PRO": 60,  "admin": 120},
@@ -78,9 +85,9 @@ async def rate_limit(
         raise HTTPException(
             status_code=429,
             detail={
-                "message": "Rate limit exceeded. Please try again in a minute.",
+                "message": "Too many requests in a short time. Please wait a moment and try again.",
                 "retryAfter": WINDOW_SECONDS,
-                "limit": max_requests,
+                "type": "throttle",  # NOT "plan_limit" — this is safety, not plan
             },
         )
 
