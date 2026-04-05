@@ -2,10 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/Button"
-import { Badge } from "@/components/ui/Badge"
-import { Save, Download, Edit3, Eye, Loader2 } from "lucide-react"
+import { Save, Edit3, Eye, Loader2 } from "lucide-react"
 import { useProfile } from "@/lib/hooks/useProfile"
-import { apiFetch } from "@/lib/api/client"
 
 interface ResumePreviewEditorProps {
   resumeData: any
@@ -17,26 +15,20 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
   const [mode, setMode] = useState<"preview" | "edit">("preview")
   const [content, setContent] = useState<any>(null)
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
   const { data: profile } = useProfile()
 
   useEffect(() => {
     const raw = (resumeData as any)?.resume ?? resumeData
     let c = raw?.content ? { ...raw.content } : (raw ? { ...raw } : {})
 
-    // Enrich from profile if resume content is missing sections
     if (profile) {
-      if (!c.name && !c.full_name) {
-        c.name = profile.fullName || ""
-      }
+      if (!c.name && !c.full_name) c.name = profile.fullName || ""
       if (!c.email) c.email = (profile as any).email || ""
       if (!c.phone) c.phone = profile.phone || ""
       if (!c.location) c.location = profile.location || ""
       if (!c.linkedin) c.linkedin = profile.linkedinUrl || ""
-      if (!c.github) c.github = profile.githubUrl || ""
-      if (!c.summary && profile.headline) c.summary = profile.headline
+      if (!c.summary) c.summary = profile.summary || profile.headline || ""
 
-      // Pull experiences from profile if missing
       if (!c.experiences?.length && (profile as any).experiences?.length) {
         c.experiences = (profile as any).experiences.map((e: any) => ({
           title: e.title, company: e.company, location: e.location,
@@ -44,30 +36,44 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
           bullets: e.bullets || [], skills_used: e.skillsUsed || [],
         }))
       }
-      // Pull education
       if (!c.educations?.length && (profile as any).educations?.length) {
-        c.educations = (profile as any).educations.map((e: any) => ({
+        // Deduplicate by degree+school
+        const seen = new Set<string>()
+        c.educations = (profile as any).educations.filter((e: any) => {
+          const key = `${e.degree}|${e.school}`.toLowerCase()
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        }).map((e: any) => ({
           degree: e.degree, field: e.field, school: e.school,
           end_date: e.endDate, gpa: e.gpa,
         }))
       }
-      // Pull skills if missing
       if (!c.skills?.length && (profile as any).skills?.length) {
         c.skills = (profile as any).skills.map((s: any) => s.name || s)
       }
-      // Pull projects
       if (!c.projects?.length && (profile as any).projects?.length) {
         c.projects = (profile as any).projects.map((p: any) => ({
-          name: p.name, description: p.description, bullets: p.bullets || [], skills: p.skills || [],
+          name: p.name, description: p.description, bullets: p.bullets || [],
         }))
       }
     }
 
+    // Deduplicate educations in content too
+    if (c.educations?.length > 0) {
+      const seen = new Set<string>()
+      c.educations = c.educations.filter((e: any) => {
+        const key = `${e.degree || ""}|${e.school || ""}`.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+
     setContent(c)
-    setLoading(false)
   }, [resumeData, profile])
 
-  if (loading || !content) return (
+  if (!content) return (
     <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
       <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading resume...
     </div>
@@ -81,88 +87,79 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
 
   const updateField = (path: string, value: any) => {
     setContent((prev: any) => {
-      const next = { ...prev }
+      const next = JSON.parse(JSON.stringify(prev))
       const keys = path.split(".")
-      let obj: any = next
+      let obj = next
       for (let i = 0; i < keys.length - 1; i++) {
-        if (Array.isArray(obj[keys[i]])) {
-          obj[keys[i]] = [...obj[keys[i]]]
-          obj = obj[keys[i]]
-        } else {
-          obj[keys[i]] = { ...obj[keys[i]] }
-          obj = obj[keys[i]]
-        }
+        obj = obj[keys[i]]
       }
       obj[keys[keys.length - 1]] = value
       return next
     })
   }
 
-  const handleDownload = async (format: string) => {
-    try {
-      const { apiDownload } = await import("@/lib/api/client")
-      await apiDownload(`/extension/export?resume_id=${resumeId}&format=${format}`, `resume.${format}`)
-    } catch (e: any) {
-      console.error(e)
-    }
-  }
+  const contactParts = [
+    content.email || content.contact?.email,
+    content.phone || content.contact?.phone,
+    content.location || content.contact?.location,
+    content.linkedin || content.contact?.linkedin,
+  ].filter(Boolean)
+
+  const displayName = content.name || content.full_name || content.contact?.full_name || ""
+  const displaySummary = content.summary || ""
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <div className="flex gap-1">
+        <div className="flex gap-1 bg-muted/50 rounded-lg p-0.5">
           <button onClick={() => setMode("preview")}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${mode === "preview" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}>
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "preview" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
             <Eye className="w-3 h-3 inline mr-1" />Preview
           </button>
           <button onClick={() => setMode("edit")}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${mode === "edit" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}>
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "edit" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
             <Edit3 className="w-3 h-3 inline mr-1" />Edit
           </button>
         </div>
-        <div className="flex gap-2">
-          {mode === "edit" && (
-            <Button size="sm" variant="outline" loading={saving} onClick={handleSave} className="text-xs h-7">
-              <Save className="w-3 h-3" /> Save
-            </Button>
-          )}
-          <Button size="sm" variant="outline" onClick={() => handleDownload("pdf")} className="text-xs h-7">
-            <Download className="w-3 h-3" /> PDF
+        {mode === "edit" && (
+          <Button size="sm" loading={saving} onClick={handleSave} className="text-xs h-7">
+            <Save className="w-3 h-3" /> Save Changes
           </Button>
-          <Button size="sm" variant="outline" onClick={() => handleDownload("docx")} className="text-xs h-7">
-            <Download className="w-3 h-3" /> Word
-          </Button>
-        </div>
+        )}
       </div>
 
-      {/* Resume Content */}
-      <div className="bg-white border border-border rounded-xl shadow-sm p-6 space-y-5 text-sm" style={{ fontFamily: "Georgia, serif" }}>
+      {/* Resume Document */}
+      <div className="bg-white border rounded-lg shadow-sm px-8 py-6 space-y-4" style={{ fontFamily: "'Times New Roman', Times, serif", fontSize: "11pt", lineHeight: "1.4" }}>
+
         {/* Header */}
-        <div className="text-center border-b pb-3">
+        <div className="text-center pb-2" style={{ borderBottom: "1px solid #999" }}>
           {mode === "edit" ? (
-            <input value={content.name || content.full_name || content.contact?.full_name || ""}
+            <input value={displayName}
               onChange={(e) => updateField("name", e.target.value)}
-              className="text-xl font-bold text-center w-full border-b border-dashed border-gray-300 focus:outline-none focus:border-primary pb-1" />
+              className="text-2xl font-bold text-center w-full focus:outline-none focus:bg-blue-50 rounded px-1"
+              style={{ fontFamily: "inherit" }} />
           ) : (
-            <h1 className="text-xl font-bold">{content.name || content.full_name || content.contact?.full_name || "Your Name"}</h1>
+            <h1 className="text-2xl font-bold">{displayName || "Your Name"}</h1>
           )}
-          <p className="text-xs text-muted-foreground mt-1">
-            {[content.email || content.contact?.email, content.phone || content.contact?.phone, content.location || content.contact?.location, content.linkedin || content.contact?.linkedin]
-              .filter(Boolean).join(" | ")}
-          </p>
+          {contactParts.length > 0 && (
+            <p className="text-[10pt] text-gray-600 mt-1">{contactParts.join("  |  ")}</p>
+          )}
         </div>
 
         {/* Summary */}
-        {(content.summary || mode === "edit") && (
+        {(displaySummary || mode === "edit") && (
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-300 pb-1 mb-2">Professional Summary</h2>
+            <h2 className="text-[11pt] font-bold uppercase tracking-wide mb-1" style={{ borderBottom: "1px solid #ccc", paddingBottom: "2px" }}>
+              Professional Summary
+            </h2>
             {mode === "edit" ? (
-              <textarea value={content.summary || ""}
+              <textarea value={displaySummary}
                 onChange={(e) => updateField("summary", e.target.value)}
-                className="w-full text-xs leading-relaxed border border-dashed border-gray-300 rounded p-2 min-h-[80px] focus:outline-none focus:border-primary resize-none" />
+                className="w-full text-[10.5pt] leading-relaxed focus:outline-none focus:bg-blue-50 rounded p-1 resize-none"
+                style={{ fontFamily: "inherit", minHeight: "60px" }} />
             ) : (
-              <p className="text-xs leading-relaxed text-gray-700">{content.summary}</p>
+              <p className="text-[10.5pt] leading-relaxed">{displaySummary}</p>
             )}
           </div>
         )}
@@ -170,40 +167,41 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
         {/* Experience */}
         {content.experiences?.length > 0 && (
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-300 pb-1 mb-2">Professional Experience</h2>
+            <h2 className="text-[11pt] font-bold uppercase tracking-wide mb-1" style={{ borderBottom: "1px solid #ccc", paddingBottom: "2px" }}>
+              Professional Experience
+            </h2>
             {content.experiences.map((exp: any, i: number) => (
               <div key={i} className="mb-3">
                 <div className="flex justify-between items-baseline">
                   {mode === "edit" ? (
                     <input value={exp.company || ""} onChange={(e) => updateField(`experiences.${i}.company`, e.target.value)}
-                      className="font-bold text-xs border-b border-dashed border-gray-300 focus:outline-none focus:border-primary flex-1" />
+                      className="font-bold text-[10.5pt] focus:outline-none focus:bg-blue-50 rounded px-1 flex-1" style={{ fontFamily: "inherit" }} />
                   ) : (
-                    <span className="font-bold text-xs">{exp.company}</span>
+                    <span className="font-bold text-[10.5pt]">{exp.company}</span>
                   )}
-                  <span className="text-[10px] text-gray-400 ml-2 whitespace-nowrap">
+                  <span className="text-[9.5pt] text-gray-500 ml-2 whitespace-nowrap">
                     {exp.start_date || exp.startDate || ""} – {exp.current ? "Present" : (exp.end_date || exp.endDate || "")}
                   </span>
                 </div>
                 {mode === "edit" ? (
                   <input value={exp.title || ""} onChange={(e) => updateField(`experiences.${i}.title`, e.target.value)}
-                    className="text-xs italic text-gray-600 w-full border-b border-dashed border-gray-200 focus:outline-none focus:border-primary" />
+                    className="text-[10.5pt] italic text-gray-700 w-full focus:outline-none focus:bg-blue-50 rounded px-1" style={{ fontFamily: "inherit" }} />
                 ) : (
-                  <p className="text-xs italic text-gray-600">{exp.title}</p>
+                  <p className="text-[10.5pt] italic text-gray-700">{exp.title}</p>
                 )}
                 {exp.bullets?.length > 0 && (
-                  <ul className="mt-1 space-y-0.5">
+                  <ul className="mt-1 ml-4" style={{ listStyleType: "disc" }}>
                     {exp.bullets.map((bullet: string, bi: number) => (
-                      <li key={bi} className="text-[11px] text-gray-600 flex">
-                        <span className="mr-1.5 text-gray-400">•</span>
+                      <li key={bi} className="text-[10pt] text-gray-700 mb-0.5 pl-1">
                         {mode === "edit" ? (
-                          <textarea value={bullet}
+                          <input value={bullet}
                             onChange={(e) => {
                               const newBullets = [...(exp.bullets || [])]
                               newBullets[bi] = e.target.value
                               updateField(`experiences.${i}.bullets`, newBullets)
                             }}
-                            className="flex-1 border-b border-dashed border-gray-200 focus:outline-none focus:border-primary text-[11px] resize-none min-h-[18px]"
-                            rows={1} />
+                            className="w-full focus:outline-none focus:bg-blue-50 rounded px-1 text-[10pt]"
+                            style={{ fontFamily: "inherit" }} />
                         ) : (
                           <span>{bullet}</span>
                         )}
@@ -219,15 +217,18 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
         {/* Skills */}
         {content.skills?.length > 0 && (
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-300 pb-1 mb-2">Technical Skills</h2>
+            <h2 className="text-[11pt] font-bold uppercase tracking-wide mb-1" style={{ borderBottom: "1px solid #ccc", paddingBottom: "2px" }}>
+              Technical Skills
+            </h2>
             {mode === "edit" ? (
               <textarea
                 value={content.skills.map((s: any) => typeof s === "string" ? s : s.name || "").join(", ")}
                 onChange={(e) => updateField("skills", e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}
-                className="w-full text-[11px] border border-dashed border-gray-300 rounded p-2 focus:outline-none focus:border-primary resize-none min-h-[40px]" />
+                className="w-full text-[10pt] focus:outline-none focus:bg-blue-50 rounded p-1 resize-none"
+                style={{ fontFamily: "inherit", minHeight: "40px" }} />
             ) : (
-              <p className="text-[11px] text-gray-600">
-                {content.skills.map((s: any) => typeof s === "string" ? s : s.name || "").filter((s: string) => s.length < 60).join(" · ")}
+              <p className="text-[10pt]">
+                {content.skills.map((s: any) => typeof s === "string" ? s : s.name || "").filter((s: string) => s.length < 60).join("  ·  ")}
               </p>
             )}
           </div>
@@ -236,14 +237,17 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
         {/* Education */}
         {content.educations?.length > 0 && (
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-300 pb-1 mb-2">Education</h2>
+            <h2 className="text-[11pt] font-bold uppercase tracking-wide mb-1" style={{ borderBottom: "1px solid #ccc", paddingBottom: "2px" }}>
+              Education
+            </h2>
             {content.educations.map((edu: any, i: number) => (
-              <div key={i} className="flex justify-between mb-1">
+              <div key={i} className="flex justify-between items-baseline mb-1">
                 <div>
-                  <span className="text-xs font-bold">{edu.degree}{edu.field ? `, ${edu.field}` : ""}</span>
-                  <span className="text-xs text-gray-500 ml-2">{edu.school}</span>
+                  <span className="text-[10.5pt] font-bold">{edu.degree}{edu.field ? `, ${edu.field}` : ""}</span>
+                  <span className="text-[10pt] text-gray-600 ml-2">— {edu.school}</span>
+                  {edu.gpa && <span className="text-[9.5pt] text-gray-500 ml-2">GPA: {edu.gpa}</span>}
                 </div>
-                <span className="text-[10px] text-gray-400">{edu.end_date || edu.endDate || ""}</span>
+                <span className="text-[9.5pt] text-gray-500 whitespace-nowrap ml-2">{edu.end_date || edu.endDate || ""}</span>
               </div>
             ))}
           </div>
@@ -252,11 +256,20 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
         {/* Projects */}
         {content.projects?.length > 0 && (
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 border-b border-gray-300 pb-1 mb-2">Projects</h2>
+            <h2 className="text-[11pt] font-bold uppercase tracking-wide mb-1" style={{ borderBottom: "1px solid #ccc", paddingBottom: "2px" }}>
+              Projects
+            </h2>
             {content.projects.map((proj: any, i: number) => (
               <div key={i} className="mb-2">
-                <span className="text-xs font-bold">{proj.name}</span>
-                {proj.description && <p className="text-[11px] text-gray-600">{proj.description}</p>}
+                <span className="text-[10.5pt] font-bold">{proj.name}</span>
+                {proj.description && <p className="text-[10pt] text-gray-600">{proj.description}</p>}
+                {proj.bullets?.length > 0 && (
+                  <ul className="ml-4" style={{ listStyleType: "disc" }}>
+                    {proj.bullets.map((b: string, bi: number) => (
+                      <li key={bi} className="text-[10pt] text-gray-700 pl-1">{b}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
@@ -265,7 +278,7 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: ResumePr
 
       {mode === "edit" && (
         <p className="text-[10px] text-center text-muted-foreground">
-          Edit any field above, then click Save. Download PDF/Word when ready.
+          Click any field to edit. Save when done, then use Download PDF / Word buttons above.
         </p>
       )}
     </div>
