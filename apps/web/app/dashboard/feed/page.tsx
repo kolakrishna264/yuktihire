@@ -61,7 +61,7 @@ function SavedJobsSection() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
           {savedJobs.map((job: any) => (
-            <JobCard key={job.id} job={job} showTailor />
+            <JobCard key={job.id} job={job} type="saved" />
           ))}
         </div>
       )}
@@ -102,7 +102,7 @@ function RecommendedSection() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
           {recJobs.map((job: any) => (
-            <JobCard key={job.id} job={job} />
+            <JobCard key={job.id} job={job} type="discovered" />
           ))}
         </div>
       )}
@@ -141,7 +141,9 @@ function ComingSoonSection() {
   )
 }
 
-function JobCard({ job, showTailor }: { job: any; showTailor?: boolean }) {
+// type: "saved" = from tracker (has tracker ID, shows Tailor button)
+// type: "discovered" = from job board/recommended (shows Save button)
+function JobCard({ job, type = "saved" }: { job: any; type?: "saved" | "discovered" }) {
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-4 space-y-2">
@@ -150,7 +152,7 @@ function JobCard({ job, showTailor }: { job: any; showTailor?: boolean }) {
             <p className="text-sm font-semibold truncate">{job.title || job.role || "Untitled"}</p>
             <p className="text-xs text-muted-foreground">{job.company || "Unknown"}</p>
           </div>
-          {job.pipelineStage && (
+          {type === "saved" && job.pipelineStage && (
             <Badge variant="secondary" className="text-[9px] shrink-0 ml-2">{job.pipelineStage}</Badge>
           )}
         </div>
@@ -161,10 +163,18 @@ function JobCard({ job, showTailor }: { job: any; showTailor?: boolean }) {
           </div>
         )}
         <div className="flex gap-2 pt-1">
-          {showTailor && (
+          {type === "saved" ? (
+            // Saved job → Tailor button linking to tracker
             <Link href={`/dashboard/tailor?tracker=${job.id}`} className="flex-1">
               <Button variant="outline" size="sm" className="w-full text-xs">
                 <Wand2 className="w-3 h-3" /> Tailor
+              </Button>
+            </Link>
+          ) : (
+            // Discovered job → link to discover page to save it
+            <Link href="/dashboard/discover" className="flex-1">
+              <Button variant="outline" size="sm" className="w-full text-xs">
+                <Bookmark className="w-3 h-3" /> Save & Track
               </Button>
             </Link>
           )}
