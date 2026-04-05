@@ -2907,53 +2907,60 @@ if (document.location.hostname.includes("yuktihire.com")) {
     return nameId
   }
 
-  // ── Build answer map from profile data ──
+  // ── Build answer map — US-only, 3-tier structure ──
   function buildAnswerMap(pd) {
+    // Parse US location: "Arlington, Texas" → city + state
+    var locParts = (pd.location || "").split(",").map(function(s) { return s.trim() })
+
     return {
-      // Identity
+      // ── Tier 1: Identity (deterministic from profile) ──
       "first name": pd.firstName, "first_name": pd.firstName, "fname": pd.firstName, "given name": pd.firstName,
       "last name": pd.lastName, "last_name": pd.lastName, "lname": pd.lastName, "surname": pd.lastName, "family name": pd.lastName,
       "full name": pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
       "name": pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
-      // Contact
       "email": pd.email, "e-mail": pd.email, "email address": pd.email,
       "phone": pd.phone, "phone number": pd.phone, "mobile": pd.phone, "telephone": pd.phone, "cell": pd.phone,
-      // Links
       "linkedin": pd.linkedin, "linkedin url": pd.linkedin, "linkedin profile": pd.linkedin,
       "github": pd.github, "github url": pd.github, "github profile": pd.github,
-      "portfolio": pd.portfolio, "website": pd.portfolio, "personal website": pd.portfolio, "personal site": pd.portfolio,
-      // Links — only fill if user actually has data
+      "portfolio": pd.portfolio, "website": pd.portfolio, "personal website": pd.portfolio,
       "publication": pd.publications || "", "publications": pd.publications || "",
-      "google scholar": pd.publications || "", "semantic scholar": pd.publications || "",
-      // Location — NO "country" key here (handled specially to avoid cross-contamination)
-      "location": pd.location, "city": pd.location,
+      "google scholar": pd.publications || "",
+      // US address fields
+      "location": pd.location, "city": locParts[0] || pd.location,
+      "state": locParts[1] || "",
+      "zip": pd.zip || pd.zipCode || "",
       "address": pd.address || pd.location, "street address": pd.address || pd.location,
       "what is your address": pd.address || pd.location,
       // Work
       "current company": pd.headline, "current employer": pd.headline,
       "headline": pd.headline, "summary": pd.summary,
-      // Authorization — only from user's stored preferences, no hardcoded defaults
+
+      // ── Tier 1: US Work Authorization (from stored preferences) ──
       "authorized to work": pd.workAuthorization || "",
       "legally authorized": pd.workAuthorization || "",
       "work authorization": pd.workAuthorization || "",
       "eligible to work": pd.workAuthorization || "",
       "right to work": pd.workAuthorization || "",
-      // Sponsorship
       "sponsorship": pd.sponsorship || "",
       "visa sponsorship": pd.sponsorship || "",
       "require sponsorship": pd.sponsorship || "",
       "require visa": pd.sponsorship || "",
       "employment visa": pd.sponsorship || "",
       "employer sponsorship": pd.sponsorship || "",
-      // Relocation, remote, salary, start date — NOT here (Tier 2: AI contextual)
-      // EEO fields — NOT here (Tier 3: review only, never auto-fill)
-      // Application logistics
+
+      // ── Tier 1: Simple logistics (from stored preferences) ──
       "interviewed before": pd.interviewedBefore || "",
       "ever interviewed": pd.interviewedBefore || "",
-      // Consent (safe to auto-fill)
+
+      // ── Consent (safe to auto-accept) ──
       "ai policy": "Yes",
       "acknowledge": "Yes",
       "confirm your understanding": "Yes",
+
+      // ── Tier 2: contextual — NOT in this map (handled by AI in engine) ──
+      // relocation, DFW area, remote preference, salary, start date, travel
+      // ── Tier 3: sensitive — NOT in this map (always REVIEW) ──
+      // gender, race, ethnicity, veteran, disability, pronouns
     }
   }
 

@@ -15,43 +15,41 @@ var YuktiEngine = (function () {
 
   // ── LAYER 1: Question Intent Taxonomy ──────────────────────────────────
 
+  // US-only product — optimized for US job application patterns
   var INTENT_PATTERNS = {
-    // Identity / Contact
-    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name", "prénom"], category: "identity" },
-    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name", "nom"], category: "identity" },
+    // ── Tier 1: Identity / Contact (deterministic from profile) ──
+    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name"], category: "identity" },
+    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name"], category: "identity" },
     fullName:        { patterns: ["full name", "your name", "candidate name", "applicant name", "fullname", "name *"], category: "identity" },
     preferredName:   { patterns: ["preferred name", "preferred first", "nickname", "goes by", "known as"], category: "identity" },
-    email:           { patterns: ["email", "e-mail", "email address", "courriel"], category: "identity" },
-    phone:           { patterns: ["phone", "mobile", "telephone", "cell", "contact number", "phone number", "téléphone"], category: "identity" },
+    email:           { patterns: ["email", "e-mail", "email address"], category: "identity" },
+    phone:           { patterns: ["phone", "mobile", "telephone", "cell", "contact number", "phone number"], category: "identity" },
     address:         { patterns: ["street address", "address line", "mailing address", "home address", "your address", "address from which", "what is your address"], category: "identity" },
     city:            { patterns: ["city", "town"], category: "identity" },
-    state:           { patterns: ["state", "province", "region"], category: "identity" },
-    zip:             { patterns: ["zip", "postal", "postcode", "zip code", "postal code"], category: "identity" },
+    state:           { patterns: ["state"], category: "identity" },
+    zip:             { patterns: ["zip", "zip code", "postal code"], category: "identity" },
     country:         { patterns: ["country"], category: "identity", maxLabelLen: 30 },
     location:        { patterns: ["location", "where are you located", "based in", "current location"], category: "identity" },
     linkedin:        { patterns: ["linkedin", "linkedin profile", "linkedin url", "linkedin link"], category: "identity" },
     github:          { patterns: ["github", "github url", "github profile"], category: "identity" },
     portfolio:       { patterns: ["portfolio", "website", "personal site", "personal url", "personal website", "home page"], category: "identity" },
-    pronouns:        { patterns: ["pronouns", "preferred pronouns"], category: "sensitive" },
 
-    // Professional
+    // ── Tier 1: Professional (from profile) ──
     currentCompany:  { patterns: ["current company", "current employer", "company name", "employer name", "present company"], category: "professional" },
     currentTitle:    { patterns: ["current title", "current role", "job title", "current position", "present title"], category: "professional" },
     yearsExp:        { patterns: ["years of experience", "how many years", "years experience", "total experience", "work experience"], category: "professional" },
-    salary:          { patterns: ["salary", "compensation", "expected pay", "desired salary", "pay expectation", "salary expectation", "current salary"], category: "professional" },
-    noticePeriod:    { patterns: ["notice period", "how much notice", "notice required"], category: "professional" },
-    startDate:       { patterns: ["start date", "earliest start", "when can you start", "availability", "available to start", "date available", "earliest you would"], category: "professional" },
     skills:          { patterns: ["skills", "key skills", "technical skills", "core competencies"], category: "professional" },
     certifications:  { patterns: ["certifications", "certification", "certified", "licenses"], category: "professional" },
     education:       { patterns: ["education", "highest degree", "degree", "university", "school", "academic"], category: "professional" },
     gradYear:        { patterns: ["graduation year", "year of graduation", "grad year", "when did you graduate"], category: "professional" },
     publications:    { patterns: ["publication", "publications", "research", "google scholar", "semantic scholar", "papers"], category: "professional" },
 
-    // Work Authorization — Tier 1 (from stored profile preferences)
-    workAuth:        { patterns: ["authorized to work", "authorised to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"], category: "authorization" },
-    sponsorship:     { patterns: ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "immigration", "require sponsorship", "need sponsorship", "require visa", "employer sponsorship", "employment visa"], category: "authorization" },
-    visaType:        { patterns: ["visa type", "visa status", "immigration status", "opt", "cpt", "stem opt", "green card", "citizenship"], category: "authorization" },
-    // Relocation — Tier 2 (contextual, depends on job location)
+    // ── Tier 1: US Work Authorization (from stored preferences) ──
+    workAuth:        { patterns: ["authorized to work", "legally authorized", "work authorization", "right to work", "eligible to work", "work in the u.s", "work in the us", "legally permitted", "employment eligibility"], category: "authorization" },
+    sponsorship:     { patterns: ["sponsorship", "sponsor", "visa", "h-1b", "h1b", "require sponsorship", "need sponsorship", "require visa", "employer sponsorship", "employment visa", "immigration"], category: "authorization" },
+    visaType:        { patterns: ["visa type", "visa status", "immigration status", "opt", "cpt", "stem opt", "green card", "citizenship", "ead"], category: "authorization" },
+
+    // ── Tier 2: AI Contextual (answered by AI using job context) ──
     relocation:      { patterns: ["relocat", "willing to move", "open to moving"], category: "contextual" },
 
     // Motivation
@@ -578,8 +576,13 @@ var YuktiEngine = (function () {
   }
 
   function getProfileAnswer(intent, pd) {
+    // Parse location into city/state for US addresses (e.g. "Arlington, Texas" → city: "Arlington", state: "Texas")
+    var locParts = (pd.location || "").split(",").map(function(s) { return s.trim() })
+    var cityVal = locParts[0] || ""
+    var stateVal = locParts[1] || ""
+
     var map = {
-      // Tier 1: Identity (always from profile)
+      // Tier 1: Identity — US-formatted
       firstName: pd.firstName,
       lastName: pd.lastName,
       fullName: pd.fullName || ((pd.firstName || "") + " " + (pd.lastName || "")).trim(),
@@ -587,24 +590,26 @@ var YuktiEngine = (function () {
       email: pd.email,
       phone: pd.phone,
       address: pd.address || pd.location,
-      city: pd.location ? pd.location.split(",")[0].trim() : "",
+      city: cityVal,
+      state: stateVal,
+      zip: pd.zip || pd.zipCode || "",
       location: pd.location,
       linkedin: pd.linkedin,
       github: pd.github,
       portfolio: pd.portfolio,
-      country: pd.country || "United States",
-      // Tier 1: Authorization (from stored preferences)
+      country: "United States",  // US-only product
+      // Tier 1: US Work Authorization
       workAuth: pd.workAuthorization || "",
       sponsorship: pd.sponsorship || "",
       visaType: pd.visaType || "",
-      // Tier 1: Professional (from profile)
+      // Tier 1: Professional
       currentCompany: pd.headline || pd.currentCompany || "",
       currentTitle: pd.currentTitle || pd.headline || "",
       publications: pd.publications || "",
       yearsExp: pd.yearsExperience || "",
       skills: pd.skills || "",
       education: pd.education || pd.degree || "",
-      // Logistics (from stored prefs)
+      // Logistics
       interviewedBefore: pd.interviewedBefore || "",
     }
     return map[intent] !== undefined ? map[intent] : null
