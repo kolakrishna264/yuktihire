@@ -373,6 +373,51 @@ async def generate_all_rewrites(
                 "is_gap": False,
             })
 
+    # ── 1b. FORCE-REWRITE top bullets if no rewrites were generated ──
+    # The gap analyzer may be too conservative with rewrite_opportunity.
+    # If we got zero bullet rewrites, pick the top 3-5 bullets from the most
+    # relevant experience and rewrite them to include JD keywords.
+    bullet_rewrites = [r for r in recommendations if r.get("section") == "experience" and not r.get("is_gap")]
+    if len(bullet_rewrites) == 0 and experiences:
+        must_have = jd_analysis.get("must_have_keywords", [])[:6]
+        required = jd_analysis.get("required_skills", [])[:4]
+        top_keywords = list(dict.fromkeys(must_have + required))[:8]  # deduplicated, up to 8
+
+        # Pick the first (most recent/relevant) experience
+        exp = experiences[0]
+        bullets = exp.get("bullets", [])
+
+        # Rewrite up to 4 bullets from this experience
+        for bi, bullet in enumerate(bullets[:4]):
+            if not bullet or len(bullet.strip()) < 20:
+                continue
+            # Pick 2-3 keywords to weave into this bullet
+            kws_for_bullet = top_keywords[bi * 2 : bi * 2 + 3] if bi * 2 < len(top_keywords) else top_keywords[:2]
+            if not kws_for_bullet:
+                continue
+
+            result = await rewrite_bullet(
+                original=bullet,
+                title=exp.get("title", ""),
+                company=exp.get("company", ""),
+                skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
+                keywords_to_add=kws_for_bullet,
+                seniority=seniority,
+                max_words=max(len(bullet.split()) + 5, 35),
+            )
+            if result.get("changed") and result.get("truthful"):
+                recommendations.append({
+                    "section": "experience",
+                    "field": f"experience_0_bullet",
+                    "original": bullet,
+                    "suggested": result["suggested"],
+                    "reason": result["reason"],
+                    "confidence": result.get("confidence", 0.8),
+                    "keywords_added": result.get("keywords_added", []),
+                    "truthful": True,
+                    "is_gap": False,
+                })
+
     # ── 2. Rewrite summary with targeted keywords and concepts ──
     summary_keywords = gap_analysis.get("summary_keywords", [])
     if resume_content.get("summary"):
