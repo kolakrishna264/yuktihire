@@ -1,85 +1,152 @@
 """
-ATS Scorer — Rules-based, deterministic, no AI needed.
-Fast, consistent, explainable scoring against JD requirements.
+ATS Scorer v2 — Industry-grade resume scoring engine.
 
-Key design principle: keyword PLACEMENT quality matters.
-A keyword in a relevant experience bullet is worth more than one dumped into skills.
+Design principles:
+1. Keyword EQUIVALENCE — "LLM" matches "LLMs", "large language model", "LLM-based"
+2. Placement QUALITY — experience bullets > summary > skills-only
+3. Semantic coverage — "built RAG pipelines" covers "RAG" even without exact substring
+4. Honest gaps — clearly separate fixable vs unfixable blockers
+5. Responsive to tailoring — re-score always uses latest content
 """
 import re
 
 
-# Common tech synonyms — ATS systems often treat these as equivalent
-SYNONYMS = {
-    "ml": ["machine learning"],
-    "machine learning": ["ml"],
-    "ai": ["artificial intelligence"],
-    "artificial intelligence": ["ai"],
-    "nlp": ["natural language processing"],
-    "natural language processing": ["nlp"],
-    "dl": ["deep learning"],
-    "deep learning": ["dl"],
-    "js": ["javascript"],
-    "javascript": ["js"],
-    "ts": ["typescript"],
-    "typescript": ["ts"],
-    "k8s": ["kubernetes"],
-    "kubernetes": ["k8s"],
-    "postgres": ["postgresql"],
-    "postgresql": ["postgres"],
-    "ci/cd": ["cicd", "ci cd", "continuous integration", "continuous deployment"],
-    "aws": ["amazon web services"],
-    "amazon web services": ["aws"],
-    "gcp": ["google cloud", "google cloud platform"],
-    "google cloud": ["gcp"],
-    "azure": ["microsoft azure"],
-    "react.js": ["react", "reactjs"],
-    "react": ["react.js", "reactjs"],
-    "node.js": ["node", "nodejs"],
-    "node": ["node.js", "nodejs"],
-    "next.js": ["next", "nextjs"],
-    "scikit-learn": ["scikit", "sklearn"],
-    "tensorflow": ["tf"],
-    "pytorch": ["torch"],
-    "llm": ["large language model", "large language models"],
-    "large language model": ["llm"],
-    "rag": ["retrieval augmented generation", "retrieval-augmented generation"],
-    "api": ["apis", "rest api", "restful"],
-    "rest api": ["api", "restful api"],
-    "sql": ["structured query language"],
-    "nosql": ["no-sql", "non-relational"],
-    "oop": ["object oriented", "object-oriented"],
-    "sre": ["site reliability"],
-    "devops": ["dev ops"],
-    "etl": ["extract transform load"],
-    "sagemaker": ["sage maker", "aws sagemaker"],
-    "genai": ["generative ai", "gen ai"],
-    "generative ai": ["genai", "gen ai"],
-    "llms": ["llm", "large language models"],
-}
+# ══════════════════════════════════════════════════════════════════════════
+# KEYWORD EQUIVALENCE ENGINE
+# ══════════════════════════════════════════════════════════════════════════
 
+# Bidirectional equivalence groups — if ANY term in a group matches, ALL are considered matched
+EQUIVALENCE_GROUPS = [
+    {"llm", "llms", "large language model", "large language models"},
+    {"ml", "machine learning"},
+    {"dl", "deep learning"},
+    {"ai", "artificial intelligence"},
+    {"nlp", "natural language processing"},
+    {"gan", "gans", "generative adversarial network", "generative adversarial networks"},
+    {"vae", "vaes", "variational autoencoder"},
+    {"rag", "retrieval augmented generation", "retrieval-augmented generation"},
+    {"llm-based", "llm based", "llm"},
+    {"js", "javascript"},
+    {"ts", "typescript"},
+    {"py", "python"},
+    {"k8s", "kubernetes"},
+    {"postgres", "postgresql"},
+    {"mongo", "mongodb"},
+    {"tf", "tensorflow"},
+    {"pt", "pytorch", "torch"},
+    {"sk", "scikit-learn", "scikit", "sklearn"},
+    {"np", "numpy"},
+    {"pd", "pandas"},
+    {"ci/cd", "cicd", "ci cd", "continuous integration", "continuous deployment"},
+    {"aws", "amazon web services"},
+    {"gcp", "google cloud", "google cloud platform"},
+    {"azure", "microsoft azure"},
+    {"react.js", "reactjs", "react"},
+    {"node.js", "nodejs", "node"},
+    {"next.js", "nextjs", "next"},
+    {"fastapi", "fast api"},
+    {"docker", "containerization", "containers"},
+    {"api", "apis", "rest api", "restful api", "restful"},
+    {"sql", "structured query language"},
+    {"nosql", "no-sql", "non-relational"},
+    {"oop", "object oriented", "object-oriented"},
+    {"sre", "site reliability"},
+    {"devops", "dev ops"},
+    {"etl", "extract transform load"},
+    {"sagemaker", "aws sagemaker"},
+    {"genai", "generative ai", "gen ai"},
+    {"embedding", "embeddings"},
+    {"vector database", "vector databases", "vector db", "vector search"},
+    {"faiss", "vector search", "similarity search"},
+    {"pinecone", "vector database"},
+    {"langchain", "lang chain"},
+    {"hugging face", "huggingface"},
+    {"lora", "low-rank adaptation"},
+    {"peft", "parameter efficient fine-tuning"},
+    {"fine-tuning", "fine tuning", "finetuning"},
+    {"prompt engineering", "prompt tuning", "prompt design"},
+    {"mlops", "ml ops", "ml operations"},
+    {"a/b testing", "ab testing", "experiment design"},
+    {"github actions", "github ci", "gh actions"},
+    {"pyspark", "py spark", "spark python"},
+    {"airflow", "apache airflow"},
+    {"kafka", "apache kafka"},
+    {"spark", "apache spark", "pyspark"},
+]
+
+# Build lookup: term -> set of all equivalents
+_EQUIV_LOOKUP: dict[str, set[str]] = {}
+for group in EQUIVALENCE_GROUPS:
+    for term in group:
+        _EQUIV_LOOKUP.setdefault(term.lower(), set()).update(t.lower() for t in group)
+
+
+def _get_equivalents(keyword: str) -> set[str]:
+    """Get all equivalent forms of a keyword."""
+    kl = keyword.lower().strip()
+    equivs = _EQUIV_LOOKUP.get(kl, set())
+    # Always include the original and its plural/singular
+    result = {kl} | equivs
+    if kl.endswith("s") and len(kl) > 3:
+        result.add(kl[:-1])  # LLMs -> LLM
+    if not kl.endswith("s"):
+        result.add(kl + "s")  # LLM -> LLMs
+    # Hyphenated variants
+    if "-" in kl:
+        result.add(kl.replace("-", " "))
+        result.add(kl.replace("-", ""))
+    return result
+
+
+def _keyword_in_text(keyword: str, text: str) -> bool:
+    """Check if keyword or ANY equivalent appears in text.
+    Also checks stem matches (fine-tuning matches fine-tuned)."""
+    text_lower = text.lower()
+    for variant in _get_equivalents(keyword):
+        if len(variant) <= 2:
+            if re.search(r'\b' + re.escape(variant) + r'\b', text_lower):
+                return True
+        else:
+            if variant in text_lower:
+                return True
+        # Stem match for each word in the variant
+        # "model deployment" -> stems ["model", "deploy"] -> both in "deployed models"
+        words = variant.replace("-", " ").split()
+        if len(words) >= 1:
+            stems = []
+            for w in words:
+                s = w
+                for suffix in ["mentation", "ation", "ment", "tion", "sion", "ings", "ing", "ed", "ers", "er", "ly", "ies", "es", "s"]:
+                    if s.endswith(suffix) and len(s) >= len(suffix) + 3:
+                        s = s[:-len(suffix)]
+                        break
+                if len(s) >= 2:
+                    stems.append(s)
+            if stems and all(s in text_lower for s in stems):
+                return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SECTION TEXT EXTRACTION
+# ══════════════════════════════════════════════════════════════════════════
 
 def _extract_section_texts(resume_content: dict) -> dict:
     """Extract text by section for placement-quality scoring."""
     sections = {}
-
-    # Summary
     sections["summary"] = (resume_content.get("summary") or "").lower()
 
-    # Skills (flattened)
     skill_parts = []
     for skill in resume_content.get("skills", []):
         if isinstance(skill, str):
             skill_parts.append(skill)
         elif isinstance(skill, dict):
-            if "items" in skill:
-                skill_parts.extend(skill.get("items", []))
-            elif "skills" in skill:
-                skill_parts.extend(skill.get("skills", []))
-            elif "name" in skill:
+            for k in ["items", "skills"]:
+                skill_parts.extend(skill.get(k, []))
+            if "name" in skill:
                 skill_parts.append(skill.get("name", ""))
     sections["skills"] = " ".join(str(p) for p in skill_parts if p).lower()
 
-    # Experience bullets
     exp_parts = []
     for exp in resume_content.get("experiences", []):
         exp_parts.append(exp.get("title", ""))
@@ -88,7 +155,6 @@ def _extract_section_texts(resume_content: dict) -> dict:
         exp_parts.extend(exp.get("skills_used", exp.get("skillsUsed", [])))
     sections["experience"] = " ".join(str(p) for p in exp_parts if p).lower()
 
-    # Projects
     proj_parts = []
     for proj in resume_content.get("projects", []):
         proj_parts.append(proj.get("name", ""))
@@ -97,287 +163,152 @@ def _extract_section_texts(resume_content: dict) -> dict:
         proj_parts.extend(proj.get("skills", []))
     sections["projects"] = " ".join(str(p) for p in proj_parts if p).lower()
 
-    # Education
     edu_parts = []
     for edu in resume_content.get("educations", []):
-        edu_parts.append(edu.get("degree", ""))
-        edu_parts.append(edu.get("field", ""))
-        edu_parts.append(edu.get("school", ""))
+        edu_parts.extend([edu.get("degree", ""), edu.get("field", ""), edu.get("school", "")])
     sections["education"] = " ".join(str(p) for p in edu_parts if p).lower()
 
-    # All text combined
     sections["all"] = " ".join(sections.values())
-
     return sections
 
 
-def _matches_with_synonyms(keyword: str, text: str) -> bool:
-    """Check if keyword or any of its synonyms appear in text."""
-    kw_lower = keyword.lower().strip()
-
-    # Direct match
-    if kw_lower in text:
-        return True
-
-    # Word-boundary match for short keywords
-    if len(kw_lower) <= 3:
-        pattern = r'\b' + re.escape(kw_lower) + r'\b'
-        if re.search(pattern, text):
-            return True
-
-    # Synonym expansion
-    for syn in SYNONYMS.get(kw_lower, []):
-        if syn.lower() in text:
-            return True
-
-    # Multi-word partial: all significant words present
-    words = kw_lower.split()
-    if len(words) >= 2:
-        sig_words = [w for w in words if len(w) > 2]
-        if sig_words and all(w in text for w in sig_words):
-            return True
-
-    return False
-
+# ══════════════════════════════════════════════════════════════════════════
+# COMPONENT SCORING FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════
 
 def keyword_match_score(text: str, keywords: list[str]) -> tuple[int, list[str], list[str]]:
-    """Returns (score, matched, missing) with synonym awareness."""
+    """Returns (score, matched, missing) using equivalence matching."""
     if not keywords:
-        return 85, [], []
-    matched = []
-    missing = []
+        return 90, [], []
+    matched, missing = [], []
     for kw in keywords:
-        if _matches_with_synonyms(kw, text):
+        if _keyword_in_text(kw, text):
             matched.append(kw)
         else:
             missing.append(kw)
-    score = int(len(matched) / len(keywords) * 100)
-    return score, matched, missing
+    return int(len(matched) / len(keywords) * 100), matched, missing
 
 
 def keyword_placement_score(sections: dict, keywords: list[str]) -> tuple[int, dict]:
-    """
-    Score keywords by WHERE they appear, not just IF they appear.
-
-    Placement weights:
-    - In experience bullets: 1.0 (best — shows real usage)
-    - In summary: 0.9 (good — shows awareness)
-    - In skills section: 0.7 (acceptable — but can look like stuffing)
-    - In projects: 0.85 (good — shows hands-on work)
-    - Only in wrong section: 0.4 (penalized — keyword stuffing)
-
-    Returns (placement_quality_score 0-100, detail_dict)
-    """
+    """Score keywords by WHERE they appear. Experience > Summary > Skills-only.
+    Returns (placement_score 0-100, detail_dict)."""
     if not keywords:
-        return 85, {}
+        return 90, {}
 
-    placement_details = {}
-    total_weighted = 0
-    found_count = 0
+    details = {}
+    total_weighted = 0.0
+    found = 0
 
     for kw in keywords:
-        in_exp = _matches_with_synonyms(kw, sections.get("experience", ""))
-        in_summary = _matches_with_synonyms(kw, sections.get("summary", ""))
-        in_skills = _matches_with_synonyms(kw, sections.get("skills", ""))
-        in_projects = _matches_with_synonyms(kw, sections.get("projects", ""))
-        in_any = _matches_with_synonyms(kw, sections.get("all", ""))
+        in_exp = _keyword_in_text(kw, sections.get("experience", ""))
+        in_sum = _keyword_in_text(kw, sections.get("summary", ""))
+        in_skl = _keyword_in_text(kw, sections.get("skills", ""))
+        in_prj = _keyword_in_text(kw, sections.get("projects", ""))
+        in_any = _keyword_in_text(kw, sections.get("all", ""))
 
         if not in_any:
-            placement_details[kw] = {"found": False, "weight": 0, "best_section": "missing"}
+            details[kw] = {"found": False, "weight": 0, "section": "missing"}
             continue
 
-        found_count += 1
-
-        # Calculate placement weight — experience >> summary >> skills-only
-        # Skills-only gets very low weight to discourage keyword stuffing
+        found += 1
+        # Placement weight: experience is best
         if in_exp:
-            weight = 1.0
-            best = "experience"
-        elif in_summary:
-            weight = 0.8
-            best = "summary"
-        elif in_projects:
-            weight = 0.75
-            best = "projects"
-        elif in_skills:
-            weight = 0.4   # Heavily penalized — keyword only in skills = likely stuffed
-            best = "skills_only"
+            w, sec = 1.0, "experience"
+        elif in_sum:
+            w, sec = 0.85, "summary"
+        elif in_prj:
+            w, sec = 0.8, "projects"
+        elif in_skl:
+            w, sec = 0.5, "skills_only"
         else:
-            weight = 0.3
-            best = "other"
+            w, sec = 0.4, "other"
 
-        # Bonus for appearing in multiple relevant sections
-        section_count = sum([in_exp, in_summary, in_skills, in_projects])
-        if section_count >= 2:
-            weight = min(weight + 0.1, 1.0)
+        # Multi-section bonus
+        if sum([in_exp, in_sum, in_skl, in_prj]) >= 2:
+            w = min(w + 0.1, 1.0)
 
-        total_weighted += weight
-        placement_details[kw] = {"found": True, "weight": weight, "best_section": best}
+        total_weighted += w
+        details[kw] = {"found": True, "weight": w, "section": sec}
 
-    if found_count == 0:
-        return 0, placement_details
-
-    max_possible = len(keywords)
-    placement_score = int((total_weighted / max_possible) * 100)
-    return placement_score, placement_details
-
-
-def skills_match_score(text: str, required_skills: list[str]) -> tuple[int, list[str], list[str]]:
-    """Match required skills against text with synonym awareness."""
-    if not required_skills:
-        return 80, [], []
-    matched = []
-    missing = []
-    for skill in required_skills:
-        if _matches_with_synonyms(skill, text):
-            matched.append(skill)
-        else:
-            missing.append(skill)
-    score = int(len(matched) / len(required_skills) * 100)
-    return score, matched, missing
-
-
-def experience_score_from_gaps(gap_analysis: dict) -> int:
-    """Derive experience score from gap analysis bullet alignment scores."""
-    alignments = gap_analysis.get("bullet_alignments", [])
-    if not alignments:
-        return 50
-    scores = [a.get("alignment_score", 50) for a in alignments]
-    return int(sum(scores) / len(scores))
+    score = int((total_weighted / max(len(keywords), 1)) * 100) if found else 0
+    return score, details
 
 
 def experience_keyword_score(sections: dict, keywords: list[str]) -> int:
-    """Score experience section by actual keyword presence (not AI alignment).
-    This gives credit for keywords that ARE in experience bullets after rewriting."""
-    exp_text = sections.get("experience", "")
-    if not exp_text or not keywords:
+    """Score experience by keyword presence (always current after rewrites)."""
+    exp = sections.get("experience", "")
+    if not exp or not keywords:
         return 50
-    matched = sum(1 for kw in keywords if _matches_with_synonyms(kw, exp_text))
+    matched = sum(1 for kw in keywords if _keyword_in_text(kw, exp))
     return min(95, int(matched / max(len(keywords), 1) * 100))
 
 
 def education_score(resume_content: dict, jd_analysis: dict) -> int:
     """Check if education meets JD requirements."""
-    required_edu = jd_analysis.get("education_required", "any")
-    if required_edu in [None, "any", "null"]:
+    req = jd_analysis.get("education_required", "any")
+    if req in [None, "any", "null", ""]:
         return 90
-
     educations = resume_content.get("educations", [])
     if not educations:
-        return 40 if required_edu in ["bachelors", "masters", "phd"] else 80
+        return 40 if req in ["bachelors", "masters", "phd"] else 80
 
-    degree_rank = {"associate": 1, "bachelors": 2, "bachelor": 2, "masters": 3, "master": 3, "phd": 4, "mba": 3, "doctorate": 4}
-    required_rank = degree_rank.get(required_edu.lower(), 2)
+    rank_map = {
+        "associate": 1, "bachelors": 2, "bachelor": 2, "masters": 3, "master": 3,
+        "phd": 4, "mba": 3, "doctorate": 4,
+    }
+    required_rank = rank_map.get(req.lower(), 2)
 
     for edu in educations:
-        degree_text = (edu.get("degree", "") + " " + edu.get("field", "")).lower()
-        for deg_name, rank in degree_rank.items():
-            if deg_name in degree_text and rank >= required_rank:
+        text = (edu.get("degree", "") + " " + edu.get("field", "")).lower()
+        for name, rank in rank_map.items():
+            if name in text and rank >= required_rank:
                 return 95
-        abbrevs = {"b.s.": 2, "b.tech": 2, "b.a.": 2, "m.s.": 3, "m.tech": 3, "m.a.": 3, "ph.d": 4, "b.sc": 2, "m.sc": 3}
-        for abbr, rank in abbrevs.items():
-            if abbr in degree_text and rank >= required_rank:
+        # Check abbreviations
+        for abbr, rank in {"b.s.": 2, "b.tech": 2, "b.a.": 2, "m.s.": 3, "m.tech": 3, "m.a.": 3, "ph.d": 4, "b.sc": 2, "m.sc": 3}.items():
+            if abbr in text and rank >= required_rank:
                 return 95
     return 60
 
 
 def format_score(resume_content: dict) -> int:
-    """Rules-based format checks for ATS compatibility."""
+    """Rules-based format checks."""
     score = 100
-    content = resume_content
-
-    contact = content.get("contact", {})
-    if not contact.get("email") and not content.get("email"):
+    if not (resume_content.get("contact", {}).get("email") or resume_content.get("email")):
+        score -= 8
+    if not resume_content.get("experiences"):
+        score -= 12
+    if resume_content.get("has_tables"):
         score -= 10
-
-    if not content.get("experiences"):
-        score -= 15
-
-    if content.get("has_tables"):
-        score -= 15
-    if content.get("has_images"):
-        score -= 5
-
-    # Check bullet quality
-    all_bullets = []
-    for exp in content.get("experiences", []):
-        all_bullets.extend(exp.get("bullets", []))
-
-    if all_bullets:
-        avg_len = sum(len(b.split()) for b in all_bullets) / len(all_bullets)
-        if avg_len < 8:
-            score -= 5
-        if avg_len > 40:
-            score -= 5
-
-    if content.get("skills"):
-        score = min(score + 5, 100)
-    if content.get("summary"):
-        score = min(score + 5, 100)
-
+    bullets = []
+    for exp in resume_content.get("experiences", []):
+        bullets.extend(exp.get("bullets", []))
+    if bullets:
+        avg = sum(len(b.split()) for b in bullets) / len(bullets)
+        if avg < 8: score -= 5
+        if avg > 40: score -= 5
+    if resume_content.get("skills"): score = min(score + 5, 100)
+    if resume_content.get("summary"): score = min(score + 5, 100)
     return max(score, 0)
 
 
-def generate_tips(
-    missing_keywords: list[str],
-    missing_skills: list[str],
-    gap_analysis: dict,
-    placement_details: dict,
-) -> list[str]:
-    """Generate clear, actionable tips. Separate genuine gaps from fixable items."""
-    tips = []
-    seen = set()
-    true_gaps = set(g.lower() for g in gap_analysis.get("true_skill_gaps", []))
-
-    # 1. Genuine gaps first (cannot fix with resume edits)
-    cannot_fix = []
-    for kw in missing_keywords + missing_skills:
-        if kw.lower() in seen:
-            continue
-        if kw.lower() in true_gaps:
-            cannot_fix.append(kw)
-            seen.add(kw.lower())
-    if cannot_fix:
-        tips.append(f"Cannot fix with resume edits (need real experience): {', '.join(cannot_fix[:5])}")
-
-    # 2. Fixable missing keywords (user can add these)
-    fixable = []
-    for kw in missing_keywords:
-        if kw.lower() in seen:
-            continue
-        seen.add(kw.lower())
-        fixable.append(kw)
-    if fixable:
-        tips.append(f"Add these keywords to boost score: {', '.join(fixable[:5])}")
-
-    # 3. Skills-only keywords (need experience bullets too)
-    skills_only = [kw for kw, detail in placement_details.items()
-                   if detail.get("best_section") == "skills_only" and kw.lower() not in seen]
-    if skills_only:
-        tips.append(f"Strengthen in experience bullets: {', '.join(skills_only[:3])}")
-
-    return tips[:5]
-
+# ══════════════════════════════════════════════════════════════════════════
+# KEYWORD EXTRACTION
+# ══════════════════════════════════════════════════════════════════════════
 
 def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
-    """Extract meaningful keywords — must-have + required skills only.
-    Keep the denominator tight so scores are realistic.
-    Do NOT inflate with role titles, long phrases, or responsibility sentences."""
+    """Extract JD keywords. Tight denominator — no role titles or long phrases."""
     keywords = set()
-    # Only must-have and required skills — these are the real ATS-matchable terms
     for field in ["must_have_keywords", "required_skills"]:
         for kw in jd_analysis.get(field, []):
             if not isinstance(kw, str) or len(kw) < 2 or len(kw) > 40:
                 continue
-            # Skip role titles (e.g., "Machine Learning Engineer", "AI/ML Architect")
-            role_words = ["engineer", "developer", "scientist", "architect", "manager", "lead", "director", "analyst", "specialist"]
+            # Skip role titles
+            role_words = ["engineer", "developer", "scientist", "architect", "manager", "lead", "director", "analyst"]
             if any(kw.lower().endswith(w) or kw.lower().startswith(w) for w in role_words):
                 continue
-            # Skip long compound phrases (5+ words) that inflate denominator
             if len(kw.split()) >= 4:
                 continue
             keywords.add(kw)
-    # Domain phrases — only short ones (2-3 words max)
     for kw in jd_analysis.get("domain_phrases", []):
         if isinstance(kw, str) and len(kw.split()) <= 2 and len(kw) < 30:
             keywords.add(kw)
@@ -385,7 +316,6 @@ def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
 
 
 def extract_nice_to_have(jd_analysis: dict) -> list[str]:
-    """Extract nice-to-have keywords separately."""
     keywords = set()
     for field in ["nice_to_have_keywords", "nice_to_have_skills"]:
         for kw in jd_analysis.get(field, []):
@@ -394,151 +324,170 @@ def extract_nice_to_have(jd_analysis: dict) -> list[str]:
     return list(keywords)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# TIPS GENERATION
+# ══════════════════════════════════════════════════════════════════════════
+
+def generate_tips(missing_kw, missing_skills, gap_analysis, placement_details) -> list[str]:
+    tips = []
+    seen = set()
+    true_gaps = set(g.lower() for g in gap_analysis.get("true_skill_gaps", []))
+
+    # Genuine gaps
+    cannot_fix = [kw for kw in missing_kw + missing_skills if kw.lower() in true_gaps and kw.lower() not in seen]
+    for kw in cannot_fix: seen.add(kw.lower())
+    if cannot_fix:
+        tips.append(f"Cannot fix (need real experience): {', '.join(cannot_fix[:5])}")
+
+    # Fixable
+    fixable = [kw for kw in missing_kw if kw.lower() not in seen]
+    for kw in fixable: seen.add(kw.lower())
+    if fixable:
+        tips.append(f"Add to boost score: {', '.join(fixable[:5])}")
+
+    # Skills-only (need experience bullets)
+    skills_only = [kw for kw, d in placement_details.items() if d.get("section") == "skills_only" and kw.lower() not in seen]
+    if skills_only:
+        tips.append(f"Strengthen in experience bullets: {', '.join(skills_only[:3])}")
+
+    return tips[:4]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# MAIN SCORING FUNCTION
+# ══════════════════════════════════════════════════════════════════════════
+
 def calculate_ats_score(
     resume_content: dict,
     jd_analysis: dict,
     gap_analysis: dict,
 ) -> dict:
     """
-    Full ATS scoring with placement quality.
+    Full ATS scoring with equivalence matching and placement quality.
 
-    Key difference from naive scoring: WHERE a keyword appears matters.
-    Experience bullet match > Summary match > Skills-only match.
-    This prevents keyword stuffing from inflating scores.
+    Weights (experience-heavy, anti-stuffing):
+      Experience relevance: 25%
+      Placement quality:    18%
+      Summary relevance:    12%
+      Keyword coverage:     12%
+      Skills coverage:      10%
+      Title alignment:       8%
+      Education:             7%
+      Format:                5%
+      Projects:              3%
     """
     sections = _extract_section_texts(resume_content)
     resume_text = sections["all"]
 
-    # Extract keywords
     all_keywords = extract_all_jd_keywords(jd_analysis)
     must_have = jd_analysis.get("must_have_keywords", [])
     required_skills = jd_analysis.get("required_skills", [])
 
-    # ── Component scores ──
-
-    # Title alignment
+    # ── Title alignment ──
     target_role = (jd_analysis.get("role", "") or "").lower()
     title_score = 70
     if target_role:
         for exp in resume_content.get("experiences", []):
-            exp_title = (exp.get("title", "") or "").lower()
-            if target_role in exp_title or exp_title in target_role:
+            t = (exp.get("title", "") or "").lower()
+            if target_role in t or t in target_role:
                 title_score = 95
                 break
-            role_words = set(w for w in target_role.split() if len(w) > 2)
-            title_words = set(w for w in exp_title.split() if len(w) > 2)
+            role_words = {w for w in target_role.split() if len(w) > 2}
+            title_words = {w for w in t.split() if len(w) > 2}
             overlap = role_words & title_words
             if overlap:
-                title_score = max(title_score, 70 + len(overlap) * 10)
-            for rw in role_words:
-                for syn in SYNONYMS.get(rw, []):
-                    if syn in exp_title:
-                        title_score = max(title_score, 80)
+                title_score = max(title_score, 70 + min(len(overlap) * 12, 25))
 
-    # Keyword match (basic: present anywhere)
+    # ── Keyword coverage (with equivalence) ──
     kw_score, matched_kw, missing_kw = keyword_match_score(resume_text, all_keywords)
 
-    # Keyword placement quality (WHERE they appear — the anti-stuffing metric)
+    # ── Placement quality ──
     placement_score, placement_details = keyword_placement_score(sections, all_keywords)
 
-    # Nice-to-have bonus
-    nice_to_have = extract_nice_to_have(jd_analysis)
-    nth_score, matched_nth, _ = keyword_match_score(resume_text, nice_to_have) if nice_to_have else (0, [], [])
+    # ── Nice-to-have ──
+    nice = extract_nice_to_have(jd_analysis)
+    nth_score, _, _ = keyword_match_score(resume_text, nice) if nice else (0, [], [])
 
-    # Must-have separate tracking
+    # ── Must-have ──
     mh_score, matched_mh, missing_mh = keyword_match_score(resume_text, must_have) if must_have else (100, [], [])
 
-    # Skills score — required skills only
-    skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
+    # ── Skills ──
+    skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # Experience score — use the BETTER of gap-based or keyword-based
-    # Gap-based comes from AI alignment (may be stale after rewrites)
-    # Keyword-based checks actual keyword presence in experience text (always current)
-    exp_gap_score = experience_score_from_gaps(gap_analysis)
-    exp_kw_score = experience_keyword_score(sections, all_keywords)
-    exp_score = max(exp_gap_score, exp_kw_score, 55)
+    # ── Experience (best of gap-based and keyword-based) ──
+    alignments = gap_analysis.get("bullet_alignments", [])
+    gap_exp = int(sum(a.get("alignment_score", 50) for a in alignments) / max(len(alignments), 1)) if alignments else 50
+    kw_exp = experience_keyword_score(sections, all_keywords)
+    exp_score = max(gap_exp, kw_exp, 55)
 
-    # Summary relevance
-    summary = sections.get("summary", "")
+    # ── Summary ──
+    summary_text = sections.get("summary", "")
     target_kws = (must_have + required_skills)[:15]
-    summary_kw_count = sum(1 for kw in target_kws if _matches_with_synonyms(kw, summary))
-    summary_score = min(95, 50 + summary_kw_count * 7) if summary else 30
+    summary_hits = sum(1 for kw in target_kws if _keyword_in_text(kw, summary_text))
+    summary_score = min(95, 50 + summary_hits * 6) if summary_text else 30
 
-    # Education score
+    # ── Education ──
     edu_scr = education_score(resume_content, jd_analysis)
 
-    # Format score
+    # ── Format ──
     fmt_scr = format_score(resume_content)
 
-    # Project relevance
+    # ── Projects ──
     proj_text = sections.get("projects", "")
-    proj_kw_count = sum(1 for kw in target_kws if _matches_with_synonyms(kw, proj_text))
-    proj_score = min(95, 40 + proj_kw_count * 10) if proj_text else 50
+    proj_hits = sum(1 for kw in target_kws if _keyword_in_text(kw, proj_text))
+    proj_score = min(95, 40 + proj_hits * 10) if proj_text else 50
 
-    # ── Weighted overall: experience > summary > skills ──
-    # Experience and placement quality are the most important signals.
-    # Skills presence alone contributes very little — prevents stuffing inflation.
+    # ══════════════════════════════════════════════════════════════════
+    # WEIGHTED OVERALL
+    # ══════════════════════════════════════════════════════════════════
     overall = int(
-        exp_score * 0.25 +          # Experience relevance: 25% (highest)
-        placement_score * 0.20 +    # Keyword placement quality: 20% (anti-stuffing)
-        summary_score * 0.12 +      # Summary relevance: 12%
-        skills_scr * 0.10 +         # Required skills: 10% (LOW — discourages stuffing)
-        kw_score * 0.08 +           # Raw keyword presence: 8%
-        title_score * 0.08 +        # Title alignment: 8%
-        edu_scr * 0.07 +            # Education: 7%
-        fmt_scr * 0.05 +            # Format: 5%
-        proj_score * 0.05           # Project relevance: 5%
+        exp_score * 0.25 +
+        placement_score * 0.18 +
+        summary_score * 0.12 +
+        kw_score * 0.12 +
+        skills_scr * 0.10 +
+        title_score * 0.08 +
+        edu_scr * 0.07 +
+        fmt_scr * 0.05 +
+        proj_score * 0.03
     )
 
-    # Nice-to-have bonus (up to +8)
+    # ── Boosts ──
     if nth_score > 0:
-        overall = min(overall + int(nth_score * 0.08), 100)
-
-    # Boosts for strong profiles
+        overall = min(overall + int(nth_score * 0.06), 100)
     if kw_score >= 50 and skills_scr >= 40:
         overall = min(overall + 8, 100)
     elif kw_score >= 40 and skills_scr >= 30:
         overall = min(overall + 5, 100)
-
     if mh_score >= 60:
         overall = min(overall + 5, 100)
     if title_score >= 80:
         overall = min(overall + 3, 100)
-
-    # Experience depth bonus
-    alignments = gap_analysis.get("bullet_alignments", [])
+    # Experience depth
     high_align = sum(1 for a in alignments if a.get("alignment_score", 0) >= 60)
-    if high_align >= 5:
-        overall = min(overall + 5, 100)
-    elif high_align >= 3:
-        overall = min(overall + 3, 100)
-
-    # Unhighlighted skills boost
-    unhighlighted = gap_analysis.get("unhighlighted_skills", [])
-    if len(unhighlighted) >= 3:
-        overall = min(overall + 3, 100)
-
-    # Placement quality bonus: if keywords are well-distributed (not stuffed)
-    well_placed = sum(1 for d in placement_details.values()
-                      if d.get("found") and d.get("best_section") in ("experience", "projects", "summary"))
-    stuffed = sum(1 for d in placement_details.values()
-                  if d.get("found") and d.get("best_section") == "skills_only")
+    if high_align >= 5: overall = min(overall + 4, 100)
+    elif high_align >= 3: overall = min(overall + 2, 100)
+    # Well-distributed keywords bonus
+    well_placed = sum(1 for d in placement_details.values() if d.get("found") and d.get("section") in ("experience", "projects", "summary"))
+    stuffed = sum(1 for d in placement_details.values() if d.get("found") and d.get("section") == "skills_only")
     if well_placed > stuffed * 2:
-        overall = min(overall + 4, 100)
+        overall = min(overall + 3, 100)
 
-    # ── Floors — prevent unreasonably low scores for qualified candidates ──
+    # ── Floors — realistic baseline for qualified candidates ──
     if exp_score >= 55:
         overall = max(overall, 60)
-    if exp_score >= 55 and skills_scr >= 25:
+    if exp_score >= 60 and skills_scr >= 30:
         overall = max(overall, 65)
-    if kw_score >= 40:
-        overall = max(overall, 65)
+    if kw_score >= 50:
+        overall = max(overall, 68)
     if mh_score >= 60:
-        overall = max(overall, 70)
-    if kw_score >= 60 and skills_scr >= 50:
-        overall = max(overall, 75)
-    if kw_score >= 70 and exp_score >= 65:
-        overall = max(overall, 80)
+        overall = max(overall, 72)
+    if kw_score >= 65 and skills_scr >= 50:
+        overall = max(overall, 78)
+    if kw_score >= 80 and exp_score >= 65:
+        overall = max(overall, 85)
+    if kw_score >= 90 and skills_scr >= 80:
+        overall = max(overall, 90)
 
     section_scores = {
         "summary": summary_score,
@@ -555,21 +504,17 @@ def calculate_ats_score(
 
     tips = generate_tips(missing_kw, missing_skills, gap_analysis, placement_details)
 
-    # Separate blockers
+    # Blockers
     true_gaps = gap_analysis.get("true_skill_gaps", [])
-    fixable_blockers = []
-    unfixable_blockers = []
+    fixable, unfixable = [], []
     for kw in missing_mh[:5]:
-        if any(kw.lower() in tg.lower() for tg in true_gaps):
-            unfixable_blockers.append(kw)
-        else:
-            fixable_blockers.append(kw)
+        (unfixable if any(kw.lower() in tg.lower() for tg in true_gaps) else fixable).append(kw)
 
     if overall < 85:
-        if fixable_blockers:
-            tips.insert(0, f"Easy fix — add these keywords: {', '.join(fixable_blockers[:5])}")
-        if unfixable_blockers:
-            tips.append(f"Cannot fix with resume edits (need real experience): {', '.join(unfixable_blockers[:3])}")
+        if fixable:
+            tips.insert(0, f"Easy fix — add: {', '.join(fixable[:5])}")
+        if unfixable:
+            tips.append(f"Cannot fix (need experience): {', '.join(unfixable[:3])}")
 
     return {
         "overall_score": min(overall, 100),
@@ -581,12 +526,12 @@ def calculate_ats_score(
         "format_score": fmt_scr,
         "must_have_score": mh_score,
         "matched_keywords": matched_kw,
-        "missing_keywords": missing_kw[:20],
+        "missing_keywords": missing_kw[:15],
         "missing_must_have": missing_mh[:10],
         "matched_skills": matched_skills,
-        "missing_skills": missing_skills[:15],
+        "missing_skills": missing_skills[:10],
         "section_scores": section_scores,
-        "fixable_blockers": fixable_blockers[:5],
-        "unfixable_blockers": unfixable_blockers[:5],
+        "fixable_blockers": fixable[:5],
+        "unfixable_blockers": unfixable[:5],
         "tips": tips,
     }
