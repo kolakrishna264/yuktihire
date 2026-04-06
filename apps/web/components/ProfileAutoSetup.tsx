@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/Button"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
@@ -26,6 +26,14 @@ export function ProfileAutoSetup() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveProgress, setSaveProgress] = useState(0)
+  const [savedPrefs, setSavedPrefs] = useState<any>(null)
+
+  // Load saved application preferences to check completion
+  useEffect(() => {
+    apiFetch("/preferences")
+      .then((p: any) => setSavedPrefs(p?.applicationInfo || {}))
+      .catch(() => {})
+  }, [saved]) // Reload after save too
   const [saveStatus, setSaveStatus] = useState("")
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -301,10 +309,14 @@ export function ProfileAutoSetup() {
     const projCount = (parsed.projects || []).length
     sections.push({ name: "Projects", status: projCount > 0 ? "extracted" : "missing", detail: projCount > 0 ? `${projCount} projects` : undefined })
 
-    // Always manual/review
-    sections.push({ name: "Work Authorization", status: "review" })
-    sections.push({ name: "Sponsorship", status: "review" })
-    sections.push({ name: "EEO Preferences", status: "review" })
+    // Check if user already set these in Application Info
+    const hasWorkAuth = savedPrefs?.workAuthType
+    const hasSponsorship = savedPrefs?.sponsorship
+    const hasEEO = savedPrefs?.gender || savedPrefs?.veteranStatus || savedPrefs?.disabilityStatus
+
+    sections.push({ name: "Work Authorization", status: hasWorkAuth ? "extracted" : "review", detail: hasWorkAuth ? "Set" : undefined })
+    sections.push({ name: "Sponsorship", status: hasSponsorship ? "extracted" : "review", detail: hasSponsorship ? "Set" : undefined })
+    sections.push({ name: "EEO Preferences", status: hasEEO ? "extracted" : "review", detail: hasEEO ? "Set" : undefined })
 
     return sections
   }
