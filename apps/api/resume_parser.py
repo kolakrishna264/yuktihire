@@ -74,11 +74,19 @@ Return ONLY this JSON (education MUST be included):
       "skills_used": []
     }}
   ],
-  "skills": ["skill1", "skill2", "etc"],
+  "skills": [
+    {{"category": "Languages", "items": ["Python", "SQL", "Java"]}},
+    {{"category": "ML Libraries", "items": ["PyTorch", "TensorFlow"]}},
+    {{"category": "Cloud", "items": ["AWS", "GCP"]}}
+  ],
   "projects": []
 }}
 
-IMPORTANT: Education section is REQUIRED. Extract ALL degrees. Do not skip education even if it appears at the bottom of the resume. For experience bullets, include max 4 per job to save space."""
+CRITICAL RULES:
+1. Education section is REQUIRED. Extract ALL degrees. Do not skip education.
+2. For skills: PRESERVE the original resume's skill categories/groupings exactly as written. If the resume groups skills under headings like "Languages", "ML Libraries", "Cloud Platforms" etc., keep those exact category names and items. Return skills as an array of category objects with "category" and "items" fields.
+3. For experience bullets: Extract ALL bullets from each job. Do NOT truncate or limit. Include every bullet point the user wrote. Preserving the user's complete experience is critical.
+4. Preserve the user's original formatting pattern — section ordering, skill groupings, bullet style."""
         }]
     )
 

@@ -15,7 +15,17 @@ def extract_resume_text(resume_content: dict) -> str:
         parts.append(exp.get("company", ""))
         parts.extend(exp.get("bullets", []))
         parts.extend(exp.get("skills_used", exp.get("skillsUsed", [])))
-    parts.extend(resume_content.get("skills", []))
+    # Handle both flat and categorized skill formats
+    for skill in resume_content.get("skills", []):
+        if isinstance(skill, str):
+            parts.append(skill)
+        elif isinstance(skill, dict):
+            if "items" in skill:
+                # Categorized format: {category: "Languages", items: ["Python", ...]}
+                parts.extend(skill.get("items", []))
+            elif "name" in skill:
+                # Legacy format: {name: "Python", category: "Languages"}
+                parts.append(skill.get("name", ""))
     for edu in resume_content.get("educations", []):
         parts.append(edu.get("degree", ""))
         parts.append(edu.get("field", ""))
@@ -23,7 +33,7 @@ def extract_resume_text(resume_content: dict) -> str:
     for proj in resume_content.get("projects", []):
         parts.extend(proj.get("bullets", []))
         parts.extend(proj.get("skills", []))
-    return " ".join(p for p in parts if p).lower()
+    return " ".join(str(p) for p in parts if p).lower()
 
 
 def keyword_match_score(resume_text: str, keywords: list[str]) -> tuple[int, list[str], list[str]]:

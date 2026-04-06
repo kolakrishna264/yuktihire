@@ -351,14 +351,25 @@ def render_html(resume_content: dict) -> str:
         if exp.get("endDate"): exp["endDate"] = fmt_date(exp["endDate"])
 
     # ── Skills categorization ──
-    # Priority 1: Use resume's OWN categories if they exist (preserves user's pattern)
-    # Priority 2: Auto-categorize flat skill lists
+    # Priority 1: Resume already has categorized skills [{category, items}]
+    # Priority 2: Resume has legacy format [{category, name}]
+    # Priority 3: Flat string list — auto-categorize as fallback
     if "skills" in data and isinstance(data["skills"], list) and not data.get("skill_categories"):
         skills = data["skills"]
-        has_categories = any(isinstance(s, dict) and s.get("category") for s in skills)
 
-        if has_categories:
-            # Group by the user's own categories
+        # Check format: new categorized [{category: "Languages", items: [...]}]
+        has_items_format = any(isinstance(s, dict) and "items" in s for s in skills)
+        # Check format: legacy [{category: "Languages", name: "Python"}]
+        has_legacy_format = any(isinstance(s, dict) and "category" in s and "name" in s for s in skills)
+
+        if has_items_format:
+            # New format — use directly, preserving user's exact categories
+            data["skill_categories"] = [
+                {"category": s["category"], "skills": [i for i in s["items"] if isinstance(i, str) and len(i) < 60]}
+                for s in skills if isinstance(s, dict) and s.get("items")
+            ]
+        elif has_legacy_format:
+            # Group by category field
             by_cat: dict[str, list[str]] = {}
             for s in skills:
                 if isinstance(s, dict):
@@ -368,13 +379,11 @@ def render_html(resume_content: dict) -> str:
                         by_cat.setdefault(cat, [])
                         if name not in by_cat[cat]:
                             by_cat[cat].append(name)
-                elif isinstance(s, str) and s and len(s) < 60:
-                    by_cat.setdefault("Other", []).append(s)
-
-            data["skill_categories"] = [{"category": cat, "skills": items} for cat, items in by_cat.items() if items]
+            data["skill_categories"] = [{"category": c, "skills": items} for c, items in by_cat.items() if items]
         else:
-            # Flat list — auto-categorize
-            data["skill_categories"] = categorize_skills(skills)
+            # Flat string list — auto-categorize
+            flat_skills = [s for s in skills if isinstance(s, str)]
+            data["skill_categories"] = categorize_skills(flat_skills)
 
     # ── Deduplicate ALL sections ──
 

@@ -162,11 +162,30 @@ def generate_docx_sync(resume_content: dict) -> bytes:
                 run = bp.add_run(bullet.lstrip("•- "))
                 set_font(run, size=10)
 
-    # Skills — auto-categorize and render grouped
+    # Skills — preserve original format, auto-categorize only flat lists
     raw_skills = resume_content.get("skills", [])
     if raw_skills:
-        from pdf_gen import categorize_skills
-        categories = categorize_skills(raw_skills)
+        # Detect format
+        has_items = any(isinstance(s, dict) and "items" in s for s in raw_skills)
+        has_legacy = any(isinstance(s, dict) and "category" in s and "name" in s for s in raw_skills)
+
+        categories = []
+        if has_items:
+            # New format: [{category: "Languages", items: ["Python", ...]}]
+            categories = [{"category": s["category"], "skills": s["items"]} for s in raw_skills if isinstance(s, dict) and s.get("items")]
+        elif has_legacy:
+            # Legacy: [{category: "Languages", name: "Python"}]
+            by_cat: dict[str, list] = {}
+            for s in raw_skills:
+                if isinstance(s, dict):
+                    c = s.get("category", "Other")
+                    n = s.get("name", "")
+                    if n: by_cat.setdefault(c, []).append(n)
+            categories = [{"category": c, "skills": items} for c, items in by_cat.items()]
+        else:
+            # Flat strings — auto-categorize
+            from pdf_gen import categorize_skills
+            categories = categorize_skills(raw_skills)
 
         if categories:
             add_section_heading(doc, "Technical Skills")
@@ -174,7 +193,8 @@ def generate_docx_sync(resume_content: dict) -> bytes:
                 p = doc.add_paragraph()
                 cat_run = p.add_run(f"{cat['category']} – ")
                 set_font(cat_run, bold=True, size=10)
-                items_run = p.add_run(", ".join(cat["skills"]))
+                items = [str(i) for i in cat.get("skills", []) if i]
+                items_run = p.add_run(", ".join(items))
                 set_font(items_run, size=10)
 
     # Education

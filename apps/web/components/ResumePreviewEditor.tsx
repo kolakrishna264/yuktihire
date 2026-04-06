@@ -202,21 +202,46 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
             </Sec>
           )}
 
-          {/* Skills — grouped by category */}
+          {/* Skills — preserve original category structure */}
           {content.skills?.length > 0 && (
             <Sec title="Technical Skills">
-              {editing ? (
-                <textarea
-                  value={content.skills.join(", ")}
-                  onChange={e => set(c => { c.skills = e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) })}
-                  className="w-full outline-none bg-yellow-50 rounded p-1 resize-none text-[9pt]"
-                  style={{ fontFamily: "inherit", minHeight: 40 }}
-                  placeholder="Python, React, AWS, Docker, ..." />
-              ) : (
-                <div className="text-[9pt]" style={{ lineHeight: "1.5" }}>
-                  {content.skills.join("  ·  ")}
-                </div>
-              )}
+              {(() => {
+                // Detect format: categorized [{category, items}] or flat strings
+                const isCategorized = content.skills.some((s: any) => s?.items)
+                const isLegacy = content.skills.some((s: any) => s?.category && s?.name)
+
+                if (isCategorized) {
+                  // New format: [{category: "Languages", items: ["Python", ...]}]
+                  return content.skills.map((cat: any, ci: number) => (
+                    <div key={ci} style={{ marginBottom: 2, fontSize: "9.5pt", lineHeight: 1.35 }}>
+                      <span style={{ fontWeight: "bold" }}>{cat.category} – </span>
+                      {editing ? (
+                        <input
+                          value={(cat.items || []).join(", ")}
+                          onChange={e => set(c => { c.skills[ci].items = e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) })}
+                          className="outline-none bg-yellow-50 rounded px-0.5 w-3/4"
+                          style={{ fontFamily: "inherit", fontSize: "9.5pt" }} />
+                      ) : (
+                        <span>{(cat.items || []).join(", ")}</span>
+                      )}
+                    </div>
+                  ))
+                }
+
+                // Flat format or legacy
+                const flatSkills = content.skills.map(skillName).filter((s: string) => s)
+                return editing ? (
+                  <textarea
+                    value={flatSkills.join(", ")}
+                    onChange={e => set(c => { c.skills = e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) })}
+                    className="w-full outline-none bg-yellow-50 rounded p-1 resize-none text-[9pt]"
+                    style={{ fontFamily: "inherit", minHeight: 40 }} />
+                ) : (
+                  <div className="text-[9pt]" style={{ lineHeight: "1.5" }}>
+                    {flatSkills.join("  ·  ")}
+                  </div>
+                )
+              })()}
             </Sec>
           )}
 
