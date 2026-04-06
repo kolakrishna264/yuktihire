@@ -17,13 +17,14 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
 
-  .header { text-align: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #000; }
+  .header { text-align: center; margin-bottom: 8px; }
   .name { font-size: 16pt; font-weight: bold; }
   .contact { font-size: 9.5pt; color: #333; margin-top: 2px; }
+  .header-line { border: none; border-top: 1px solid #000; margin: 4px 0 0 0; }
 
-  .section { margin-bottom: 7px; }
+  .section { margin-bottom: 6px; }
   .section-title { font-size: 10.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
-    margin-bottom: 3px; color: #000; padding-top: 2px; }
+    margin-bottom: 2px; color: #000; padding-top: 3px; }
 
   .exp-item { margin-bottom: 6px; }
   .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
@@ -48,6 +49,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 
 <div class="header">
   <div class="name">{{ contact.full_name or name }}</div>
+  <hr class="header-line">
   <div class="contact">
     {% set parts = [] %}
     {% if contact.email %}{% if parts.append(contact.email) %}{% endif %}{% endif %}
@@ -182,7 +184,7 @@ def categorize_skills(skills: list) -> list[dict]:
         ("Databases & Storage", [
             "postgresql", "postgres", "mysql", "mariadb", "sqlite", "oracle db",
             "mongodb", "redis", "elasticsearch", "opensearch", "cassandra", "couchbase",
-            "neo4j", "graph database", "nosql", "vector database", "snowflake", "databricks",
+            "neo4j", "graph database", "vector database", "vector databases", "snowflake", "databricks",
             "duckdb", "clickhouse", "timescaledb", "influxdb", "memcached",
             "supabase", "firebase", "dynamodb",
         ]),
@@ -245,6 +247,10 @@ def categorize_skills(skills: list) -> list[dict]:
         name = name.strip()
         if name.lower() in used:
             continue
+        # Skip non-skill items
+        skip_phrases = ["advanced degree", "degree (", "ms)", "bs)", "phd)", "mba)"]
+        if any(sp in name.lower() for sp in skip_phrases):
+            continue
         used.add(name.lower())
 
         placed = False
@@ -270,8 +276,13 @@ def categorize_skills(skills: list) -> list[dict]:
     for cat_name, _ in CATEGORIES:
         if cat_name in categorized:
             result.append({"category": cat_name, "skills": categorized[cat_name]})
+    # Merge "Other Skills" into the last category if only 1-3 items (avoids a tiny orphan section)
     if "Other Skills" in categorized:
-        result.append({"category": "Other Skills", "skills": categorized["Other Skills"]})
+        other = categorized["Other Skills"]
+        if len(other) <= 3 and result:
+            result[-1]["skills"].extend(other)
+        elif other:
+            result.append({"category": "Other", "skills": other})
 
     return result
 
@@ -305,6 +316,27 @@ def render_html(resume_content: dict) -> str:
         }
     if "name" not in data:
         data["name"] = data["contact"].get("full_name", "")
+
+    # ── Format dates to human-readable ──
+    def fmt_date(d):
+        if not d or d == "Present":
+            return d or ""
+        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        try:
+            parts = str(d).split("-")
+            if len(parts) >= 2:
+                y = parts[0]
+                m = int(parts[1])
+                return f"{months[m-1]} {y}"
+            return str(d)
+        except Exception:
+            return str(d)
+
+    for exp in data.get("experiences", []):
+        if exp.get("start_date"): exp["start_date"] = fmt_date(exp["start_date"])
+        if exp.get("startDate"): exp["startDate"] = fmt_date(exp["startDate"])
+        if exp.get("end_date"): exp["end_date"] = fmt_date(exp["end_date"])
+        if exp.get("endDate"): exp["endDate"] = fmt_date(exp["endDate"])
 
     # ── Auto-categorize skills ──
     if "skills" in data and isinstance(data["skills"], list) and not data.get("skill_categories"):
