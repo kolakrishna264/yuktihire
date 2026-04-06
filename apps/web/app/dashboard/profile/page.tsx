@@ -620,15 +620,16 @@ const WORK_AUTH_TYPES = [
 ]
 
 function getAuthAnswers(authType: string) {
-  // Deterministic Tier 1 mapping — NO AI needed
+  // Only auto-determine "authorized to work" — NEVER auto-set sponsorship
+  // Sponsorship is always a separate user choice
   const map: Record<string, { authorized: string; sponsorship: string; visaStatus: string }> = {
     us_citizen:     { authorized: "Yes", sponsorship: "No",  visaStatus: "U.S. Citizen" },
     green_card:     { authorized: "Yes", sponsorship: "No",  visaStatus: "U.S. Permanent Resident" },
-    opt:            { authorized: "Yes", sponsorship: "Yes", visaStatus: "OPT" },
-    stem_opt:       { authorized: "Yes", sponsorship: "Yes", visaStatus: "STEM OPT" },
-    h1b:            { authorized: "Yes", sponsorship: "Yes", visaStatus: "H-1B" },
-    o1:             { authorized: "Yes", sponsorship: "Yes", visaStatus: "O-1" },
-    other_visa:     { authorized: "Yes", sponsorship: "Yes", visaStatus: "Other Visa" },
+    opt:            { authorized: "Yes", sponsorship: "",    visaStatus: "OPT" },
+    stem_opt:       { authorized: "Yes", sponsorship: "",    visaStatus: "STEM OPT" },
+    h1b:            { authorized: "Yes", sponsorship: "",    visaStatus: "H-1B" },
+    o1:             { authorized: "Yes", sponsorship: "",    visaStatus: "O-1" },
+    other_visa:     { authorized: "Yes", sponsorship: "",    visaStatus: "Other Visa" },
     not_authorized: { authorized: "No",  sponsorship: "",    visaStatus: "" },  // Sponsorship ambiguous — review on application
   }
   return map[authType] || { authorized: "", sponsorship: "", visaStatus: "" }
@@ -672,14 +673,16 @@ function ApplicationInfoTab() {
       .catch(() => {})
   }, [])
 
-  // When work auth type changes, auto-set authorization + sponsorship
+  // When work auth type changes, auto-set ONLY authorization — NOT sponsorship
   const handleAuthTypeChange = (authType: string) => {
     const answers = getAuthAnswers(authType)
     setForm((prev) => ({
       ...prev,
       workAuthType: authType,
       workAuthorization: answers.authorized,
-      sponsorship: answers.sponsorship,
+      // Only auto-set sponsorship for citizen/green card (definitively No)
+      // For visa holders: leave sponsorship as-is — user must choose
+      sponsorship: answers.sponsorship || prev.sponsorship,
     }))
   }
 
@@ -717,24 +720,44 @@ function ApplicationInfoTab() {
           </select>
         </div>
 
+        {/* Separate sponsorship question — NEVER auto-filled from visa type */}
+        {form.workAuthType && form.workAuthType !== "us_citizen" && form.workAuthType !== "green_card" && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              Will you require visa sponsorship now or in the future?
+            </label>
+            <select value={form.sponsorship} onChange={(e) => setForm((p) => ({ ...p, sponsorship: e.target.value }))}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm">
+              <option value="">Select...</option>
+              <option value="Yes">Yes — I will need sponsorship</option>
+              <option value="No">No — I do not need sponsorship</option>
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">
+              This is separate from your visa type. Many STEM OPT and H-1B holders apply to both sponsoring and non-sponsoring companies.
+            </p>
+          </div>
+        )}
+
         {form.workAuthType && (
           <div className="bg-indigo-50 rounded-lg p-3 space-y-1.5">
             <p className="text-xs font-semibold text-indigo-700">Auto-fill preview:</p>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <span className="text-gray-500">Authorized to work in U.S.?</span>
+                <span className="text-gray-500">Authorized to work?</span>
                 <span className={`ml-2 font-bold ${authAnswers.authorized === "Yes" ? "text-emerald-600" : "text-red-600"}`}>
                   {authAnswers.authorized}
                 </span>
               </div>
               <div>
                 <span className="text-gray-500">Require sponsorship?</span>
-                <span className={`ml-2 font-bold ${authAnswers.sponsorship === "No" ? "text-emerald-600" : "text-amber-600"}`}>
-                  {authAnswers.sponsorship}
+                <span className={`ml-2 font-bold ${form.sponsorship === "No" ? "text-emerald-600" : form.sponsorship === "Yes" ? "text-amber-600" : "text-gray-400"}`}>
+                  {form.sponsorship || "Not set"}
                 </span>
               </div>
             </div>
-            <p className="text-[10px] text-indigo-500">These answers will fill automatically on every application — no AI guessing.</p>
+            {!form.sponsorship && form.workAuthType !== "us_citizen" && form.workAuthType !== "green_card" && (
+              <p className="text-[10px] text-red-500 font-medium">Please select your sponsorship preference above</p>
+            )}
           </div>
         )}
       </div>

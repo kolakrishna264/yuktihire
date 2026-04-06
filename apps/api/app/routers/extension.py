@@ -503,20 +503,25 @@ async def get_autofill_data(
         # Deterministic Tier 1: derive work auth + sponsorship from workAuthType
         auth_type = defaults.get("workAuthType", "")
         if auth_type:
+            # Only auto-derive work authorization — NOT sponsorship (user must choose separately)
             AUTH_MAP = {
-                "us_citizen":     {"workAuthorization": "Yes", "sponsorship": "No",  "visaStatus": "U.S. Citizen"},
-                "green_card":     {"workAuthorization": "Yes", "sponsorship": "No",  "visaStatus": "U.S. Permanent Resident"},
-                "opt":            {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "OPT"},
-                "stem_opt":       {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "STEM OPT"},
-                "h1b":            {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "H-1B"},
-                "o1":             {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "O-1"},
-                "other_visa":     {"workAuthorization": "Yes", "sponsorship": "Yes", "visaStatus": "Other Visa"},
-                "not_authorized": {"workAuthorization": "No",  "sponsorship": "",    "visaStatus": ""},  # Sponsorship ambiguous — mark for review
+                "us_citizen":     {"workAuthorization": "Yes", "visaStatus": "U.S. Citizen"},
+                "green_card":     {"workAuthorization": "Yes", "visaStatus": "U.S. Permanent Resident"},
+                "opt":            {"workAuthorization": "Yes", "visaStatus": "OPT"},
+                "stem_opt":       {"workAuthorization": "Yes", "visaStatus": "STEM OPT"},
+                "h1b":            {"workAuthorization": "Yes", "visaStatus": "H-1B"},
+                "o1":             {"workAuthorization": "Yes", "visaStatus": "O-1"},
+                "other_visa":     {"workAuthorization": "Yes", "visaStatus": "Other Visa"},
+                "not_authorized": {"workAuthorization": "No",  "visaStatus": ""},
             }
             derived = AUTH_MAP.get(auth_type, {})
             defaults["workAuthorization"] = derived.get("workAuthorization", defaults["workAuthorization"])
-            defaults["sponsorship"] = derived.get("sponsorship", defaults["sponsorship"])
             defaults["visaStatus"] = derived.get("visaStatus", defaults["visaStatus"])
+            # Sponsorship: only auto-set for citizen/green card (definitively "No")
+            # For all visa types: use the user's explicitly saved preference
+            if auth_type in ("us_citizen", "green_card"):
+                defaults["sponsorship"] = "No"
+            # Otherwise keep whatever the user saved in preferences
 
         # Load saved answer memory (Tier 2 recurring answers)
         answer_memory = {}

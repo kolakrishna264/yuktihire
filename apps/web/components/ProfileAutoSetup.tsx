@@ -252,14 +252,19 @@ export function ProfileAutoSetup() {
             <div className="bg-white rounded-lg p-3 border border-amber-200">
               <p className="text-xs font-semibold text-amber-700 mb-2">Complete remaining details:</p>
               <div className="flex flex-wrap gap-1.5">
-                {missingFields.map(f => (
-                  <Badge key={f.name} variant="secondary" className="text-xs bg-amber-50 text-amber-700">
-                    {f.status === "review" ? "⚠" : "✗"} {f.name}
-                  </Badge>
-                ))}
+                {missingFields.map(f => {
+                  const tab = ["Work Authorization", "Sponsorship", "EEO Preferences"].includes(f.name) ? "application" : "basics"
+                  return (
+                    <Link key={f.name} href={`/dashboard/profile?tab=${tab}`}>
+                      <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100">
+                        {f.status === "review" ? "⚠" : "✗"} {f.name} →
+                      </Badge>
+                    </Link>
+                  )
+                })}
               </div>
               <p className="text-[10px] text-gray-400 mt-2">
-                Go to <strong>Application Info</strong> tab to set work authorization, sponsorship, and EEO preferences
+                Click any item above to fill it in your profile
               </p>
             </div>
           )}
