@@ -12,6 +12,45 @@ interface Props {
   onUpdate: (content: any) => Promise<void>
 }
 
+// Client-side skill categorizer — matches the PDF backend logic
+function categorizeSkills(skills: string[]): Array<{category: string, items: string[]}> {
+  const CATS: [string, string[]][] = [
+    ["Languages", ["python","java","javascript","typescript","c#","c++","golang","ruby","rust","scala","julia","sql","bash","php","swift","kotlin","html","css","nosql","r"]],
+    ["AI/ML", ["pytorch","tensorflow","keras","scikit","xgboost","lightgbm","hugging face","transformers","opencv","spacy","nltk","langchain","openai","anthropic","claude","gemini","llama","gpt","bert","faiss","pinecone","nlp","llm","rag","fine-tuning","prompt engineering","embedding","generative ai","agentic ai","ai agent","deep learning","machine learning","neural","computer vision","model capabilities","big data"]],
+    ["Cloud Platforms", ["aws","azure","gcp","ec2","s3","lambda","sagemaker","bedrock","cloud"]],
+    ["DevOps", ["docker","kubernetes","terraform","ci/cd","github actions","jenkins","devops","devsecops","linux","prometheus","grafana","observability"]],
+    ["Databases", ["postgresql","mongodb","redis","mysql","elasticsearch","nosql","vector database","snowflake","dynamodb","cassandra"]],
+    ["Frameworks", ["react","angular","vue","next.js","node","nodejs","express","fastapi","flask","django",".net","spring","graphql"]],
+    ["Data Engineering", ["spark","pyspark","kafka","airflow","prefect","hadoop","etl","pandas","numpy","matplotlib","seaborn","streamlit"]],
+    ["Tools & Practices", ["git","jira","api design","sdk","microservices","oop","agile","sdlc","distributed systems","algorithms","data structures","error handling","incident response","reliability","sandboxing","production systems"]],
+  ]
+  const result: Array<{category: string, items: string[]}> = []
+  const used = new Set<string>()
+  const overflow: string[] = []
+
+  for (const [cat, patterns] of CATS) {
+    const matched: string[] = []
+    for (const skill of skills) {
+      if (used.has(skill.toLowerCase())) continue
+      const sl = skill.toLowerCase()
+      if (patterns.some(p => sl === p || sl.includes(p) || p.includes(sl))) {
+        matched.push(skill)
+        used.add(sl)
+      }
+    }
+    if (matched.length > 0) result.push({ category: cat, items: matched })
+  }
+  // Remaining uncategorized
+  for (const skill of skills) {
+    if (!used.has(skill.toLowerCase())) overflow.push(skill)
+  }
+  if (overflow.length > 0) {
+    if (overflow.length <= 3 && result.length > 0) result[result.length-1].items.push(...overflow)
+    else result.push({ category: "Other", items: overflow })
+  }
+  return result
+}
+
 function skillName(s: any): string {
   if (!s) return ""
   if (typeof s === "string") return s
@@ -33,7 +72,8 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
 
     if (profile) {
       if (!c.name && !c.full_name) c.name = profile.fullName || ""
-      // Don't override email — keep resume email
+      // Use resume email first, fallback to profile email only if empty
+      if (!c.email) c.email = (profile as any).email || ""
       if (!c.phone) c.phone = profile.phone || ""
       if (!c.location) c.location = profile.location || ""
       if (!c.linkedin) c.linkedin = profile.linkedinUrl || ""
@@ -65,11 +105,13 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
       }
     }
 
-    // Preserve categorized skill format
+    // Auto-categorize flat skills to match PDF output
     if (c.skills?.length) {
-      const hasCategorized = c.skills.some((s: any) => s?.items || (s?.category && s?.name))
+      const hasCategorized = c.skills.some((s: any) => s?.items)
       if (!hasCategorized) {
-        c.skills = c.skills.map(skillName).filter((s: string) => s && s.length < 60)
+        // Convert to categorized format matching PDF
+        const flat = c.skills.map(skillName).filter((s: string) => s && s.length < 60)
+        c.skills = categorizeSkills(flat)
       }
     }
 
