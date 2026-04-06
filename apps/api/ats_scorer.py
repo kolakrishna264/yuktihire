@@ -256,7 +256,7 @@ def education_score(resume_content: dict, jd_analysis: dict) -> int:
     if not educations:
         return 40 if required_edu in ["bachelors", "masters", "phd"] else 80
 
-    degree_rank = {"associate": 1, "bachelors": 2, "masters": 3, "phd": 4, "mba": 3}
+    degree_rank = {"associate": 1, "bachelors": 2, "bachelor": 2, "masters": 3, "master": 3, "phd": 4, "mba": 3, "doctorate": 4}
     required_rank = degree_rank.get(required_edu.lower(), 2)
 
     for edu in educations:
@@ -264,7 +264,7 @@ def education_score(resume_content: dict, jd_analysis: dict) -> int:
         for deg_name, rank in degree_rank.items():
             if deg_name in degree_text and rank >= required_rank:
                 return 95
-        abbrevs = {"b.s.": 2, "b.tech": 2, "b.a.": 2, "m.s.": 3, "m.tech": 3, "m.a.": 3, "ph.d": 4}
+        abbrevs = {"b.s.": 2, "b.tech": 2, "b.a.": 2, "m.s.": 3, "m.tech": 3, "m.a.": 3, "ph.d": 4, "b.sc": 2, "m.sc": 3}
         for abbr, rank in abbrevs.items():
             if abbr in degree_text and rank >= required_rank:
                 return 95
@@ -355,22 +355,27 @@ def generate_tips(
 
 
 def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
-    """Extract meaningful keywords — must-have, required skills, domain phrases."""
+    """Extract meaningful keywords — must-have + required skills only.
+    Keep the denominator tight so scores are realistic.
+    Do NOT inflate with role titles, long phrases, or responsibility sentences."""
     keywords = set()
+    # Only must-have and required skills — these are the real ATS-matchable terms
     for field in ["must_have_keywords", "required_skills"]:
         for kw in jd_analysis.get(field, []):
-            if isinstance(kw, str) and 1 < len(kw) < 50:
-                keywords.add(kw)
-    for kw in jd_analysis.get("domain_phrases", []):
-        if isinstance(kw, str) and len(kw.split()) <= 3 and len(kw) < 40:
+            if not isinstance(kw, str) or len(kw) < 2 or len(kw) > 40:
+                continue
+            # Skip role titles (e.g., "Machine Learning Engineer", "AI/ML Architect")
+            role_words = ["engineer", "developer", "scientist", "architect", "manager", "lead", "director", "analyst", "specialist"]
+            if any(kw.lower().endswith(w) or kw.lower().startswith(w) for w in role_words):
+                continue
+            # Skip long compound phrases (5+ words) that inflate denominator
+            if len(kw.split()) >= 4:
+                continue
             keywords.add(kw)
-    # Technical terms from responsibilities
-    for resp in jd_analysis.get("responsibilities_summary", []):
-        if isinstance(resp, str):
-            tech_terms = re.findall(r'\b[A-Z][a-zA-Z+#.]+(?:\s+[A-Z][a-zA-Z+#.]+)?\b', resp)
-            for term in tech_terms:
-                if 2 < len(term) < 30 and term.lower() not in {"the", "and", "for", "with", "our", "you", "your"}:
-                    keywords.add(term)
+    # Domain phrases — only short ones (2-3 words max)
+    for kw in jd_analysis.get("domain_phrases", []):
+        if isinstance(kw, str) and len(kw.split()) <= 2 and len(kw) < 30:
+            keywords.add(kw)
     return list(keywords)
 
 
@@ -512,15 +517,19 @@ def calculate_ats_score(
     if well_placed > stuffed * 2:
         overall = min(overall + 4, 100)
 
-    # ── Floors ──
+    # ── Floors — prevent unreasonably low scores for qualified candidates ──
+    if exp_score >= 55:
+        overall = max(overall, 60)
     if exp_score >= 55 and skills_scr >= 25:
-        overall = max(overall, 55)
-    if kw_score >= 40:
-        overall = max(overall, 58)
-    if mh_score >= 60:
         overall = max(overall, 65)
-    if kw_score >= 60 and skills_scr >= 50:
+    if kw_score >= 40:
+        overall = max(overall, 65)
+    if mh_score >= 60:
         overall = max(overall, 70)
+    if kw_score >= 60 and skills_scr >= 50:
+        overall = max(overall, 75)
+    if kw_score >= 70 and exp_score >= 65:
+        overall = max(overall, 80)
 
     section_scores = {
         "summary": summary_score,

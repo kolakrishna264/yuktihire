@@ -94,6 +94,9 @@ async def run_pipeline_background(
         try:
             # Import here to avoid circular import issues at startup
             from engine import execute_pipeline
+            from ats_scorer import calculate_ats_score
+            from migrate_clean_skills import clean_skills
+            import json
 
             result = await execute_pipeline(
                 resume_content=resume_content,
@@ -101,8 +104,235 @@ async def run_pipeline_background(
                 cached_jd_analysis=jd_analysis,
             )
 
-            # Save recommendations
+            # ── Enrich resume content if sections are missing ──
+            # The resume.content may be missing education/projects if saved before parser fixes
+            if session_id:
+                try:
+                    sess_r = await db.execute(
+                        select(TailoringSession).where(TailoringSession.id == session_id)
+                    )
+                    sess_obj = sess_r.scalar_one_or_none()
+                    if sess_obj:
+                        from sqlalchemy import text as sql_text
+                        # Enrich education if missing
+                        if not resume_content.get("educations"):
+                            prof_r = await db.execute(sql_text(
+                                "SELECT p.id FROM profiles p JOIN users u ON u.id = p.user_id "
+                                "JOIN resumes r ON r.user_id = u.id WHERE r.id = :rid LIMIT 1"
+                            ), {"rid": sess_obj.resume_id})
+                            prof_row = prof_r.mappings().first()
+                            if prof_row:
+                                edu_r = await db.execute(sql_text(
+                                    "SELECT degree, field, school, end_date, gpa FROM educations WHERE profile_id = :pid"
+                                ), {"pid": prof_row["id"]})
+                                edus = [dict(e) for e in edu_r.mappings().all()]
+                                if edus:
+                                    resume_content["educations"] = [
+                                        {"degree": e.get("degree",""), "field": e.get("field",""),
+                                         "school": e.get("school",""),
+                                         "end_date": str(e["end_date"]) if e.get("end_date") else "",
+                                         "gpa": e.get("gpa","")}
+                                        for e in edus
+                                    ]
+                except Exception as enrich_err:
+                    print(f"[Pipeline] Education enrich error: {enrich_err}")
+
+            # ── AUTO-APPLY all high-confidence recommendations to resume.content ──
+            # This is the key change: the user sees the IMPROVED resume, not the original.
+            # Recommendations are still saved so the user can see what changed.
+            tailored_content = dict(resume_content)
+            applied_count = 0
+
             for rec in result.get("recommendations", []):
+                conf = float(rec.get("confidence", 0))
+                if conf < 0.5:
+                    continue  # Skip low-confidence — leave for user review
+                if rec.get("is_gap"):
+                    continue  # Skip pure gap flags — nothing to apply
+
+                section = rec.get("section", "")
+                original = rec.get("original", "")
+                suggested = rec.get("suggested", "")
+
+                if section == "experience" and "experiences" in tailored_content and original and suggested:
+                    for exp in tailored_content["experiences"]:
+                        bullets = exp.get("bullets", [])
+                        if original in bullets:
+                            idx = bullets.index(original)
+                            bullets[idx] = suggested
+                            applied_count += 1
+                            break
+
+                elif section == "summary" and suggested:
+                    tailored_content["summary"] = suggested
+                    applied_count += 1
+
+                elif section == "skills" and suggested:
+                    add_text = suggested.replace("Add: ", "").replace("Add:", "")
+                    new_skills = [s.strip() for s in add_text.split(",") if s.strip()]
+                    current_skills = tailored_content.get("skills", [])
+                    has_items = any(isinstance(s, dict) and s.get("items") for s in current_skills)
+                    has_skeys = any(isinstance(s, dict) and s.get("skills") for s in current_skills)
+
+                    existing_lower = set()
+                    for s in current_skills:
+                        if isinstance(s, str):
+                            existing_lower.add(s.lower())
+                        elif isinstance(s, dict):
+                            for k in ["items", "skills"]:
+                                for i in s.get(k, []):
+                                    if isinstance(i, str):
+                                        existing_lower.add(i.lower())
+
+                    for ns in new_skills:
+                        if ns.lower() in existing_lower:
+                            continue
+                        if has_items or has_skeys:
+                            items_key = "items" if has_items else "skills"
+                            best_cat = _infer_skill_category_for_existing(ns, current_skills)
+                            if best_cat:
+                                for cat_obj in current_skills:
+                                    if isinstance(cat_obj, dict) and cat_obj.get("category") == best_cat:
+                                        cat_items = cat_obj.get(items_key, [])
+                                        if ns not in cat_items:
+                                            cat_items.append(ns)
+                                        break
+                            elif current_skills and isinstance(current_skills[-1], dict):
+                                last = current_skills[-1]
+                                items_key_last = "items" if "items" in last else "skills"
+                                last.setdefault(items_key_last, []).append(ns)
+                        else:
+                            current_skills.append(ns)
+                        applied_count += 1
+                    tailored_content["skills"] = current_skills
+
+            # Clean skills one more time after applying
+            if tailored_content.get("skills"):
+                tailored_content["skills"] = clean_skills(tailored_content["skills"])
+
+            # ── Re-score with the IMPROVED resume content ──
+            jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
+            gap_analysis_result = result.get("gap_analysis", {})
+            ats_mid = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
+
+            # ── AUTO-ADD missing keywords until score reaches 80%+ ──
+            # Take missing keywords that are real tools/skills and add them
+            # to the resume (skills section or summary) automatically.
+            # Only stop when score >= 80 or no more addable keywords.
+            from migrate_clean_skills import is_valid_skill, categorize_clean_skills
+            true_gaps = set(g.lower() for g in gap_analysis_result.get("true_skill_gaps", []))
+            missing_kws = ats_mid.get("missing_keywords", [])
+            missing_skills = ats_mid.get("missing_skills", [])
+
+            # Combine all missing items
+            all_missing = []
+            seen_missing = set()
+            for kw in missing_kws + missing_skills:
+                if kw.lower() not in seen_missing:
+                    seen_missing.add(kw.lower())
+                    all_missing.append(kw)
+
+            # Separate into: addable to skills vs addable to summary vs true gaps
+            skills_to_add = []
+            summary_additions = []
+            for kw in all_missing:
+                kw_lower = kw.lower()
+                # Skip true gaps (user genuinely doesn't have this experience)
+                if kw_lower in true_gaps:
+                    continue
+                # Real tool/skill → add to skills section
+                if is_valid_skill(kw):
+                    skills_to_add.append(kw)
+                else:
+                    # Concept → weave into summary
+                    summary_additions.append(kw)
+
+            # Add missing skills to the correct category
+            current_skills = tailored_content.get("skills", [])
+            has_items = any(isinstance(s, dict) and s.get("items") for s in current_skills)
+            has_skeys = any(isinstance(s, dict) and s.get("skills") for s in current_skills)
+
+            existing_lower = set()
+            for s in current_skills:
+                if isinstance(s, dict):
+                    for k in ["items", "skills"]:
+                        for i in s.get(k, []):
+                            if isinstance(i, str):
+                                existing_lower.add(i.lower())
+
+            added_to_skills = []
+            for ns in skills_to_add:
+                if ns.lower() in existing_lower:
+                    continue
+                if has_items or has_skeys:
+                    items_key = "items" if has_items else "skills"
+                    best_cat = _infer_skill_category_for_existing(ns, current_skills)
+                    if best_cat:
+                        for cat_obj in current_skills:
+                            if isinstance(cat_obj, dict) and cat_obj.get("category") == best_cat:
+                                cat_obj.get(items_key, []).append(ns)
+                                break
+                    else:
+                        # No matching user category — use the backend categorizer's name
+                        backend_result = categorize_clean_skills([ns])
+                        new_cat_name = backend_result[0]["category"] if backend_result else "Other"
+                        # Check if we already created this category
+                        found = False
+                        for cat_obj in current_skills:
+                            if isinstance(cat_obj, dict) and cat_obj.get("category", "").lower() == new_cat_name.lower():
+                                cat_obj.get(items_key, []).append(ns)
+                                found = True
+                                break
+                        if not found:
+                            current_skills.append({"category": new_cat_name, items_key: [ns]})
+                else:
+                    current_skills.append(ns)
+                existing_lower.add(ns.lower())
+                added_to_skills.append(ns)
+                applied_count += 1
+
+            tailored_content["skills"] = current_skills
+
+            # Weave missing concept keywords into summary if not already there
+            summary = tailored_content.get("summary", "")
+            summary_lower = summary.lower()
+            added_to_summary = []
+            for concept in summary_additions[:5]:
+                if concept.lower() not in summary_lower:
+                    added_to_summary.append(concept)
+            if added_to_summary and summary:
+                # Append a brief clause mentioning the missing concepts
+                concepts_str = ", ".join(added_to_summary[:4])
+                if not summary.rstrip().endswith("."):
+                    summary = summary.rstrip() + "."
+                tailored_content["summary"] = summary + f" Experienced in {concepts_str}."
+                applied_count += len(added_to_summary)
+
+            # Final clean of skills
+            if tailored_content.get("skills"):
+                tailored_content["skills"] = clean_skills(tailored_content["skills"])
+
+            # ── Final re-score with all keywords added ──
+            ats_after = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
+
+            # ── Save the tailored content back to the resume ──
+            session_result = await db.execute(
+                select(TailoringSession).where(TailoringSession.id == session_id)
+            )
+            session_obj = session_result.scalar_one_or_none()
+            if session_obj:
+                resume_result = await db.execute(
+                    select(Resume).where(Resume.id == session_obj.resume_id)
+                )
+                resume_obj = resume_result.scalar_one_or_none()
+                if resume_obj:
+                    # Always save — tailoring always improves the resume
+                    resume_obj.content = tailored_content
+
+            # Save recommendations (mark auto-applied ones as ACCEPTED)
+            for rec in result.get("recommendations", []):
+                conf = float(rec.get("confidence", 0))
+                auto_applied = conf >= 0.5 and not rec.get("is_gap")
                 recommendation = Recommendation(
                     session_id=session_id,
                     section=rec.get("section", "experience"),
@@ -110,13 +340,42 @@ async def run_pipeline_background(
                     original=rec.get("original", ""),
                     suggested=rec.get("suggested", ""),
                     reason=rec.get("reason", ""),
-                    confidence=float(rec.get("confidence", 0.8)),
+                    confidence=conf,
                     keywords=rec.get("keywords_added", rec.get("keywords", [])),
+                    status=RecommendationStatus.ACCEPTED if auto_applied else RecommendationStatus.PENDING,
                 )
                 db.add(recommendation)
 
-            # Save ATS score
-            ats = result.get("ats_score", {})
+            # Save auto-added skills as a recommendation record
+            if added_to_skills:
+                db.add(Recommendation(
+                    session_id=session_id,
+                    section="skills",
+                    field="auto_added_skills",
+                    original="",
+                    suggested=f"Added: {', '.join(added_to_skills)}",
+                    reason=f"Auto-added {len(added_to_skills)} missing JD skills to boost ATS match.",
+                    confidence=0.95,
+                    keywords=added_to_skills[:10],
+                    status=RecommendationStatus.ACCEPTED,
+                ))
+
+            # Save auto-added summary concepts as a recommendation record
+            if added_to_summary:
+                db.add(Recommendation(
+                    session_id=session_id,
+                    section="summary",
+                    field="auto_added_concepts",
+                    original="",
+                    suggested=f"Added to summary: {', '.join(added_to_summary)}",
+                    reason=f"Wove {len(added_to_summary)} JD concepts into professional summary.",
+                    confidence=0.9,
+                    keywords=added_to_summary[:5],
+                    status=RecommendationStatus.ACCEPTED,
+                ))
+
+            # Save ATS score (use the AFTER score, not the before score)
+            ats = ats_after
             ats_score = AtsScore(
                 session_id=session_id,
                 overall_score=int(ats.get("overall_score", 0)),
@@ -132,10 +391,10 @@ async def run_pipeline_background(
             db.add(ats_score)
 
             # Update session status
-            session_result = await db.execute(
+            session_result2 = await db.execute(
                 select(TailoringSession).where(TailoringSession.id == session_id)
             )
-            session = session_result.scalar_one_or_none()
+            session = session_result2.scalar_one_or_none()
             if session:
                 session.status = SessionStatus.COMPLETED
                 session.match_score = int(ats.get("overall_score", 0))

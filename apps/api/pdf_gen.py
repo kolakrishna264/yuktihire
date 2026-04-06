@@ -157,6 +157,10 @@ _CONCEPT_PHRASES = {
     "big data technologies", "model capabilities", "ml libraries",
     "data structures", "algorithms", "microservices", "documentation",
     "technical writing", "sdlc", "paas", "faas", "sdk",
+    "model monitoring", "model development and deployment", "model deployment",
+    "model serving", "scalable ai/ml architecture", "advanced degree (ms)",
+    "advanced degree", "natural language processing",
+    "ci/cd for ml workflows", "cloud-based ai/ml services",
 }
 
 _CONCEPT_SIGNALS = [

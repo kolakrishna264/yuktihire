@@ -128,6 +128,61 @@ export function TailorWorkspace() {
     setJdText("")
   }
 
+  // One-click apply: immediately write a single recommendation to resume.content
+  const handleApplyOne = useCallback(
+    async (rec: any) => {
+      if (!selectedResumeId || !resumeData) return
+      const resume = (resumeData as any)?.resume ?? resumeData
+      const content: Record<string, any> = JSON.parse(JSON.stringify(resume?.content ?? {}))
+
+      let applied = false
+
+      if (rec.section === "experience" && content.experiences) {
+        for (const exp of content.experiences) {
+          const idx = (exp.bullets || []).indexOf(rec.original)
+          if (idx >= 0) {
+            exp.bullets[idx] = rec.suggested
+            applied = true
+            break
+          }
+        }
+      } else if (rec.section === "summary" && rec.suggested) {
+        content.summary = rec.suggested
+        applied = true
+      } else if (rec.section === "skills" && rec.suggested) {
+        const addText = rec.suggested.replace("Add: ", "").replace("Add:", "")
+        const newSkills = addText.split(",").map((s: string) => s.trim()).filter(Boolean)
+        const skills = content.skills || []
+        const isCat = skills.some((s: any) => s?.items || s?.skills)
+        for (const ns of newSkills) {
+          if (isCat) {
+            // Add to last category
+            const lastCat = skills[skills.length - 1]
+            const key = lastCat?.items ? "items" : "skills"
+            if (lastCat?.[key] && !lastCat[key].includes(ns)) {
+              lastCat[key].push(ns)
+              applied = true
+            }
+          } else {
+            skills.push(ns)
+            applied = true
+          }
+        }
+        content.skills = skills
+      }
+
+      if (applied) {
+        try {
+          await updateResumeAsync({ id: selectedResumeId, data: { content } })
+          toast.success("Applied!")
+        } catch {
+          toast.error("Failed to apply")
+        }
+      }
+    },
+    [selectedResumeId, resumeData, updateResumeAsync]
+  )
+
   const handleInsertKeyword = useCallback(
     async (kw: string, target: "skills" | "summary") => {
       if (!selectedResumeId || !resumeData) {
@@ -449,6 +504,7 @@ export function TailorWorkspace() {
                   <SuggestionsList
                     recommendations={sessionData.recommendations ?? []}
                     onUpdateStatus={handleRecStatus}
+                    onApplyOne={handleApplyOne}
                   />
                 </div>
 
