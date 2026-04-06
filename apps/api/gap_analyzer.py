@@ -300,41 +300,35 @@ async def analyze_gaps(resume_content: dict, jd_analysis: dict) -> dict:
     result["unhighlighted_skills"] = validated_skills
 
     # ── Fix true_skill_gaps: remove skills that ARE in the resume ──
-    # The AI sometimes incorrectly marks skills as "gaps" when they're
-    # clearly present in the candidate's bullets or skills section.
-    resume_text_lower = ""
+    # Uses the same equivalence + stem matching engine as the ATS scorer
+    # so "embeddings" matches "embedding", "LLMs" matches "LLM-based", etc.
+    from ats_scorer import _keyword_in_text
+
+    resume_text_all = ""
     for exp in resume_content.get("experiences", []):
-        resume_text_lower += " ".join(exp.get("bullets", [])).lower() + " "
-        resume_text_lower += (exp.get("title", "") + " " + exp.get("company", "")).lower() + " "
+        resume_text_all += " ".join(exp.get("bullets", [])) + " "
+        resume_text_all += (exp.get("title", "") + " " + exp.get("company", "")) + " "
     for skill in resume_content.get("skills", []):
         if isinstance(skill, str):
-            resume_text_lower += skill.lower() + " "
+            resume_text_all += skill + " "
         elif isinstance(skill, dict):
             for k in ["items", "skills"]:
                 for item in skill.get(k, []):
                     if isinstance(item, str):
-                        resume_text_lower += item.lower() + " "
-    resume_text_lower += (resume_content.get("summary", "") or "").lower()
+                        resume_text_all += item + " "
+    resume_text_all += (resume_content.get("summary", "") or "")
 
     verified_gaps = []
     moved_to_unhighlighted = []
     for gap in result.get("true_skill_gaps", []):
         if not isinstance(gap, str):
             continue
-        gap_lower = gap.lower().strip()
-        # Check if the skill actually appears in the resume
-        if gap_lower in resume_text_lower:
-            # It's not a gap — it's unhighlighted. Move it.
+        # Use equivalence matching — same engine as the ATS scorer
+        if _keyword_in_text(gap, resume_text_all):
             moved_to_unhighlighted.append(gap)
         else:
-            # Check synonyms/partial match
-            words = gap_lower.split()
-            if len(words) >= 1 and any(w in resume_text_lower for w in words if len(w) > 3):
-                moved_to_unhighlighted.append(gap)
-            else:
-                verified_gaps.append(gap)
+            verified_gaps.append(gap)
     result["true_skill_gaps"] = verified_gaps
-    # Add wrongly-gapped skills to unhighlighted so they get auto-added
     for skill in moved_to_unhighlighted:
         if skill not in result["unhighlighted_skills"]:
             result["unhighlighted_skills"].append(skill)

@@ -206,46 +206,50 @@ async def run_pipeline_background(
                         applied_count += 1
                     tailored_content["skills"] = current_skills
 
-            # Clean skills one more time after applying
-            if tailored_content.get("skills"):
-                tailored_content["skills"] = clean_skills(tailored_content["skills"])
-
             # ── Re-score with the IMPROVED resume content ──
             jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
             gap_analysis_result = result.get("gap_analysis", {})
             ats_mid = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
 
             # ── AUTO-ADD missing keywords until score reaches 80%+ ──
-            # Take missing keywords that are real tools/skills and add them
-            # to the resume (skills section or summary) automatically.
-            # Only stop when score >= 80 or no more addable keywords.
+            # Add ALL missing keywords that aren't true gaps.
+            # Skills go to skills section, concepts go to summary.
             from migrate_clean_skills import is_valid_skill, categorize_clean_skills
+            from ats_scorer import _keyword_in_text
             true_gaps = set(g.lower() for g in gap_analysis_result.get("true_skill_gaps", []))
-            missing_kws = ats_mid.get("missing_keywords", [])
-            missing_skills = ats_mid.get("missing_skills", [])
 
-            # Combine all missing items
+            missing_kws = ats_mid.get("missing_keywords", [])
+            missing_skills_list = ats_mid.get("missing_skills", [])
+
             all_missing = []
             seen_missing = set()
-            for kw in missing_kws + missing_skills:
+            for kw in missing_kws + missing_skills_list:
                 if kw.lower() not in seen_missing:
                     seen_missing.add(kw.lower())
                     all_missing.append(kw)
 
-            # Separate into: addable to skills vs addable to summary vs true gaps
+            print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
+
+            # Separate: skills vs summary concepts
+            # Use a LENIENT check — only block items > 5 words or clearly conceptual
+            CONCEPT_ONLY = {
+                "incident response", "latency optimization", "enterprise governance controls",
+                "feature pipelines", "real-time inference", "model experimentation",
+            }
             skills_to_add = []
             summary_additions = []
             for kw in all_missing:
-                kw_lower = kw.lower()
-                # Skip true gaps (user genuinely doesn't have this experience)
+                kw_lower = kw.lower().strip()
                 if kw_lower in true_gaps:
+                    print(f"[AutoAdd] SKIP (true gap): {kw}")
                     continue
-                # Real tool/skill → add to skills section
-                if is_valid_skill(kw):
-                    skills_to_add.append(kw)
-                else:
-                    # Concept → weave into summary
+                if len(kw.split()) > 4:
                     summary_additions.append(kw)
+                elif kw_lower in CONCEPT_ONLY:
+                    summary_additions.append(kw)
+                else:
+                    skills_to_add.append(kw)
+                    print(f"[AutoAdd] ADD skill: {kw}")
 
             # Add missing skills to the correct category
             current_skills = tailored_content.get("skills", [])
@@ -308,12 +312,16 @@ async def run_pipeline_background(
                 tailored_content["summary"] = summary + f" Experienced in {concepts_str}."
                 applied_count += len(added_to_summary)
 
-            # Final clean of skills
-            if tailored_content.get("skills"):
-                tailored_content["skills"] = clean_skills(tailored_content["skills"])
+            # NOTE: Do NOT run clean_skills() here — it would remove the keywords
+            # we just added (microservices, monitoring, etc. are in the blocklist).
+            # The initial cleanup migration already cleaned the base resume.
+
+            print(f"[AutoAdd] Added {len(added_to_skills)} skills, {len(added_to_summary)} concepts to summary")
+            print(f"[AutoAdd] Skills added: {added_to_skills}")
 
             # ── Final re-score with all keywords added ──
             ats_after = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
+            print(f"[AutoAdd] Final score: {ats_after.get('overall_score')}%")
 
             # ── Save the tailored content back to the resume ──
             session_result = await db.execute(
