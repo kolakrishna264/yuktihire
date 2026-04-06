@@ -374,58 +374,69 @@ async def generate_all_rewrites(
             })
 
     # ── 1b. ALWAYS rewrite top bullets to weave in JD keywords ──
-    # The gap analyzer is often too conservative. We always rewrite the top
-    # bullets from the most relevant experience to maximize keyword coverage.
     bullet_rewrites_count = len([r for r in recommendations if r.get("section") == "experience" and not r.get("is_gap")])
+    print(f"[Rewriter] Bullet rewrites from gap analysis: {bullet_rewrites_count}, experiences: {len(experiences)}")
+
     if bullet_rewrites_count < 3 and experiences:
-        must_have = jd_analysis.get("must_have_keywords", [])[:8]
-        required = jd_analysis.get("required_skills", [])[:6]
-        domain = jd_analysis.get("domain_phrases", [])[:3]
-        top_keywords = list(dict.fromkeys(must_have + required + domain))[:12]
+        must_have = jd_analysis.get("must_have_keywords", [])
+        required = jd_analysis.get("required_skills", [])
+        domain = jd_analysis.get("domain_phrases", [])
+        top_keywords = list(dict.fromkeys(must_have + required + domain))[:15]
+        print(f"[Rewriter] Force-rewrite with {len(top_keywords)} keywords: {top_keywords[:8]}")
 
-        # Rewrite across top 2 experiences
-        for exp_i, exp in enumerate(experiences[:2]):
-            bullets = exp.get("bullets", [])
-            num_to_rewrite = 4 if exp_i == 0 else 2
-            already_rewritten = set(r.get("original", "") for r in recommendations if r.get("section") == "experience")
+        if not top_keywords:
+            print("[Rewriter] WARNING: No keywords available for force-rewrite!")
+        else:
+            for exp_i, exp in enumerate(experiences[:2]):
+                bullets = exp.get("bullets", [])
+                num_to_rewrite = 4 if exp_i == 0 else 2
+                already_rewritten = set(r.get("original", "") for r in recommendations if r.get("section") == "experience")
+                print(f"[Rewriter] Experience {exp_i}: {len(bullets)} bullets, rewriting {num_to_rewrite}")
 
-            for bi, bullet in enumerate(bullets[:num_to_rewrite]):
-                if not bullet or len(bullet.strip()) < 20:
-                    continue
-                if bullet in already_rewritten:
-                    continue
+                for bi, bullet in enumerate(bullets[:num_to_rewrite]):
+                    if not bullet or len(bullet.strip()) < 20:
+                        continue
+                    if bullet in already_rewritten:
+                        continue
 
-                # Rotate keywords across bullets so each bullet gets different ones
-                start = (exp_i * 4 + bi) * 2
-                kws_for_bullet = top_keywords[start % len(top_keywords):(start % len(top_keywords)) + 3]
-                if not kws_for_bullet:
-                    kws_for_bullet = top_keywords[:3]
+                    # Rotate keywords: each bullet gets 3 different keywords
+                    idx = (exp_i * 4 + bi) % len(top_keywords)
+                    kws = []
+                    for k in range(3):
+                        kws.append(top_keywords[(idx + k) % len(top_keywords)])
+                    kws = list(dict.fromkeys(kws))  # deduplicate
 
-                result = await rewrite_bullet(
-                    original=bullet,
-                    title=exp.get("title", ""),
-                    company=exp.get("company", ""),
-                    skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
-                    keywords_to_add=kws_for_bullet,
-                    seniority=seniority,
-                    max_words=max(len(bullet.split()) + 8, 40),
-                )
+                    print(f"[Rewriter] Rewriting bullet {exp_i}.{bi} with keywords: {kws}")
+                    try:
+                        result = await rewrite_bullet(
+                            original=bullet,
+                            title=exp.get("title", ""),
+                            company=exp.get("company", ""),
+                            skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
+                            keywords_to_add=kws,
+                            seniority=seniority,
+                            max_words=max(len(bullet.split()) + 8, 40),
+                        )
+                        suggested = result.get("suggested", "")
+                        changed = suggested and suggested.strip() != bullet.strip()
+                        print(f"[Rewriter] Result: changed={changed}, confidence={result.get('confidence')}")
 
-                # Accept the rewrite even if the AI says "changed: false" —
-                # as long as the text is different, it's a valid improvement
-                suggested = result.get("suggested", "")
-                if suggested and suggested.strip() != bullet.strip():
-                    recommendations.append({
-                        "section": "experience",
-                        "field": f"experience_{exp_i}_bullet",
-                        "original": bullet,
-                        "suggested": suggested,
-                        "reason": result.get("reason", "Rewritten to include JD keywords"),
-                        "confidence": result.get("confidence", 0.8),
-                        "keywords_added": result.get("keywords_added", kws_for_bullet),
-                        "truthful": True,
-                        "is_gap": False,
-                    })
+                        if changed:
+                            recommendations.append({
+                                "section": "experience",
+                                "field": f"experience_{exp_i}_bullet",
+                                "original": bullet,
+                                "suggested": suggested,
+                                "reason": result.get("reason", "Rewritten to include JD keywords"),
+                                "confidence": result.get("confidence", 0.8),
+                                "keywords_added": result.get("keywords_added", kws),
+                                "truthful": True,
+                                "is_gap": False,
+                            })
+                    except Exception as rewrite_err:
+                        print(f"[Rewriter] ERROR rewriting bullet: {rewrite_err}")
+
+    print(f"[Rewriter] Total recommendations: {len(recommendations)}")
 
     # ── 2. Rewrite summary with targeted keywords and concepts ──
     summary_keywords = gap_analysis.get("summary_keywords", [])
