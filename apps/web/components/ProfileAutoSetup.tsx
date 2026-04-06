@@ -300,13 +300,13 @@ export function ProfileAutoSetup() {
     const expCount = parsed.experiences?.length || 0
     sections.push({ name: "Experience", status: expCount > 0 ? "extracted" : "missing", detail: expCount > 0 ? `${expCount} positions` : undefined })
 
-    const eduCount = (parsed.educations || parsed.education || []).length
+    const eduCount = (parsed.educations || parsed.education || []).length || ((profile as any)?.educations?.length || 0)
     sections.push({ name: "Education", status: eduCount > 0 ? "extracted" : "missing", detail: eduCount > 0 ? `${eduCount} entries` : undefined })
 
-    const skillCount = parsed.skills?.length || 0
+    const skillCount = parsed.skills?.length || ((profile as any)?.skills?.length || 0)
     sections.push({ name: "Skills", status: skillCount > 0 ? "extracted" : "missing", detail: skillCount > 0 ? `${skillCount} skills` : undefined })
 
-    const projCount = (parsed.projects || []).length
+    const projCount = (parsed.projects || []).length || ((profile as any)?.projects?.length || 0)
     sections.push({ name: "Projects", status: projCount > 0 ? "extracted" : "missing", detail: projCount > 0 ? `${projCount} projects` : undefined })
 
     // Check if user already set these in Application Info
