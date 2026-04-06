@@ -24,14 +24,14 @@ async def parse_resume(content: bytes, filename: str) -> dict:
 
     message = await client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8000,
-        system="You are a resume parser. Extract ALL data including education. Return ONLY valid JSON. Never truncate. Education is CRITICAL — it is usually at the BOTTOM of the resume.",
+        max_tokens=16000,
+        system="You are a resume parser. Extract ALL data completely — every bullet point, every skill, every education entry, every project. Return ONLY valid JSON. NEVER truncate or skip any content. Education is CRITICAL — it is usually at the BOTTOM of the resume. Extract it fully.",
         messages=[{
             "role": "user",
-            "content": f"""Parse this resume and extract ALL information into JSON.
+            "content": f"""Parse this resume and extract ALL information into JSON. Do NOT skip or truncate anything.
 
 RESUME TEXT:
-{text[:15000]}
+{text}
 
 CRITICAL: You MUST extract education completely. Look for:
 - Degree names: B.S., B.Tech, M.S., M.Tech, MBA, PhD, Bachelor, Master
