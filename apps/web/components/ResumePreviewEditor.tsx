@@ -34,7 +34,8 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
 
     if (profile) {
       if (!c.name && !c.full_name) c.name = profile.fullName || ""
-      if (!c.email) c.email = (profile as any).email || ""
+      // DON'T override email from profile — profile.email is the ACCOUNT email
+      // Resume content has the RESUME email from the uploaded PDF
       if (!c.phone) c.phone = profile.phone || ""
       if (!c.location) c.location = profile.location || ""
       if (!c.linkedin) c.linkedin = profile.linkedinUrl || ""

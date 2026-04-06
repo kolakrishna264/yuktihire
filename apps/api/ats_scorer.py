@@ -176,18 +176,28 @@ def generate_tips(
 
 
 def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
-    """Extract meaningful keywords from JD analysis — exclude full sentences."""
+    """Extract meaningful keywords — ONLY must-have and required skills (not nice-to-have).
+    Nice-to-have dilutes the score by inflating the denominator."""
     keywords = set()
-    # Primary keyword sources (short, specific terms)
-    for field in ["must_have_keywords", "nice_to_have_keywords", "required_skills",
-                  "nice_to_have_skills", "domain_phrases"]:
+    # ONLY primary required keywords — this keeps the denominator realistic
+    for field in ["must_have_keywords", "required_skills"]:
         for kw in jd_analysis.get(field, []):
-            if isinstance(kw, str) and 1 < len(kw) < 50:  # Skip full sentences
+            if isinstance(kw, str) and 1 < len(kw) < 50:
                 keywords.add(kw)
-    # From responsibilities: extract only short phrases (< 5 words), not full sentences
-    for resp in jd_analysis.get("responsibilities_summary", []):
-        if isinstance(resp, str) and len(resp.split()) <= 4:
-            keywords.add(resp)
+    # Add domain phrases only if short (technical terms, not sentences)
+    for kw in jd_analysis.get("domain_phrases", []):
+        if isinstance(kw, str) and len(kw.split()) <= 3 and len(kw) < 40:
+            keywords.add(kw)
+    return list(keywords)
+
+
+def extract_nice_to_have(jd_analysis: dict) -> list[str]:
+    """Extract nice-to-have keywords separately — scored with lower weight."""
+    keywords = set()
+    for field in ["nice_to_have_keywords", "nice_to_have_skills"]:
+        for kw in jd_analysis.get(field, []):
+            if isinstance(kw, str) and 1 < len(kw) < 50:
+                keywords.add(kw)
     return list(keywords)
 
 
@@ -207,40 +217,43 @@ def calculate_ats_score(
     must_have = jd_analysis.get("must_have_keywords", [])
     required_skills = jd_analysis.get("required_skills", [])
 
-    # ── Component scores ──
+    # ── Component scores (inspired by Jobscan/Simplify scoring) ──
 
-    # Title alignment (new) — does the resume title match the JD role?
+    # Title alignment — does resume title match JD role?
     target_role = (jd_analysis.get("role", "") or "").lower()
-    title_score = 60  # default
+    title_score = 70  # Default: most resumes have somewhat relevant titles
     if target_role:
         for exp in resume_content.get("experiences", []):
             exp_title = (exp.get("title", "") or "").lower()
             if target_role in exp_title or exp_title in target_role:
                 title_score = 95
                 break
-            # Partial word overlap
-            role_words = set(target_role.split())
-            title_words = set(exp_title.split())
+            role_words = set(w for w in target_role.split() if len(w) > 2)
+            title_words = set(w for w in exp_title.split() if len(w) > 2)
             overlap = role_words & title_words
-            if len(overlap) >= 2 or (len(overlap) >= 1 and len(role_words) <= 2):
-                title_score = max(title_score, 80)
+            if overlap:
+                title_score = max(title_score, 70 + len(overlap) * 10)
 
-    # Keyword score
+    # Must-have keyword score (PRIMARY — this is what ATS actually checks)
     kw_score, matched_kw, missing_kw = keyword_match_score(resume_text, all_keywords)
 
-    # Must-have coverage
+    # Nice-to-have bonus (doesn't penalize, only adds)
+    nice_to_have = extract_nice_to_have(jd_analysis)
+    nth_score, matched_nth, _ = keyword_match_score(resume_text, nice_to_have) if nice_to_have else (0, [], [])
+
+    # Must-have separate tracking
     mh_score, matched_mh, missing_mh = keyword_match_score(resume_text, must_have) if must_have else (100, [], [])
 
-    # Skills score
+    # Skills score — required skills only
     skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
 
-    # Experience score — from gap analysis
-    exp_score = max(experience_score_from_gaps(gap_analysis), 50)
+    # Experience score — from gap analysis, generous floor
+    exp_score = max(experience_score_from_gaps(gap_analysis), 55)
 
-    # Summary relevance — check if summary contains JD keywords
+    # Summary relevance
     summary = (resume_content.get("summary", "") or "").lower()
     summary_kw_count = sum(1 for kw in (must_have + required_skills)[:10] if kw.lower() in summary)
-    summary_score = min(90, 50 + summary_kw_count * 8) if summary else 30
+    summary_score = min(95, 55 + summary_kw_count * 8) if summary else 30
 
     # Education score
     edu_scr = education_score(resume_content, jd_analysis)
@@ -248,26 +261,36 @@ def calculate_ats_score(
     # Format score
     fmt_scr = format_score(resume_content)
 
-    # ── Weighted overall (redesigned weights) ──
+    # ── Weighted overall — designed to reach 75-85% for well-matched resumes ──
+    # Inspired by how Jobscan/Simplify weight components
     overall = int(
-        kw_score * 0.20 +       # Keywords: 20%
-        skills_scr * 0.20 +     # Skills: 20%
-        exp_score * 0.20 +      # Experience: 20%
+        kw_score * 0.25 +       # Must-have keywords: 25% (most important)
+        skills_scr * 0.20 +     # Required skills: 20%
+        exp_score * 0.15 +      # Experience relevance: 15%
         title_score * 0.10 +    # Title alignment: 10%
         summary_score * 0.10 +  # Summary relevance: 10%
         edu_scr * 0.10 +        # Education: 10%
         fmt_scr * 0.10          # Format: 10%
     )
 
-    # Boosts
-    if kw_score >= 70 and skills_scr >= 60:
+    # Nice-to-have bonus (up to +10)
+    if nth_score > 0:
+        overall = min(overall + int(nth_score * 0.10), 100)
+
+    # Boosts for strong profiles
+    if kw_score >= 60 and skills_scr >= 50:
         overall = min(overall + 8, 100)
-    if mh_score >= 80:
+    if mh_score >= 70:
         overall = min(overall + 5, 100)
     if title_score >= 80:
         overall = min(overall + 3, 100)
-    if kw_score >= 50 and skills_scr >= 50 and overall < 55:
-        overall = 55
+
+    # Floor: if resume has relevant experience, minimum 50%
+    if exp_score >= 55 and skills_scr >= 30:
+        overall = max(overall, 50)
+    # If keywords match well, minimum 60%
+    if kw_score >= 50:
+        overall = max(overall, 58)
 
     section_scores = {
         "summary": summary_score,
