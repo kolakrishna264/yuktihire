@@ -172,9 +172,9 @@ def generate_docx_sync(resume_content: dict) -> bytes:
             add_section_heading(doc, "Technical Skills")
             for cat in categories:
                 p = doc.add_paragraph()
-                cat_run = p.add_run(f"{cat['name']} – ")
+                cat_run = p.add_run(f"{cat['category']} – ")
                 set_font(cat_run, bold=True, size=10)
-                items_run = p.add_run(", ".join(cat["items"]))
+                items_run = p.add_run(", ".join(cat["skills"]))
                 set_font(items_run, size=10)
 
     # Education

@@ -90,7 +90,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="section">
   <div class="section-title">Technical Skills</div>
   {% for cat in skill_categories %}
-  <div class="skill-cat"><span class="skill-cat-name">{{ cat.name }} –</span> {{ cat.items | join(', ') }}</div>
+  <div class="skill-cat"><span class="skill-cat-name">{{ cat.category }} –</span> {{ cat.skills | join(', ') }}</div>
   {% endfor %}
 </div>
 {% elif skills %}
@@ -258,12 +258,14 @@ def categorize_skills(skills: list) -> list[dict]:
             categorized.setdefault("Other Skills", []).append(name)
 
     # Build result in category order, skip empty
+    # IMPORTANT: use "category" and "skills" as keys — NOT "name" and "items"
+    # because "items" conflicts with dict.items() in Jinja templates
     result = []
     for cat_name, _ in CATEGORIES:
         if cat_name in categorized:
-            result.append({"name": cat_name, "items": categorized[cat_name]})
+            result.append({"category": cat_name, "skills": categorized[cat_name]})
     if "Other Skills" in categorized:
-        result.append({"name": "Other Skills", "items": categorized["Other Skills"]})
+        result.append({"category": "Other Skills", "skills": categorized["Other Skills"]})
 
     return result
 
