@@ -373,50 +373,59 @@ async def generate_all_rewrites(
                 "is_gap": False,
             })
 
-    # ── 1b. FORCE-REWRITE top bullets if no rewrites were generated ──
-    # The gap analyzer may be too conservative with rewrite_opportunity.
-    # If we got zero bullet rewrites, pick the top 3-5 bullets from the most
-    # relevant experience and rewrite them to include JD keywords.
-    bullet_rewrites = [r for r in recommendations if r.get("section") == "experience" and not r.get("is_gap")]
-    if len(bullet_rewrites) == 0 and experiences:
-        must_have = jd_analysis.get("must_have_keywords", [])[:6]
-        required = jd_analysis.get("required_skills", [])[:4]
-        top_keywords = list(dict.fromkeys(must_have + required))[:8]  # deduplicated, up to 8
+    # ── 1b. ALWAYS rewrite top bullets to weave in JD keywords ──
+    # The gap analyzer is often too conservative. We always rewrite the top
+    # bullets from the most relevant experience to maximize keyword coverage.
+    bullet_rewrites_count = len([r for r in recommendations if r.get("section") == "experience" and not r.get("is_gap")])
+    if bullet_rewrites_count < 3 and experiences:
+        must_have = jd_analysis.get("must_have_keywords", [])[:8]
+        required = jd_analysis.get("required_skills", [])[:6]
+        domain = jd_analysis.get("domain_phrases", [])[:3]
+        top_keywords = list(dict.fromkeys(must_have + required + domain))[:12]
 
-        # Pick the first (most recent/relevant) experience
-        exp = experiences[0]
-        bullets = exp.get("bullets", [])
+        # Rewrite across top 2 experiences
+        for exp_i, exp in enumerate(experiences[:2]):
+            bullets = exp.get("bullets", [])
+            num_to_rewrite = 4 if exp_i == 0 else 2
+            already_rewritten = set(r.get("original", "") for r in recommendations if r.get("section") == "experience")
 
-        # Rewrite up to 4 bullets from this experience
-        for bi, bullet in enumerate(bullets[:4]):
-            if not bullet or len(bullet.strip()) < 20:
-                continue
-            # Pick 2-3 keywords to weave into this bullet
-            kws_for_bullet = top_keywords[bi * 2 : bi * 2 + 3] if bi * 2 < len(top_keywords) else top_keywords[:2]
-            if not kws_for_bullet:
-                continue
+            for bi, bullet in enumerate(bullets[:num_to_rewrite]):
+                if not bullet or len(bullet.strip()) < 20:
+                    continue
+                if bullet in already_rewritten:
+                    continue
 
-            result = await rewrite_bullet(
-                original=bullet,
-                title=exp.get("title", ""),
-                company=exp.get("company", ""),
-                skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
-                keywords_to_add=kws_for_bullet,
-                seniority=seniority,
-                max_words=max(len(bullet.split()) + 5, 35),
-            )
-            if result.get("changed") and result.get("truthful"):
-                recommendations.append({
-                    "section": "experience",
-                    "field": f"experience_0_bullet",
-                    "original": bullet,
-                    "suggested": result["suggested"],
-                    "reason": result["reason"],
-                    "confidence": result.get("confidence", 0.8),
-                    "keywords_added": result.get("keywords_added", []),
-                    "truthful": True,
-                    "is_gap": False,
-                })
+                # Rotate keywords across bullets so each bullet gets different ones
+                start = (exp_i * 4 + bi) * 2
+                kws_for_bullet = top_keywords[start % len(top_keywords):(start % len(top_keywords)) + 3]
+                if not kws_for_bullet:
+                    kws_for_bullet = top_keywords[:3]
+
+                result = await rewrite_bullet(
+                    original=bullet,
+                    title=exp.get("title", ""),
+                    company=exp.get("company", ""),
+                    skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
+                    keywords_to_add=kws_for_bullet,
+                    seniority=seniority,
+                    max_words=max(len(bullet.split()) + 8, 40),
+                )
+
+                # Accept the rewrite even if the AI says "changed: false" —
+                # as long as the text is different, it's a valid improvement
+                suggested = result.get("suggested", "")
+                if suggested and suggested.strip() != bullet.strip():
+                    recommendations.append({
+                        "section": "experience",
+                        "field": f"experience_{exp_i}_bullet",
+                        "original": bullet,
+                        "suggested": suggested,
+                        "reason": result.get("reason", "Rewritten to include JD keywords"),
+                        "confidence": result.get("confidence", 0.8),
+                        "keywords_added": result.get("keywords_added", kws_for_bullet),
+                        "truthful": True,
+                        "is_gap": False,
+                    })
 
     # ── 2. Rewrite summary with targeted keywords and concepts ──
     summary_keywords = gap_analysis.get("summary_keywords", [])
