@@ -746,25 +746,36 @@ async def export_resume_for_extension(
 
                     profile_id = p.get("id")
                     if profile_id:
-                        # Load experiences from profile
-                        if not content.get("experiences"):
+                        # ALWAYS load experiences from profile — it has the complete data
+                        # Resume content may have truncated bullets from old parser runs
+                        try:
                             exp_result = await db.execute(
                                 text("SELECT * FROM work_experiences WHERE profile_id = :pid ORDER BY sort_order, start_date DESC"),
                                 {"pid": profile_id},
                             )
-                            exps = []
-                            for e in exp_result.mappings().all():
-                                exps.append({
-                                    "title": e.get("title", ""),
-                                    "company": e.get("company", ""),
-                                    "location": e.get("location", ""),
-                                    "start_date": str(e["start_date"]) if e.get("start_date") else "",
-                                    "end_date": str(e["end_date"]) if e.get("end_date") else "",
+                            profile_exps = exp_result.mappings().all()
+                            if profile_exps:
+                                # Deduplicate by company+title
+                                seen_exp = set()
+                                exps = []
+                                for e in profile_exps:
+                                    key = f"{(e.get('company','') or '').lower()}|{(e.get('title','') or '').lower()}"
+                                    if key in seen_exp:
+                                        continue
+                                    seen_exp.add(key)
+                                    exps.append({
+                                        "title": e.get("title", ""),
+                                        "company": e.get("company", ""),
+                                        "location": e.get("location", ""),
+                                        "start_date": str(e["start_date"]) if e.get("start_date") else "",
+                                        "end_date": str(e["end_date"]) if e.get("end_date") else "",
                                     "current": e.get("current", False),
                                     "bullets": e.get("bullets") or [],
                                     "skills_used": e.get("skills_used") or [],
                                 })
-                            if exps: content["experiences"] = exps
+                                if exps: content["experiences"] = exps
+                        except Exception as exp_err:
+                            print(f"[Export] Experience load error: {exp_err}")
 
                         # Load education from profile
                         if not content.get("educations"):
