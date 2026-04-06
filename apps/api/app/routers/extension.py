@@ -721,9 +721,12 @@ async def export_resume_for_extension(
                     {"uid": current_user.id},
                 )
                 u = user_result.mappings().first()
-                if u and not content.get("name"):
-                    content["name"] = u.get("full_name") or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
-                    content["email"] = u.get("email", "")
+                if u:
+                    if not content.get("name"):
+                        content["name"] = u.get("full_name") or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
+                    # Only use account email if resume has NO email at all
+                    if not content.get("email"):
+                        content["email"] = u.get("email", "")
 
                 profile_result = await db.execute(
                     text("SELECT * FROM profiles WHERE user_id = :uid"),

@@ -160,6 +160,8 @@ def categorize_skills(skills: list) -> list[dict]:
             "agentic ai", "ai agent", "reinforcement learning", "gan", "diffusion", "stable diffusion",
             "recommendation", "anomaly detection", "feature engineering", "model training",
             "classification", "regression", "clustering", "dimensionality reduction",
+            "ai agents", "ml libraries", "model capabilities", "big data",
+            "vector database", "faiss", "pinecone",
         ]),
         ("Cloud Platforms", [
             "aws", "amazon web services", "azure", "microsoft azure", "gcp", "google cloud",
@@ -227,6 +229,9 @@ def categorize_skills(skills: list) -> list[dict]:
             "distributed systems", "system design", "api design", "sdk",
             "oop", "functional programming", "design patterns", "solid",
             "sdlc", "documentation", "technical writing",
+            "error handling", "incident response", "reliability", "production systems",
+            "sandboxing", "error propagation", "client library", "data structures",
+            "algorithms", "full lifecycle", "paas", "faas", "cloud-native",
         ]),
     ]
 
