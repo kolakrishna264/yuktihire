@@ -329,6 +329,14 @@ def render_html(resume_content: dict) -> str:
     if "name" not in data:
         data["name"] = data["contact"].get("full_name", "")
 
+    # ── Trim summary to 3-4 sentences (professional length) ──
+    if data.get("summary") and isinstance(data["summary"], str):
+        sentences = [s.strip() for s in data["summary"].replace(". ", ".\n").split("\n") if s.strip()]
+        if len(sentences) > 4:
+            data["summary"] = " ".join(sentences[:4])
+            if not data["summary"].endswith("."):
+                data["summary"] += "."
+
     # ── Format dates to human-readable ──
     def fmt_date(d):
         if not d or d == "Present":
