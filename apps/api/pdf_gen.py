@@ -13,35 +13,35 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { margin: 0.55in 0.65in; size: letter; }
+  @page { margin: 0.45in 0.5in; size: letter; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.35; color: #1a1a1a; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
 
-  .header { text-align: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #888; }
-  .name { font-size: 18pt; font-weight: bold; letter-spacing: 0.3px; }
-  .contact { font-size: 9pt; color: #444; margin-top: 3px; }
+  .header { text-align: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #000; }
+  .name { font-size: 16pt; font-weight: bold; }
+  .contact { font-size: 9.5pt; color: #333; margin-top: 2px; }
 
-  .section { margin-bottom: 10px; }
-  .section-title { font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;
-    border-bottom: 0.5pt solid #aaa; padding-bottom: 1px; margin-bottom: 5px; color: #222; }
+  .section { margin-bottom: 7px; }
+  .section-title { font-size: 10.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    margin-bottom: 3px; color: #000; padding-top: 2px; }
 
-  .exp-item { margin-bottom: 8px; }
+  .exp-item { margin-bottom: 6px; }
   .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
   .exp-company { font-weight: bold; font-size: 10.5pt; }
-  .exp-dates { font-size: 9pt; color: #666; }
-  .exp-title { font-style: italic; font-size: 10pt; color: #333; margin-bottom: 2px; }
+  .exp-dates { font-size: 9.5pt; color: #333; }
+  .exp-title { font-style: italic; font-size: 10pt; color: #222; margin-bottom: 1px; }
 
-  ul.bullets { list-style-type: disc; margin-left: 16px; padding: 0; }
-  ul.bullets li { font-size: 9.5pt; margin-bottom: 1.5px; line-height: 1.35; color: #222; }
+  ul.bullets { list-style-type: disc; margin-left: 18px; padding: 0; }
+  ul.bullets li { font-size: 10pt; margin-bottom: 1px; line-height: 1.3; color: #000; }
 
-  .skills-text { font-size: 9.5pt; line-height: 1.5; }
-  .skill-cat { margin-bottom: 2px; font-size: 9.5pt; }
+  .skills-text { font-size: 10pt; line-height: 1.4; }
+  .skill-cat { margin-bottom: 1px; font-size: 10pt; line-height: 1.35; }
   .skill-cat-name { font-weight: bold; }
 
-  .edu-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-  .edu-degree { font-weight: bold; font-size: 10pt; }
-  .edu-school { font-size: 9.5pt; color: #444; }
-  .edu-date { font-size: 9pt; color: #666; }
+  .edu-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .edu-degree { font-weight: bold; font-size: 10.5pt; }
+  .edu-school { font-size: 10pt; color: #222; }
+  .edu-date { font-size: 9.5pt; color: #333; }
 </style>
 </head>
 <body>
@@ -55,14 +55,14 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
     {% if contact.location %}{% if parts.append(contact.location) %}{% endif %}{% endif %}
     {% if contact.linkedin %}{% if parts.append(contact.linkedin) %}{% endif %}{% endif %}
     {% if contact.github %}{% if parts.append(contact.github) %}{% endif %}{% endif %}
-    {{ parts | join('  |  ') }}
+    {{ parts | join(' | ') }}
   </div>
 </div>
 
 {% if summary %}
 <div class="section">
   <div class="section-title">Professional Summary</div>
-  <p style="font-size:9.5pt; line-height:1.45;">{{ summary }}</p>
+  <p style="font-size:10pt; line-height:1.35;">{{ summary }}</p>
 </div>
 {% endif %}
 
@@ -143,11 +143,11 @@ def categorize_skills(skills: list) -> list[dict]:
     # Each category: display name → list of keyword patterns to match
     # Order matters — first match wins, so put specific before generic
     CATEGORIES = [
-        ("Programming Languages", [
-            "python", "java", "javascript", "typescript", "c#", "c\\+\\+", "c/c\\+\\+", "golang", "go ", "ruby",
-            "rust", "scala", "julia", "r ", " r,", "sql", "bash", "shell", "php", "swift", "kotlin", "perl",
-            "matlab", "lua", "dart", "elixir", "haskell", "clojure", "groovy", "objective-c", "vba",
-            "assembly", "fortran", "cobol", "sas", "stata", "html", "css", "sass", "less",
+        ("Languages", [
+            "python", "java", "javascript", "typescript", "c#", "c++", "golang", "go",
+            "ruby", "rust", "scala", "julia", "sql", "bash", "php", "swift", "kotlin",
+            "perl", "matlab", "r", "lua", "dart", "elixir", "haskell", "groovy",
+            "html", "css", "nosql",
         ]),
         ("AI/ML", [
             "pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost", "lightgbm", "catboost",
@@ -243,11 +243,12 @@ def categorize_skills(skills: list) -> list[dict]:
         used.add(name.lower())
 
         placed = False
-        name_lower = " " + name.lower() + " "  # pad for word boundary matching
+        name_lower = name.lower().strip()
         for cat_name, patterns in CATEGORIES:
             for pattern in patterns:
-                # Check if pattern appears as substring
-                if pattern in name_lower or pattern in name.lower():
+                p = pattern.strip()
+                # Exact match or word-boundary match (not substring of longer word)
+                if name_lower == p or name_lower.startswith(p + " ") or name_lower.endswith(" " + p) or (" " + p + " ") in (" " + name_lower + " "):
                     categorized.setdefault(cat_name, []).append(name)
                     placed = True
                     break
