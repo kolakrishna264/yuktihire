@@ -165,10 +165,62 @@ export function ProfileAutoSetup() {
         } catch (e) { console.error("Project save failed:", e) }
       }
 
-      // 6. Store resume content for autofill AI context
-      setSaveStatus("Finalizing...")
-      setSaveProgress(100)
+      // 6. Save parsed content to resume record — this is the source of truth for PDF/DOCX export
+      setSaveStatus("Saving resume...")
+      setSaveProgress(95)
+      try {
+        // Create or update resume with full parsed content
+        const resumeContent = {
+          name: fullName,
+          email: parsed.email || "",
+          phone: parsed.phone || "",
+          location: parsed.location || "",
+          linkedin: parsed.linkedin || "",
+          github: parsed.github || "",
+          summary: parsed.summary || "",
+          headline: parsed.headline || "",
+          experiences: (parsed.experiences || []).map((exp: any) => ({
+            title: exp.title || exp.role || "",
+            company: exp.company || "",
+            location: exp.location || "",
+            start_date: exp.start_date || exp.startDate || "",
+            end_date: exp.current ? "" : (exp.end_date || exp.endDate || ""),
+            current: exp.current || false,
+            bullets: exp.bullets || exp.achievements || [],
+            skills_used: exp.skills_used || [],
+          })),
+          educations: (parsed.educations || parsed.education || []).map((edu: any) => ({
+            degree: edu.degree || "",
+            field: edu.field || "",
+            school: edu.school || "",
+            end_date: edu.end_date || "",
+            gpa: edu.gpa || "",
+          })),
+          skills: parsed.skills || [],
+          projects: (parsed.projects || []).map((p: any) => ({
+            name: p.name || "",
+            description: p.description || "",
+            bullets: p.bullets || [],
+            skills: p.skills || [],
+          })),
+        }
+        // Try to update existing default resume, or create new one
+        const existingResumes = await apiFetch("/resumes").catch(() => [])
+        if (Array.isArray(existingResumes) && existingResumes.length > 0) {
+          await apiFetch(`/resumes/${existingResumes[0].id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ content: resumeContent }),
+          })
+        } else {
+          await apiFetch("/resumes", {
+            method: "POST",
+            body: JSON.stringify({ name: fullName + " Resume", content: resumeContent }),
+          })
+        }
+        savedCount++
+      } catch (e) { console.error("Resume content save failed:", e) }
 
+      setSaveProgress(100)
       setSaved(true)
       refetch()
       toast.success(`Profile auto-populated! ${savedCount} items saved from resume.`)

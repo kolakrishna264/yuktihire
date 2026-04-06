@@ -39,17 +39,34 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
       if (!c.location) c.location = profile.location || ""
       if (!c.linkedin) c.linkedin = profile.linkedinUrl || ""
       if (!c.summary) c.summary = profile.summary || profile.headline || ""
-      if (!c.experiences?.length && (profile as any).experiences?.length) {
-        c.experiences = (profile as any).experiences.map((e: any) => ({
+      // ALWAYS use profile data as primary source for experiences/education/skills
+      // Resume content may be stale or truncated from old parser runs
+      if ((profile as any).experiences?.length) {
+        // Deduplicate by company+title
+        const seen = new Set<string>()
+        c.experiences = (profile as any).experiences.filter((e: any) => {
+          const key = `${(e.company||"").toLowerCase()}|${(e.title||"").toLowerCase()}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        }).map((e: any) => ({
           title: e.title, company: e.company, location: e.location,
           start_date: e.startDate, end_date: e.endDate, current: e.current, bullets: e.bullets || [],
         }))
       }
-      if (!c.educations?.length && (profile as any).educations?.length) {
-        c.educations = (profile as any).educations.map((e: any) => ({
+      if ((profile as any).educations?.length) {
+        const seen = new Set<string>()
+        c.educations = (profile as any).educations.filter((e: any) => {
+          const key = `${(e.degree||"").toLowerCase()}|${(e.school||"").toLowerCase()}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        }).map((e: any) => ({
           degree: e.degree, field: e.field, school: e.school, end_date: e.endDate, gpa: e.gpa,
         }))
       }
+      // For skills: prefer resume content (may have tailored/categorized skills)
+      // Fall back to profile skills if resume has none
       if (!c.skills?.length && (profile as any).skills?.length) {
         c.skills = (profile as any).skills.map((s: any) => skillName(s))
       }

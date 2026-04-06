@@ -698,10 +698,9 @@ async def export_resume_for_extension(
         if not isinstance(content, dict):
             content = {}
 
-        # Check if resume content is corrupted (only has skills, missing core sections)
-        has_experiences = bool(content.get("experiences"))
-        has_name = bool(content.get("name") or content.get("full_name") or content.get("contact", {}).get("full_name"))
-        if not has_experiences and not has_name:
+        # ALWAYS enrich from profile — profile tables are the source of truth
+        # Resume content JSON may be stale, truncated, or corrupted from old parser runs
+        if True:  # Always run enrichment
             # Try to rebuild from the latest valid resume version
             try:
                 ver_result = await db.execute(
