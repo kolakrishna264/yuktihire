@@ -126,6 +126,17 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
 
   const contact = [content.email, content.phone, content.location, content.linkedin].filter(Boolean).join("  |  ")
 
+  // Trim summary to 4 sentences in preview (matches PDF)
+  const trimmedSummary = (() => {
+    const raw = content.summary || ""
+    if (!raw || editing) return raw
+    const sentences = raw.replace(/\. /g, ".\n").split("\n").filter((s: string) => s.trim())
+    if (sentences.length <= 4) return raw
+    let t = sentences.slice(0, 4).join(" ")
+    if (!t.endsWith(".")) t += "."
+    return t
+  })()
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
@@ -157,7 +168,7 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
         <div className="px-7 py-5 space-y-3" style={{ fontFamily: "'Times New Roman', Times, serif", fontSize: "10pt", lineHeight: 1.35 }}>
 
           {/* Header */}
-          <div className="text-center pb-2" style={{ borderBottom: "1px solid #888" }}>
+          <div className="text-center pb-2">
             {editing ? (
               <input value={content.name || ""} onChange={e => set(c => { c.name = e.target.value })}
                 className="text-lg font-bold text-center w-full outline-none bg-yellow-50 rounded px-1" style={{ fontFamily: "inherit" }} />
@@ -165,21 +176,22 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
               <div className="text-lg font-bold">{content.name || "Your Name"}</div>
             )}
             {contact && <div className="text-[8.5pt] text-gray-500 mt-0.5">{contact}</div>}
+            <hr style={{ border: "none", borderTop: "1px solid #000", marginTop: 4 }} />
           </div>
 
           {/* Summary */}
           {(content.summary || editing) && (
-            <Sec title="Summary">
+            <Sec title="Professional Summary">
               {editing ? (
                 <textarea value={content.summary || ""} onChange={e => set(c => { c.summary = e.target.value })}
                   className="w-full outline-none bg-yellow-50 rounded p-1 resize-none text-[9.5pt]" style={{ fontFamily: "inherit", minHeight: 50, lineHeight: "1.4" }} />
-              ) : <p className="text-[9.5pt]" style={{ lineHeight: "1.4" }}>{content.summary}</p>}
+              ) : <p className="text-[9.5pt]" style={{ lineHeight: "1.4" }}>{trimmedSummary}</p>}
             </Sec>
           )}
 
           {/* Experience */}
           {content.experiences?.length > 0 && (
-            <Sec title="Experience">
+            <Sec title="Professional Experience">
               {content.experiences.map((exp: any, i: number) => (
                 <div key={i} className="mb-3">
                   <div className="flex justify-between items-baseline">

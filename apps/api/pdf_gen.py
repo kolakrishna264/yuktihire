@@ -49,7 +49,6 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 
 <div class="header">
   <div class="name">{{ contact.full_name or name }}</div>
-  <hr class="header-line">
   <div class="contact">
     {% set parts = [] %}
     {% if contact.email %}{% if parts.append(contact.email) %}{% endif %}{% endif %}
@@ -59,6 +58,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
     {% if contact.github %}{% if parts.append(contact.github) %}{% endif %}{% endif %}
     {{ parts | join(' | ') }}
   </div>
+  <hr class="header-line">
 </div>
 
 {% if summary %}
