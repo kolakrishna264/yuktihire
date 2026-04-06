@@ -314,44 +314,39 @@ def generate_tips(
     gap_analysis: dict,
     placement_details: dict,
 ) -> list[str]:
-    """Generate actionable, deduplicated tips grouped by section."""
+    """Generate clear, actionable tips. Separate genuine gaps from fixable items."""
     tips = []
     seen = set()
+    true_gaps = set(g.lower() for g in gap_analysis.get("true_skill_gaps", []))
 
-    # Skills-only keywords (in skills but not in experience — potential stuffing)
-    skills_only = [kw for kw, detail in placement_details.items()
-                   if detail.get("best_section") == "skills_only"]
-    if skills_only:
-        tips.append(f"Strengthen these by adding them to experience bullets too: {', '.join(skills_only[:3])}")
-        seen.update(s.lower() for s in skills_only[:3])
-
-    # Missing keywords
-    for kw in missing_keywords[:4]:
-        if kw.lower() not in seen:
-            tips.append(f"Add keyword: {kw}")
+    # 1. Genuine gaps first (cannot fix with resume edits)
+    cannot_fix = []
+    for kw in missing_keywords + missing_skills:
+        if kw.lower() in seen:
+            continue
+        if kw.lower() in true_gaps:
+            cannot_fix.append(kw)
             seen.add(kw.lower())
+    if cannot_fix:
+        tips.append(f"Cannot fix with resume edits (need real experience): {', '.join(cannot_fix[:5])}")
 
-    # Missing skills (real tools only)
-    for skill in missing_skills[:3]:
-        if skill.lower() not in seen:
-            tips.append(f"Missing skill: {skill}")
-            seen.add(skill.lower())
+    # 2. Fixable missing keywords (user can add these)
+    fixable = []
+    for kw in missing_keywords:
+        if kw.lower() in seen:
+            continue
+        seen.add(kw.lower())
+        fixable.append(kw)
+    if fixable:
+        tips.append(f"Add these keywords to boost score: {', '.join(fixable[:5])}")
 
-    # True gaps
-    true_gaps = gap_analysis.get("true_skill_gaps", [])
-    for gap in true_gaps[:2]:
-        if gap.lower() not in seen:
-            tips.append(f"Skill gap (needs real experience): {gap}")
-            seen.add(gap.lower())
+    # 3. Skills-only keywords (need experience bullets too)
+    skills_only = [kw for kw, detail in placement_details.items()
+                   if detail.get("best_section") == "skills_only" and kw.lower() not in seen]
+    if skills_only:
+        tips.append(f"Strengthen in experience bullets: {', '.join(skills_only[:3])}")
 
-    # Unhighlighted
-    unhighlighted = gap_analysis.get("unhighlighted_skills", [])
-    if unhighlighted:
-        uh = [s for s in unhighlighted[:3] if s.lower() not in seen]
-        if uh:
-            tips.append(f"You have these but didn't highlight them: {', '.join(uh)}")
-
-    return tips[:8]
+    return tips[:5]
 
 
 def extract_all_jd_keywords(jd_analysis: dict) -> list[str]:
