@@ -65,15 +65,23 @@ export function ResumePreviewEditor({ resumeData, resumeId, onUpdate }: Props) {
           degree: e.degree, field: e.field, school: e.school, end_date: e.endDate, gpa: e.gpa,
         }))
       }
-      // For skills: prefer resume content (may have tailored/categorized skills)
-      // Fall back to profile skills if resume has none
+      // For skills: check if resume has categorized format, otherwise keep as-is
       if (!c.skills?.length && (profile as any).skills?.length) {
         c.skills = (profile as any).skills.map((s: any) => skillName(s))
       }
     }
 
-    // Normalize skills to strings
-    if (c.skills) c.skills = c.skills.map(skillName).filter((s: string) => s && s.length < 60)
+    // Check if skills are flat strings but should be categorized
+    // Preserve categorized skill format [{category, items}] — do NOT flatten
+    // Only normalize if all skills are plain strings (legacy format)
+    if (c.skills?.length) {
+      const hasCategorized = c.skills.some((s: any) => s?.items || s?.category)
+      if (!hasCategorized) {
+        // Legacy flat format — normalize to strings
+        c.skills = c.skills.map(skillName).filter((s: string) => s && s.length < 60)
+      }
+      // If categorized format [{category, items}], leave as-is for grouped rendering
+    }
 
     // Deduplicate
     if (c.experiences?.length) {
