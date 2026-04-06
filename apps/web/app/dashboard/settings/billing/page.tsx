@@ -1,14 +1,12 @@
 "use client"
 
 import { useUsage } from "@/lib/hooks/useBilling"
-import { billingApi } from "@/lib/api/billing"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Progress } from "@/components/ui/Progress"
 import { Skeleton } from "@/components/ui/Skeleton"
-import { Check, Zap, FileText, Wand2, BarChart3, Download } from "lucide-react"
-import { useState } from "react"
+import { Check, Zap, FileText, Wand2, BarChart3, Download, Clock } from "lucide-react"
 
 const PRO_FEATURES = [
   "Unlimited resume tailoring",
@@ -29,19 +27,7 @@ const FREE_FEATURES = [
 
 export default function BillingPage() {
   const { data: usage, isLoading } = useUsage()
-  const [checkingOut, setCheckingOut] = useState(false)
-
   const isPro = usage?.plan && usage.plan !== "FREE"
-
-  const handleUpgrade = async () => {
-    setCheckingOut(true)
-    try {
-      const { url } = await billingApi.createCheckout()
-      if (url && url !== "#") window.location.href = url
-    } finally {
-      setCheckingOut(false)
-    }
-  }
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -50,6 +36,18 @@ export default function BillingPage() {
         <p className="text-sm text-muted-foreground mt-1">
           Manage your subscription and usage
         </p>
+      </div>
+
+      {/* Coming Soon banner */}
+      <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-5 flex items-start gap-4">
+        <Clock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold text-amber-800 dark:text-amber-300 mb-1">Paid plans are coming soon</p>
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            Enjoy full access during the beta — no credit card needed.
+            We&apos;ll announce Pro plans before launch.
+          </p>
+        </div>
       </div>
 
       {/* Current plan */}
@@ -63,22 +61,14 @@ export default function BillingPage() {
                   <Skeleton className="h-5 w-12 rounded-full" />
                 ) : (
                   <Badge variant={isPro ? "success" : "secondary"}>
-                    {isPro ? "Pro" : "Free"}
+                    {isPro ? "Pro" : "Free (Beta)"}
                   </Badge>
                 )}
               </div>
-              {!isPro && (
-                <p className="text-sm text-muted-foreground">
-                  Upgrade to unlock unlimited tailoring and exports
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                All features unlocked during beta
+              </p>
             </div>
-            {!isPro && (
-              <Button variant="gradient" loading={checkingOut} onClick={handleUpgrade}>
-                <Zap className="w-4 h-4" />
-                Upgrade to Pro
-              </Button>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -99,49 +89,19 @@ export default function BillingPage() {
             </div>
           ) : usage ? (
             <div className="space-y-4">
-              <UsageMeter
-                icon={Wand2}
-                label="Tailoring Sessions"
-                used={usage.tailoring.used}
-                max={usage.tailoring.max}
-                unlimited={!!isPro}
-              />
-              <UsageMeter
-                icon={BarChart3}
-                label="ATS Scans"
-                used={usage.atsScans.used}
-                max={usage.atsScans.max}
-                unlimited={!!isPro}
-              />
-              <UsageMeter
-                icon={Download}
-                label="Exports"
-                used={usage.exports.used}
-                max={usage.exports.max}
-                unlimited={!!isPro}
-              />
-              <UsageMeter
-                icon={FileText}
-                label="Resumes (max)"
-                used={0}
-                max={usage.resumesMax}
-                unlimited={false}
-              />
+              <UsageMeter icon={Wand2} label="Tailoring Sessions" used={usage.tailoring.used} max={usage.tailoring.max} unlimited={!!isPro} />
+              <UsageMeter icon={BarChart3} label="ATS Scans" used={usage.atsScans.used} max={usage.atsScans.max} unlimited={!!isPro} />
+              <UsageMeter icon={Download} label="Exports" used={usage.exports.used} max={usage.exports.max} unlimited={!!isPro} />
+              <UsageMeter icon={FileText} label="Resumes (max)" used={0} max={usage.resumesMax} unlimited={false} />
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Connect to API to see usage stats
-            </p>
+            <p className="text-sm text-muted-foreground">Connect to API to see usage stats</p>
           )}
 
           {usage?.periodEnd && (
             <p className="text-xs text-muted-foreground border-t border-border pt-3">
               Usage resets on{" "}
-              {new Date(usage.periodEnd).toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
+              {new Date(usage.periodEnd).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
             </p>
           )}
         </CardContent>
@@ -149,14 +109,17 @@ export default function BillingPage() {
 
       {/* Plan comparison */}
       <div className="grid sm:grid-cols-2 gap-4">
-        <Card className="border-2 border-border">
+        <Card className="border-2 border-primary">
           <CardContent className="p-5">
-            <p className="font-bold text-lg mb-1">Free</p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="font-bold text-lg">Free (Beta)</p>
+              <Badge variant="success">Current</Badge>
+            </div>
             <p className="text-2xl font-bold mb-4">$0</p>
             <ul className="space-y-2">
               {FREE_FEATURES.map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Check className="w-4 h-4 shrink-0 text-muted-foreground/60" />
+                <li key={f} className="flex items-center gap-2 text-sm">
+                  <Check className="w-4 h-4 shrink-0 text-primary" />
                   {f}
                 </li>
               ))}
@@ -164,11 +127,11 @@ export default function BillingPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-primary">
+        <Card className="border-2 border-border opacity-80">
           <CardContent className="p-5">
             <div className="flex items-center gap-2 mb-1">
               <p className="font-bold text-lg">Pro</p>
-              <Badge variant="default">Popular</Badge>
+              <Badge variant="secondary">Coming Soon</Badge>
             </div>
             <p className="text-2xl font-bold mb-4">
               $19{" "}
@@ -176,29 +139,16 @@ export default function BillingPage() {
             </p>
             <ul className="space-y-2 mb-5">
               {PRO_FEATURES.map((f) => (
-                <li key={f} className="flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 shrink-0 text-primary" />
+                <li key={f} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Check className="w-4 h-4 shrink-0 text-muted-foreground/60" />
                   {f}
                 </li>
               ))}
             </ul>
-            {!isPro && (
-              <Button
-                variant="gradient"
-                className="w-full"
-                loading={checkingOut}
-                onClick={handleUpgrade}
-              >
-                <Zap className="w-4 h-4" />
-                Upgrade Now — $19/mo
-              </Button>
-            )}
-            {isPro && (
-              <div className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-sm font-semibold">
-                <Check className="w-4 h-4" />
-                Current Plan
-              </div>
-            )}
+            <Button variant="outline" className="w-full" disabled>
+              <Clock className="w-4 h-4" />
+              Coming Soon
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -206,22 +156,10 @@ export default function BillingPage() {
   )
 }
 
-function UsageMeter({
-  icon: Icon,
-  label,
-  used,
-  max,
-  unlimited,
-}: {
-  icon: typeof Wand2
-  label: string
-  used: number
-  max: number
-  unlimited: boolean
+function UsageMeter({ icon: Icon, label, used, max, unlimited }: {
+  icon: typeof Wand2; label: string; used: number; max: number; unlimited: boolean
 }) {
   const pct = unlimited ? 0 : max > 0 ? Math.min((used / max) * 100, 100) : 0
-  const near = pct >= 80
-
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -233,13 +171,7 @@ function UsageMeter({
           {unlimited ? "Unlimited" : `${used} / ${max}`}
         </span>
       </div>
-      {!unlimited && (
-        <Progress
-          value={pct}
-          barClassName={near ? "bg-amber-500" : "bg-primary"}
-          className="h-1.5"
-        />
-      )}
+      {!unlimited && <Progress value={pct} barClassName={pct >= 80 ? "bg-amber-500" : "bg-primary"} className="h-1.5" />}
     </div>
   )
 }

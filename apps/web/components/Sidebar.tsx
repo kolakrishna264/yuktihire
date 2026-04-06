@@ -117,19 +117,16 @@ export function Sidebar() {
         )}
       </nav>
 
-      {/* Upgrade CTA */}
+      {/* Pro — Coming Soon */}
       <div className="px-3 pb-3">
         <div className="rounded-xl bg-gradient-to-br from-brand-500/10 to-brand-700/10 border border-brand-200/40 dark:border-brand-500/20 p-3">
-          <p className="text-xs font-semibold text-foreground mb-1">Upgrade to Pro</p>
+          <p className="text-xs font-semibold text-foreground mb-1">Pro Plan</p>
           <p className="text-[11px] text-muted-foreground mb-2.5">
             Unlimited tailoring, exports &amp; ATS scans
           </p>
-          <Link
-            href="/dashboard/settings/billing"
-            className="block text-center text-xs font-semibold py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
-          >
-            Upgrade — $19/mo
-          </Link>
+          <span className="block text-center text-xs font-semibold py-1.5 rounded-lg bg-muted text-muted-foreground cursor-default">
+            Coming Soon
+          </span>
         </div>
       </div>
 

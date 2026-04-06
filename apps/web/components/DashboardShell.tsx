@@ -202,9 +202,7 @@ export default function DashboardShell({ user }: DashboardShellProps) {
               {permissions?.isUnlimited ? (
                 <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px]">Unlimited</Badge>
               ) : (
-                <Link href="/dashboard/settings/billing">
-                  <Badge variant="secondary" className="text-[10px] cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-colors">Upgrade</Badge>
-                </Link>
+                <Badge variant="secondary" className="text-[10px]">Beta</Badge>
               )}
             </div>
             <p className="text-xl font-bold text-gray-900 mb-1">{permissions?.effectivePlan || permissions?.plan || "FREE"}</p>
