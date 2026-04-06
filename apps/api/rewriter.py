@@ -313,13 +313,27 @@ async def generate_all_rewrites(
                 "is_gap": False,
             })
 
-    # ── Deduplicate recommendations by (section, original) ──
-    seen = set()
+    # ── Deduplicate recommendations ──
+    seen_keys = set()
+    seen_keywords = set()
     deduped = []
     for rec in recommendations:
+        # Dedup by section + original text
         key = (rec["section"], rec.get("original", "")[:50])
-        if key not in seen:
-            seen.add(key)
-            deduped.append(rec)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        # Dedup by keywords — skip if all keywords already covered
+        rec_keywords = set(kw.lower() for kw in rec.get("keywords_added", []))
+        if rec_keywords and rec_keywords.issubset(seen_keywords):
+            continue
+        seen_keywords.update(rec_keywords)
+
+        # Skip gap-only suggestions (they don't change anything)
+        if rec.get("is_gap") and rec.get("original") == rec.get("suggested"):
+            continue
+
+        deduped.append(rec)
 
     return deduped

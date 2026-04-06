@@ -338,9 +338,31 @@ def render_html(resume_content: dict) -> str:
         if exp.get("end_date"): exp["end_date"] = fmt_date(exp["end_date"])
         if exp.get("endDate"): exp["endDate"] = fmt_date(exp["endDate"])
 
-    # ── Auto-categorize skills ──
+    # ── Skills categorization ──
+    # Priority 1: Use resume's OWN categories if they exist (preserves user's pattern)
+    # Priority 2: Auto-categorize flat skill lists
     if "skills" in data and isinstance(data["skills"], list) and not data.get("skill_categories"):
-        data["skill_categories"] = categorize_skills(data["skills"])
+        skills = data["skills"]
+        has_categories = any(isinstance(s, dict) and s.get("category") for s in skills)
+
+        if has_categories:
+            # Group by the user's own categories
+            by_cat: dict[str, list[str]] = {}
+            for s in skills:
+                if isinstance(s, dict):
+                    cat = s.get("category", "Other") or "Other"
+                    name = s.get("name", "")
+                    if name and len(name) < 60:
+                        by_cat.setdefault(cat, [])
+                        if name not in by_cat[cat]:
+                            by_cat[cat].append(name)
+                elif isinstance(s, str) and s and len(s) < 60:
+                    by_cat.setdefault("Other", []).append(s)
+
+            data["skill_categories"] = [{"category": cat, "skills": items} for cat, items in by_cat.items() if items]
+        else:
+            # Flat list — auto-categorize
+            data["skill_categories"] = categorize_skills(skills)
 
     # ── Deduplicate ALL sections ──
 

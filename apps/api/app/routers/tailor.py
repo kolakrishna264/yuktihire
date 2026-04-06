@@ -16,6 +16,29 @@ from app.models.tailoring import (
 
 router = APIRouter(prefix="/tailor", tags=["tailoring"])
 
+
+def _infer_skill_category(skill_name: str) -> str:
+    """Infer the best category for a skill based on keyword matching."""
+    s = skill_name.lower()
+    if any(k in s for k in ["python", "java", "sql", "c#", "c++", "golang", "ruby", "typescript", "javascript", "swift", "kotlin", "rust", "scala", "r ", "html", "css", "php", "bash"]):
+        return "Languages"
+    if any(k in s for k in ["pytorch", "tensorflow", "keras", "scikit", "xgboost", "hugging", "transformers", "langchain", "openai", "llm", "nlp", "bert", "gpt", "rag", "fine-tuning", "prompt", "embedding", "ai agent", "ml", "deep learning", "neural", "generative ai"]):
+        return "AI/ML"
+    if any(k in s for k in ["aws", "azure", "gcp", "ec2", "s3", "lambda", "sagemaker", "cloud"]):
+        return "Cloud"
+    if any(k in s for k in ["docker", "kubernetes", "ci/cd", "jenkins", "github actions", "terraform", "devops", "linux", "monitoring"]):
+        return "DevOps"
+    if any(k in s for k in ["react", "angular", "vue", "node", "fastapi", "flask", "django", ".net", "express", "next.js", "graphql"]):
+        return "Frameworks"
+    if any(k in s for k in ["postgresql", "mongodb", "redis", "mysql", "elasticsearch", "nosql", "vector database", "snowflake", "dynamodb", "cassandra"]):
+        return "Databases"
+    if any(k in s for k in ["pandas", "spark", "kafka", "airflow", "hadoop", "etl", "data pipeline"]):
+        return "Data Engineering"
+    if any(k in s for k in ["git", "jira", "api design", "sdk", "microservices", "oop", "agile", "sdlc"]):
+        return "Tools"
+    return "Other"
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────
 
 class AnalyzeJobRequest(BaseModel):
@@ -460,9 +483,8 @@ async def apply_recommendations(
             new_content["summary"] = rec.suggested
             applied_count += 1
 
-        # Apply skills section additions
+        # Apply skills section additions — PRESERVE category structure
         elif rec.section == "skills" and rec.suggested:
-            # Parse "Add: skill1, skill2, skill3" format
             add_text = rec.suggested.replace("Add: ", "").replace("Add:", "")
             new_skills_list = [s.strip() for s in add_text.split(",") if s.strip()]
             current_skills = new_content.get("skills", [])
@@ -473,10 +495,16 @@ async def apply_recommendations(
                 elif isinstance(s, dict):
                     current_lower.add((s.get("name", "") or "").lower())
 
+            # Check if skills use category structure
+            has_categories = any(isinstance(s, dict) and s.get("category") for s in current_skills)
+
             for ns in new_skills_list:
                 if ns.lower() not in current_lower:
-                    # Match existing format (string or dict)
-                    if current_skills and isinstance(current_skills[0], dict):
+                    if has_categories:
+                        # Infer category from the skill name using simple keyword matching
+                        cat = _infer_skill_category(ns)
+                        current_skills.append({"name": ns, "category": cat})
+                    elif current_skills and isinstance(current_skills[0], dict):
                         current_skills.append({"name": ns})
                     else:
                         current_skills.append(ns)

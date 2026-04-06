@@ -192,56 +192,82 @@ def calculate_ats_score(
     """
     resume_text = extract_resume_text(resume_content)
 
-    # Extract keywords — separate must-have from nice-to-have
+    # Extract keywords
     all_keywords = extract_all_jd_keywords(jd_analysis)
     must_have = jd_analysis.get("must_have_keywords", [])
     required_skills = jd_analysis.get("required_skills", [])
 
-    # Keyword score (25% weight) — uses ALL JD keywords
+    # ── Component scores ──
+
+    # Title alignment (new) — does the resume title match the JD role?
+    target_role = (jd_analysis.get("role", "") or "").lower()
+    title_score = 60  # default
+    if target_role:
+        for exp in resume_content.get("experiences", []):
+            exp_title = (exp.get("title", "") or "").lower()
+            if target_role in exp_title or exp_title in target_role:
+                title_score = 95
+                break
+            # Partial word overlap
+            role_words = set(target_role.split())
+            title_words = set(exp_title.split())
+            overlap = role_words & title_words
+            if len(overlap) >= 2 or (len(overlap) >= 1 and len(role_words) <= 2):
+                title_score = max(title_score, 80)
+
+    # Keyword score
     kw_score, matched_kw, missing_kw = keyword_match_score(resume_text, all_keywords)
 
-    # Must-have keyword coverage — separate metric for tips
+    # Must-have coverage
     mh_score, matched_mh, missing_mh = keyword_match_score(resume_text, must_have) if must_have else (100, [], [])
 
-    # Skills score (25% weight)
+    # Skills score
     skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
 
-    # Experience score (20% weight) — from gap analysis, with generous floor
+    # Experience score — from gap analysis
     exp_score = max(experience_score_from_gaps(gap_analysis), 50)
 
-    # Education score (15% weight)
+    # Summary relevance — check if summary contains JD keywords
+    summary = (resume_content.get("summary", "") or "").lower()
+    summary_kw_count = sum(1 for kw in (must_have + required_skills)[:10] if kw.lower() in summary)
+    summary_score = min(90, 50 + summary_kw_count * 8) if summary else 30
+
+    # Education score
     edu_scr = education_score(resume_content, jd_analysis)
 
-    # Format score (15% weight)
+    # Format score
     fmt_scr = format_score(resume_content)
 
-    # Weighted overall
+    # ── Weighted overall (redesigned weights) ──
     overall = int(
-        kw_score * 0.25 +
-        skills_scr * 0.25 +
-        exp_score * 0.20 +
-        edu_scr * 0.15 +
-        fmt_scr * 0.15
+        kw_score * 0.20 +       # Keywords: 20%
+        skills_scr * 0.20 +     # Skills: 20%
+        exp_score * 0.20 +      # Experience: 20%
+        title_score * 0.10 +    # Title alignment: 10%
+        summary_score * 0.10 +  # Summary relevance: 10%
+        edu_scr * 0.10 +        # Education: 10%
+        fmt_scr * 0.10          # Format: 10%
     )
 
-    # Boosts for strong profiles
+    # Boosts
     if kw_score >= 70 and skills_scr >= 60:
-        overall = min(overall + 10, 100)
-    # Boost if most must-have keywords are present
+        overall = min(overall + 8, 100)
     if mh_score >= 80:
         overall = min(overall + 5, 100)
-    # Ensure format doesn't drag score below 60 if content is good
-    if kw_score >= 50 and skills_scr >= 50 and overall < 60:
-        overall = 60
+    if title_score >= 80:
+        overall = min(overall + 3, 100)
+    if kw_score >= 50 and skills_scr >= 50 and overall < 55:
+        overall = 55
 
     section_scores = {
-        "summary": gap_analysis.get("summary_score", 60),
+        "summary": summary_score,
         "experience": exp_score,
         "skills": skills_scr,
         "education": edu_scr,
         "format": fmt_scr,
         "keywords": kw_score,
         "mustHave": mh_score,
+        "titleAlignment": title_score,
     }
 
     tips = generate_tips(missing_kw, missing_skills, gap_analysis, [])
