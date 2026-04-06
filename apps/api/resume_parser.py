@@ -24,14 +24,14 @@ async def parse_resume(content: bytes, filename: str) -> dict:
 
     message = await client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=6000,
-        system="You are a resume parser. Extract ALL data. Return ONLY valid JSON. Never truncate.",
+        max_tokens=8000,
+        system="You are a resume parser. Extract ALL data including education. Return ONLY valid JSON. Never truncate. Education is CRITICAL — it is usually at the BOTTOM of the resume.",
         messages=[{
             "role": "user",
             "content": f"""Parse this resume and extract ALL information into JSON.
 
 RESUME TEXT:
-{text[:10000]}
+{text[:15000]}
 
 CRITICAL: You MUST extract education completely. Look for:
 - Degree names: B.S., B.Tech, M.S., M.Tech, MBA, PhD, Bachelor, Master
@@ -119,13 +119,15 @@ CRITICAL RULES:
     parsed.setdefault("certifications", [])
     parsed.setdefault("projects", [])
 
-    # Fix education entries with "Not specified" — try to extract from raw text
-    for edu in parsed.get("educations", []):
-        if edu.get("degree", "") in ["", "Not specified", "not specified"]:
-            edu_text = _extract_education_from_text(text)
-            if edu_text:
-                parsed["educations"] = edu_text
-                break
+    # Fix education: if AI returned empty or "Not specified", use regex fallback
+    edu_list = parsed.get("educations", [])
+    needs_edu_fix = len(edu_list) == 0 or any(
+        edu.get("degree", "") in ["", "Not specified", "not specified"] for edu in edu_list
+    )
+    if needs_edu_fix:
+        edu_text = _extract_education_from_text(text)
+        if edu_text:
+            parsed["educations"] = edu_text
 
     # Log what was extracted
     print(f"[ResumeParser] Extracted: {parsed.get('name','?')} | {len(parsed.get('experiences',[]))} exp | {len(parsed.get('educations',[]))} edu | {len(parsed.get('skills',[]))} skills")
