@@ -130,12 +130,22 @@ def categorize_clean_skills(flat_skills: list[str]) -> list[dict]:
             "nltk", "langchain", "llamaindex", "openai", "anthropic", "claude", "gemini",
             "llama", "gpt", "bert", "faiss", "pinecone", "weaviate", "chroma", "milvus",
             "onnx", "mlflow", "wandb", "tensorboard", "machine learning", "deep learning",
-            "neural network", "computer vision", "nlp", "natural language", "llm", "rag",
-            "fine-tuning", "fine tuning", "prompt engineering", "embedding", "generative ai",
-            "agentic ai", "ai agent", "ai agents", "reinforcement learning", "gan",
+            "neural network", "neural networks", "computer vision", "nlp", "natural language",
+            "llm", "rag", "fine-tuning", "fine tuning", "prompt engineering", "embedding",
+            "embeddings", "generative ai", "agentic ai", "ai agent", "ai agents",
+            "reinforcement learning", "gan", "gans", "vae", "vaes",
             "diffusion", "recommendation", "anomaly detection", "feature engineering",
             "model training", "classification", "regression", "clustering",
-            "vector database", "sentiment", "ner",
+            "vector database", "vector databases", "sentiment", "ner",
+            # GPU/Nvidia/inference terms
+            "nvidia", "cuda", "tensorrt", "gpu", "gpu training", "gpu acceleration",
+            "nvlm", "triton", "inference optimization", "model optimization",
+            "knowledge graph", "copilot", "domain-specific ai",
+            "retrieval-augmented generation", "model experimentation",
+            "statistical analysis", "a/b testing", "experiment framework",
+            "data preprocessing", "data cleaning", "feature serving",
+            "model deployment", "model serving", "batch pipelines",
+            "streaming pipelines", "real-time inference", "hybrid search",
         ]),
         ("Cloud Platforms", [
             "aws", "amazon web services", "azure", "microsoft azure", "gcp",
@@ -217,7 +227,8 @@ def categorize_clean_skills(flat_skills: list[str]) -> list[dict]:
         if cat_name in categorized and categorized[cat_name]:
             result.append({"category": cat_name, "items": categorized[cat_name]})
     if "Other" in categorized and categorized["Other"]:
-        result.append({"category": "Other", "items": categorized["Other"]})
+        # Cap "Other" at 5 items — too many looks like dumping
+        result.append({"category": "Other", "items": categorized["Other"][:5]})
 
     return result
 

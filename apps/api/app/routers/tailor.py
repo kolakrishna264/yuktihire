@@ -230,22 +230,30 @@ async def run_pipeline_background(
 
             print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
 
-            # Separate: skills vs summary concepts
-            # Use a LENIENT check — only block items > 5 words or clearly conceptual
-            CONCEPT_ONLY = {
-                "incident response", "latency optimization", "enterprise governance controls",
-                "feature pipelines", "real-time inference", "model experimentation",
-            }
+            # Check which missing keywords are ALREADY in resume text via equivalence
+            # (they score as matched but didn't pass strict check — no need to add them)
+            resume_full_text = (tailored_content.get("summary", "") or "") + " "
+            for exp in tailored_content.get("experiences", []):
+                resume_full_text += " ".join(exp.get("bullets", [])) + " "
+                resume_full_text += (exp.get("title", "") or "") + " "
+            for sk in tailored_content.get("skills", []):
+                if isinstance(sk, dict):
+                    for k in ["items", "skills"]:
+                        resume_full_text += " ".join(str(i) for i in sk.get(k, [])) + " "
+                elif isinstance(sk, str):
+                    resume_full_text += sk + " "
+
             skills_to_add = []
             summary_additions = []
             for kw in all_missing:
                 kw_lower = kw.lower().strip()
                 if kw_lower in true_gaps:
-                    print(f"[AutoAdd] SKIP (true gap): {kw}")
                     continue
-                if len(kw.split()) > 4:
-                    summary_additions.append(kw)
-                elif kw_lower in CONCEPT_ONLY:
+                # Skip if already in resume via equivalence match
+                if _keyword_in_text(kw, resume_full_text):
+                    continue
+                # Multi-word phrases (>3 words) go to summary, short ones to skills
+                if len(kw.split()) > 3:
                     summary_additions.append(kw)
                 else:
                     skills_to_add.append(kw)
@@ -985,8 +993,16 @@ async def generate_cover_letter(
         for exp in content.get("experiences", []):
             parts.append(f"{exp.get('title', '')} at {exp.get('company', '')}")
             parts.extend(exp.get("bullets", []))
-        parts.extend(content.get("skills", []))
-        resume_text = "\n".join(parts)
+        # Flatten skills for text context
+        for skill in content.get("skills", []):
+            if isinstance(skill, str):
+                parts.append(skill)
+            elif isinstance(skill, dict):
+                cat = skill.get("category", "")
+                items = skill.get("items", skill.get("skills", []))
+                if cat and items:
+                    parts.append(f"{cat}: {', '.join(str(i) for i in items)}")
+        resume_text = "\n".join(str(p) for p in parts)
 
     applicant_name = profile.headline if profile else (current_user.full_name or current_user.email.split("@")[0])
 
