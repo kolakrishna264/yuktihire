@@ -246,6 +246,16 @@ def experience_score_from_gaps(gap_analysis: dict) -> int:
     return int(sum(scores) / len(scores))
 
 
+def experience_keyword_score(sections: dict, keywords: list[str]) -> int:
+    """Score experience section by actual keyword presence (not AI alignment).
+    This gives credit for keywords that ARE in experience bullets after rewriting."""
+    exp_text = sections.get("experience", "")
+    if not exp_text or not keywords:
+        return 50
+    matched = sum(1 for kw in keywords if _matches_with_synonyms(kw, exp_text))
+    return min(95, int(matched / max(len(keywords), 1) * 100))
+
+
 def education_score(resume_content: dict, jd_analysis: dict) -> int:
     """Check if education meets JD requirements."""
     required_edu = jd_analysis.get("education_required", "any")
@@ -441,8 +451,12 @@ def calculate_ats_score(
     # Skills score — required skills only
     skills_scr, matched_skills, missing_skills = skills_match_score(resume_text, required_skills)
 
-    # Experience score from gap analysis
-    exp_score = max(experience_score_from_gaps(gap_analysis), 55)
+    # Experience score — use the BETTER of gap-based or keyword-based
+    # Gap-based comes from AI alignment (may be stale after rewrites)
+    # Keyword-based checks actual keyword presence in experience text (always current)
+    exp_gap_score = experience_score_from_gaps(gap_analysis)
+    exp_kw_score = experience_keyword_score(sections, all_keywords)
+    exp_score = max(exp_gap_score, exp_kw_score, 55)
 
     # Summary relevance
     summary = sections.get("summary", "")

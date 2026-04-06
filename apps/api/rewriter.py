@@ -307,11 +307,15 @@ async def generate_all_rewrites(
 
     # ── 1. Rewrite experience bullets with adaptive retention ──
     for alignment in gap_analysis.get("bullet_alignments", []):
-        if not alignment.get("rewrite_opportunity"):
+        # Rewrite if: AI flagged it OR alignment is below 75%
+        # This ensures bullets get improved even when the AI is too conservative
+        has_opportunity = alignment.get("rewrite_opportunity", False)
+        low_alignment = alignment.get("alignment_score", 100) < 75
+        if not has_opportunity and not low_alignment:
             continue
 
-        # Skip very-high-scoring bullets
-        if alignment.get("alignment_score", 100) >= 90:
+        # Skip very-high-scoring bullets (already well-aligned)
+        if alignment.get("alignment_score", 100) >= 85:
             continue
 
         # Handle true gaps — flag but don't fabricate
