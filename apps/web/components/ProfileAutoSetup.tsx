@@ -88,7 +88,33 @@ export function ProfileAutoSetup() {
         } catch (e) { console.error("Profile update failed:", e) }
       }
 
-      // 2. Add skills
+      // 2. DELETE old profile data before adding new (prevents duplicates on re-upload)
+      setSaveStatus("Clearing old data...")
+      setSaveProgress(20)
+      try {
+        // Load existing profile to get IDs for deletion
+        const existingProfile = await apiFetch("/profiles/me").catch(() => null)
+        if (existingProfile) {
+          // Delete old experiences
+          for (const exp of (existingProfile.experiences || [])) {
+            try { await apiFetch(`/profiles/me/experiences/${exp.id}`, { method: "DELETE" }) } catch {}
+          }
+          // Delete old educations
+          for (const edu of (existingProfile.educations || [])) {
+            try { await apiFetch(`/profiles/me/educations/${edu.id}`, { method: "DELETE" }) } catch {}
+          }
+          // Delete old skills
+          for (const skill of (existingProfile.skills || [])) {
+            try { await apiFetch(`/profiles/me/skills/${skill.id}`, { method: "DELETE" }) } catch {}
+          }
+          // Delete old projects
+          for (const proj of (existingProfile.projects || [])) {
+            try { await apiFetch(`/profiles/me/projects/${proj.id}`, { method: "DELETE" }) } catch {}
+          }
+        }
+      } catch (e) { console.error("Old data cleanup failed:", e) }
+
+      // 3. Add skills (fresh)
       setSaveStatus("Saving skills...")
       setSaveProgress(30)
       const skills = (parsed.skills || []).slice(0, 30)
@@ -102,7 +128,7 @@ export function ProfileAutoSetup() {
         }
       }
 
-      // 3. Add experiences
+      // 4. Add experiences (fresh — old ones deleted above)
       setSaveStatus("Saving experiences...")
       setSaveProgress(50)
       for (const exp of (parsed.experiences || []).slice(0, 8)) {
@@ -244,19 +270,24 @@ export function ProfileAutoSetup() {
     return null
   }
 
-  // ── Build completion checklist ──
+  // ── Build completion checklist — check BOTH parsed data AND saved profile ──
   function getChecklist(): ExtractedSection[] {
     if (!parsed) return []
     const sections: ExtractedSection[] = []
 
-    sections.push({ name: "Name", status: (parsed.name || parsed.full_name) ? "extracted" : "missing", detail: parsed.name || parsed.full_name })
+    // Check parsed data first, then fallback to profile (user may have set it manually in Basic Info)
+    const hasLocation = parsed.location || profile?.location
+    const hasLinkedin = parsed.linkedin || profile?.linkedinUrl
+    const hasGithub = parsed.github || profile?.githubUrl
+
+    sections.push({ name: "Name", status: (parsed.name || parsed.full_name || profile?.fullName) ? "extracted" : "missing", detail: parsed.name || parsed.full_name })
     sections.push({ name: "Email", status: parsed.email ? "extracted" : "missing", detail: parsed.email })
-    sections.push({ name: "Phone", status: parsed.phone ? "extracted" : "missing", detail: parsed.phone })
-    sections.push({ name: "Location", status: parsed.location ? "extracted" : "missing", detail: parsed.location })
-    sections.push({ name: "LinkedIn", status: parsed.linkedin ? "extracted" : "missing" })
-    sections.push({ name: "GitHub", status: parsed.github ? "extracted" : "missing" })
-    sections.push({ name: "Headline", status: parsed.headline ? "extracted" : "missing" })
-    sections.push({ name: "Summary", status: parsed.summary ? "extracted" : "missing" })
+    sections.push({ name: "Phone", status: (parsed.phone || profile?.phone) ? "extracted" : "missing", detail: parsed.phone })
+    sections.push({ name: "Location", status: hasLocation ? "extracted" : "missing", detail: parsed.location || profile?.location })
+    sections.push({ name: "LinkedIn", status: hasLinkedin ? "extracted" : "missing" })
+    sections.push({ name: "GitHub", status: hasGithub ? "extracted" : "missing" })
+    sections.push({ name: "Headline", status: (parsed.headline || profile?.headline) ? "extracted" : "missing" })
+    sections.push({ name: "Summary", status: (parsed.summary || profile?.summary) ? "extracted" : "missing" })
 
     const expCount = parsed.experiences?.length || 0
     sections.push({ name: "Experience", status: expCount > 0 ? "extracted" : "missing", detail: expCount > 0 ? `${expCount} positions` : undefined })
