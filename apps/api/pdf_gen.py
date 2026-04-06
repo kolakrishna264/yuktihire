@@ -272,17 +272,29 @@ def categorize_skills(skills: list) -> list[dict]:
     # Build result in category order, skip empty
     # IMPORTANT: use "category" and "skills" as keys — NOT "name" and "items"
     # because "items" conflicts with dict.items() in Jinja templates
-    result = []
+    # Build initial result
+    raw_result = []
     for cat_name, _ in CATEGORIES:
         if cat_name in categorized:
-            result.append({"category": cat_name, "skills": categorized[cat_name]})
-    # Merge "Other Skills" into the last category if only 1-3 items (avoids a tiny orphan section)
+            raw_result.append({"category": cat_name, "skills": categorized[cat_name]})
     if "Other Skills" in categorized:
-        other = categorized["Other Skills"]
-        if len(other) <= 3 and result:
-            result[-1]["skills"].extend(other)
-        elif other:
-            result.append({"category": "Other", "skills": other})
+        raw_result.append({"category": "Other", "skills": categorized["Other Skills"]})
+
+    # Merge small categories (≤2 items) into their neighbors to save vertical space
+    # "Databases & Storage – Vector databases" (1 item) wastes a whole line
+    result = []
+    overflow = []
+    for cat in raw_result:
+        if len(cat["skills"]) <= 2:
+            overflow.extend(cat["skills"])
+        else:
+            result.append(cat)
+
+    # Distribute overflow into the last real category
+    if overflow and result:
+        result[-1]["skills"].extend(overflow)
+    elif overflow:
+        result.append({"category": "Skills", "skills": overflow})
 
     return result
 
