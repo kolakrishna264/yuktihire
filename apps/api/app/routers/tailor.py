@@ -17,26 +17,40 @@ from app.models.tailoring import (
 router = APIRouter(prefix="/tailor", tags=["tailoring"])
 
 
-def _infer_skill_category(skill_name: str) -> str:
-    """Infer the best category for a skill based on keyword matching."""
-    s = skill_name.lower()
-    if any(k in s for k in ["python", "java", "sql", "c#", "c++", "golang", "ruby", "typescript", "javascript", "swift", "kotlin", "rust", "scala", "r ", "html", "css", "php", "bash"]):
-        return "Languages"
-    if any(k in s for k in ["pytorch", "tensorflow", "keras", "scikit", "xgboost", "hugging", "transformers", "langchain", "openai", "llm", "nlp", "bert", "gpt", "rag", "fine-tuning", "prompt", "embedding", "ai agent", "ml", "deep learning", "neural", "generative ai"]):
-        return "AI/ML"
-    if any(k in s for k in ["aws", "azure", "gcp", "ec2", "s3", "lambda", "sagemaker", "cloud"]):
-        return "Cloud"
-    if any(k in s for k in ["docker", "kubernetes", "ci/cd", "jenkins", "github actions", "terraform", "devops", "linux", "monitoring"]):
-        return "DevOps"
-    if any(k in s for k in ["react", "angular", "vue", "node", "fastapi", "flask", "django", ".net", "express", "next.js", "graphql"]):
-        return "Frameworks"
-    if any(k in s for k in ["postgresql", "mongodb", "redis", "mysql", "elasticsearch", "nosql", "vector database", "snowflake", "dynamodb", "cassandra"]):
-        return "Databases"
-    if any(k in s for k in ["pandas", "spark", "kafka", "airflow", "hadoop", "etl", "data pipeline"]):
-        return "Data Engineering"
-    if any(k in s for k in ["git", "jira", "api design", "sdk", "microservices", "oop", "agile", "sdlc"]):
-        return "Tools"
-    return "Other"
+def _infer_skill_category_for_existing(skill_name: str, existing_categories: list[dict]) -> str | None:
+    """
+    Find the best existing category for a new skill.
+    Uses the backend categorizer, then maps to user's closest category name.
+    Returns category name if found, None if no good match.
+    """
+    from migrate_clean_skills import categorize_clean_skills, is_valid_skill
+
+    # Reject concept phrases entirely — they should never enter skills
+    if not is_valid_skill(skill_name):
+        return None
+
+    # Use the clean categorizer to find which category this skill belongs to
+    temp = categorize_clean_skills([skill_name])
+    if not temp:
+        return None
+
+    backend_cat = temp[0].get("category", "").lower()
+    if backend_cat == "other":
+        return None  # Don't place unknowns — let them go to "Other" at the caller
+
+    # Map backend category to user's existing category by name similarity
+    for cat in existing_categories:
+        user_cat = (cat.get("category", "") or "").lower()
+        # Exact or substring match
+        if backend_cat == user_cat or backend_cat in user_cat or user_cat in backend_cat:
+            return cat.get("category")
+        # Word overlap (e.g., "AI/ML" ↔ "ML Libraries")
+        bc_words = set(backend_cat.replace("/", " ").replace("&", " ").split())
+        uc_words = set(user_cat.replace("/", " ").replace("&", " ").split())
+        if bc_words & uc_words and len(bc_words & uc_words) > 0:
+            return cat.get("category")
+
+    return None
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────
@@ -97,7 +111,7 @@ async def run_pipeline_background(
                     suggested=rec.get("suggested", ""),
                     reason=rec.get("reason", ""),
                     confidence=float(rec.get("confidence", 0.8)),
-                    keywords=rec.get("keywords", []),
+                    keywords=rec.get("keywords_added", rec.get("keywords", [])),
                 )
                 db.add(recommendation)
 
@@ -207,6 +221,89 @@ async def quick_tailor(
         "sessionId": session.id,
         "resumeId": resume.id,
         "status": "RUNNING",
+    }
+
+
+# ── Skills Cleanup (one-time migration endpoint) ─────────────────────────
+
+@router.post("/cleanup-skills")
+async def cleanup_skills(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clean corrupted skills in current user's resumes. Removes concept phrases, re-categorizes."""
+    from sqlalchemy import text
+    import json
+    from migrate_clean_skills import clean_skills
+
+    result = await db.execute(
+        text("SELECT id, content FROM resumes WHERE user_id = :uid AND content IS NOT NULL"),
+        {"uid": current_user.id},
+    )
+    rows = result.mappings().all()
+    cleaned_count = 0
+
+    for row in rows:
+        content = row["content"]
+        if isinstance(content, str):
+            try: content = json.loads(content)
+            except Exception: continue
+        if not isinstance(content, dict):
+            continue
+
+        skills = content.get("skills")
+        if not skills or not isinstance(skills, list):
+            continue
+
+        cleaned = clean_skills(skills)
+        if not cleaned:
+            continue
+
+        content["skills"] = cleaned
+        await db.execute(
+            text("UPDATE resumes SET content = :content WHERE id = :id"),
+            {"content": json.dumps(content), "id": row["id"]},
+        )
+        cleaned_count += 1
+
+    # Also clean resume_versions
+    ver_result = await db.execute(
+        text("""SELECT rv.id, rv.content FROM resume_versions rv
+                JOIN resumes r ON rv.resume_id = r.id
+                WHERE r.user_id = :uid AND rv.content IS NOT NULL"""),
+        {"uid": current_user.id},
+    )
+    ver_rows = ver_result.mappings().all()
+    ver_cleaned = 0
+
+    for row in ver_rows:
+        content = row["content"]
+        if isinstance(content, str):
+            try: content = json.loads(content)
+            except Exception: continue
+        if not isinstance(content, dict):
+            continue
+
+        skills = content.get("skills")
+        if not skills or not isinstance(skills, list):
+            continue
+
+        cleaned = clean_skills(skills)
+        if not cleaned:
+            continue
+
+        content["skills"] = cleaned
+        await db.execute(
+            text("UPDATE resume_versions SET content = :content WHERE id = :id"),
+            {"content": json.dumps(content), "id": row["id"]},
+        )
+        ver_cleaned += 1
+
+    await db.commit()
+    return {
+        "resumesCleaned": cleaned_count,
+        "versionsCleaned": ver_cleaned,
+        "message": "Skills cleaned and re-categorized successfully",
     }
 
 
@@ -483,32 +580,74 @@ async def apply_recommendations(
             new_content["summary"] = rec.suggested
             applied_count += 1
 
-        # Apply skills section additions — PRESERVE category structure
+        # Apply skills section additions — PRESERVE category structure exactly
         elif rec.section == "skills" and rec.suggested:
             add_text = rec.suggested.replace("Add: ", "").replace("Add:", "")
             new_skills_list = [s.strip() for s in add_text.split(",") if s.strip()]
             current_skills = new_content.get("skills", [])
+
+            # Build full set of existing skills (look inside items/skills arrays)
             current_lower = set()
             for s in current_skills:
                 if isinstance(s, str):
                     current_lower.add(s.lower())
                 elif isinstance(s, dict):
-                    current_lower.add((s.get("name", "") or "").lower())
+                    if s.get("items"):
+                        current_lower.update(i.lower() for i in s["items"] if isinstance(i, str))
+                    elif s.get("skills"):
+                        current_lower.update(i.lower() for i in s["skills"] if isinstance(i, str))
+                    elif s.get("name"):
+                        current_lower.add(s["name"].lower())
 
-            # Check if skills use category structure
-            has_categories = any(isinstance(s, dict) and s.get("category") for s in current_skills)
+            # Detect format: {category, items} or {category, skills} or {name, category} or flat
+            has_items_format = any(isinstance(s, dict) and s.get("items") for s in current_skills)
+            has_skills_format = any(isinstance(s, dict) and s.get("skills") for s in current_skills)
+            has_legacy_format = any(isinstance(s, dict) and s.get("name") and s.get("category") for s in current_skills)
 
             for ns in new_skills_list:
-                if ns.lower() not in current_lower:
-                    if has_categories:
-                        # Infer category from the skill name using simple keyword matching
-                        cat = _infer_skill_category(ns)
-                        current_skills.append({"name": ns, "category": cat})
-                    elif current_skills and isinstance(current_skills[0], dict):
-                        current_skills.append({"name": ns})
+                if ns.lower() in current_lower:
+                    continue
+
+                if has_items_format or has_skills_format:
+                    # INSERT INTO the correct existing category's items/skills array
+                    items_key = "items" if has_items_format else "skills"
+                    best_cat = _infer_skill_category_for_existing(ns, current_skills)
+
+                    if best_cat:
+                        # Find the category and append
+                        for cat_obj in current_skills:
+                            if isinstance(cat_obj, dict) and cat_obj.get("category") == best_cat:
+                                cat_items = cat_obj.get(items_key, [])
+                                if ns not in cat_items:
+                                    cat_items.append(ns)
+                                    cat_obj[items_key] = cat_items
+                                break
                     else:
-                        current_skills.append(ns)
+                        # No matching category — add to last category
+                        if current_skills and isinstance(current_skills[-1], dict):
+                            last_items = current_skills[-1].get(items_key, [])
+                            last_items.append(ns)
+                            current_skills[-1][items_key] = last_items
+                        else:
+                            current_skills.append({
+                                "category": "Other",
+                                items_key: [ns],
+                            })
                     applied_count += 1
+
+                elif has_legacy_format:
+                    best_cat = _infer_skill_category_for_existing(ns, [
+                        {"category": s.get("category", "Other"), "items": [s.get("name", "")]}
+                        for s in current_skills if isinstance(s, dict) and s.get("name")
+                    ])
+                    current_skills.append({"name": ns, "category": best_cat or "Other"})
+                    applied_count += 1
+
+                else:
+                    # Flat string list
+                    current_skills.append(ns)
+                    applied_count += 1
+
             new_content["skills"] = current_skills
 
     # Validate: tailored content must still have essential sections

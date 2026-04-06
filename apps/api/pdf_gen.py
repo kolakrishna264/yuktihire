@@ -137,6 +137,45 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+_CONCEPT_PHRASES = {
+    "error handling", "incident response", "observability", "reliability",
+    "error propagation", "sandboxing", "production systems", "client library",
+    "distributed systems", "system design", "api design", "full lifecycle",
+    "cloud-native", "scalability", "high availability", "fault tolerance",
+    "performance optimization", "code review", "product instincts",
+    "product thinking", "go-to-market", "stakeholder management",
+    "cross-functional collaboration", "strategic thinking", "mentoring",
+    "leadership", "communication", "problem solving", "critical thinking",
+    "team management", "project management", "data-driven", "customer-facing",
+    "user-facing", "end-to-end", "technical depth", "penetration testing",
+    "cloud-native engineering", "full lifecycle engineering",
+    "cloud-native ai/ml engineering", "full lifecycle product engineering",
+    "product instincts and product thinking", "agile methodologies",
+    "agentic ai framework development", "generative ai solution delivery",
+    "llm fine-tuning and prompt engineering", "retrieval-augmented generation pipelines",
+    "ai-powered cybersecurity products", "experimentation frameworks",
+    "big data technologies", "model capabilities", "ml libraries",
+    "data structures", "algorithms", "microservices", "documentation",
+    "technical writing", "sdlc", "paas", "faas", "sdk",
+}
+
+_CONCEPT_SIGNALS = [
+    "engineering", "lifecycle", "instinct", "thinking", "management",
+    "collaboration", "driven", "facing", "solution delivery",
+    "framework development", "methodologies", "capabilities",
+]
+
+
+def _is_valid_skill(name: str) -> bool:
+    """Check if a skill name is a real tool/library, not a concept phrase."""
+    nl = name.lower().strip()
+    if nl in _CONCEPT_PHRASES:
+        return False
+    if len(nl.split()) > 2 and any(sig in nl for sig in _CONCEPT_SIGNALS):
+        return False
+    return True
+
+
 def categorize_skills(skills: list) -> list[dict]:
     """
     Universal skill categorizer — works for ANY profession.
@@ -227,13 +266,9 @@ def categorize_skills(skills: list) -> list[dict]:
         ("Tools & Practices", [
             "git", "github", "gitlab", "bitbucket", "svn", "vs code", "vim",
             "jupyter", "colab", "intellij", "pycharm", "eclipse",
-            "microservices", "monolith", "event-driven", "message queue", "rabbitmq",
-            "distributed systems", "system design", "api design", "sdk",
+            "rabbitmq", "sdk", "postman", "insomnia",
             "oop", "functional programming", "design patterns", "solid",
-            "sdlc", "documentation", "technical writing",
-            "error handling", "incident response", "reliability", "production systems",
-            "sandboxing", "error propagation", "client library", "data structures",
-            "algorithms", "full lifecycle", "paas", "faas", "cloud-native",
+            "tdd", "bdd", "agile", "scrum", "kanban",
         ]),
     ]
 
@@ -247,9 +282,40 @@ def categorize_skills(skills: list) -> list[dict]:
         name = name.strip()
         if name.lower() in used:
             continue
-        # Skip non-skill items
+        # Skip non-skill items (degree fragments)
         skip_phrases = ["advanced degree", "degree (", "ms)", "bs)", "phd)", "mba)"]
         if any(sp in name.lower() for sp in skip_phrases):
+            continue
+        # Skip concept phrases that should NOT be in Technical Skills
+        concept_phrases = {
+            "error handling", "incident response", "observability", "reliability",
+            "error propagation", "sandboxing", "production systems", "client library",
+            "distributed systems", "system design", "api design", "full lifecycle",
+            "cloud-native", "scalability", "high availability", "fault tolerance",
+            "performance optimization", "code review", "product instincts",
+            "product thinking", "go-to-market", "stakeholder management",
+            "cross-functional collaboration", "strategic thinking", "mentoring",
+            "leadership", "communication", "problem solving", "critical thinking",
+            "team management", "project management", "data-driven", "customer-facing",
+            "user-facing", "end-to-end", "technical depth", "penetration testing",
+            "cloud-native engineering", "full lifecycle engineering",
+            "cloud-native ai/ml engineering", "full lifecycle product engineering",
+            "product instincts and product thinking", "agile methodologies",
+            "agentic ai framework development", "generative ai solution delivery",
+            "llm fine-tuning and prompt engineering", "retrieval-augmented generation pipelines",
+            "ai-powered cybersecurity products", "experimentation frameworks",
+            "big data technologies", "model capabilities", "ml libraries",
+            "data structures", "algorithms", "microservices", "documentation",
+            "technical writing", "sdlc", "paas", "faas",
+        }
+        if name.lower() in concept_phrases:
+            continue
+        # Skip items with concept signals (multi-word phrases that are responsibilities, not tools)
+        concept_signals = ["engineering", "lifecycle", "instinct", "thinking",
+                          "management", "collaboration", "driven", "facing",
+                          "solution delivery", "framework development", "methodologies",
+                          "capabilities"]
+        if len(name.split()) > 2 and any(sig in name.lower() for sig in concept_signals):
             continue
         used.add(name.lower())
 
@@ -280,23 +346,11 @@ def categorize_skills(skills: list) -> list[dict]:
     if "Other Skills" in categorized:
         raw_result.append({"category": "Other", "skills": categorized["Other Skills"]})
 
-    # Merge small categories (≤2 items) into their neighbors to save vertical space
-    # "Databases & Storage – Vector databases" (1 item) wastes a whole line
-    result = []
-    overflow = []
-    for cat in raw_result:
-        if len(cat["skills"]) <= 2:
-            overflow.extend(cat["skills"])
-        else:
-            result.append(cat)
-
-    # Distribute overflow into the last real category
-    if overflow and result:
-        result[-1]["skills"].extend(overflow)
-    elif overflow:
-        result.append({"category": "Skills", "skills": overflow})
-
-    return result
+    # Keep all categories as-is. Do NOT merge small categories into larger ones.
+    # Previous logic merged <=2 item categories into the last large one,
+    # which caused "Languages" to contain unrelated overflow items.
+    # Small categories stay separate; truly orphan items go to "Other".
+    return [cat for cat in raw_result if cat["skills"]]
 
 
 async def generate_pdf(resume_content: dict, template_id: str = "standard") -> bytes:
@@ -372,8 +426,9 @@ def render_html(resume_content: dict) -> str:
 
         if has_items_format:
             # New format — use directly, preserving user's exact categories
+            # Filter out concept phrases that were incorrectly stuffed in by previous tailoring
             data["skill_categories"] = [
-                {"category": s["category"], "skills": [i for i in s["items"] if isinstance(i, str) and len(i) < 60]}
+                {"category": s["category"], "skills": [i for i in s["items"] if isinstance(i, str) and len(i) < 60 and _is_valid_skill(i)]}
                 for s in skills if isinstance(s, dict) and s.get("items")
             ]
         elif has_legacy_format:

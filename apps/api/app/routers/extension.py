@@ -745,16 +745,17 @@ async def export_resume_for_extension(
 
                     profile_id = p.get("id")
                     if profile_id:
-                        # ALWAYS load experiences from profile — it has the complete data
-                        # Resume content may have truncated bullets from old parser runs
+                        # Load experiences from profile ONLY if resume content has none
+                        # After tailoring, resume content has rewritten bullets — preserve them
                         try:
                             exp_result = await db.execute(
                                 text("SELECT * FROM work_experiences WHERE profile_id = :pid ORDER BY sort_order, start_date DESC"),
                                 {"pid": profile_id},
                             )
                             profile_exps = exp_result.mappings().all()
-                            if profile_exps:
-                                # Deduplicate by company+title
+                            if profile_exps and not content.get("experiences"):
+                                # Only use profile experiences if resume content has none
+                                # After tailoring, resume content has rewritten bullets — preserve them
                                 seen_exp = set()
                                 exps = []
                                 for e in profile_exps:

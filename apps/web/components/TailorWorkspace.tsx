@@ -135,41 +135,91 @@ export function TailorWorkspace() {
         return
       }
 
-      // resumeData may be the raw API response — content is the nested JSON blob
+      // Concept phrases should NEVER go into skills — redirect to summary
+      const CONCEPT_BLOCKLIST = new Set([
+        "distributed systems", "observability", "incident response", "reliability",
+        "error propagation", "error handling", "sandboxing", "production systems",
+        "system design", "api design", "full lifecycle", "cloud-native",
+        "client library", "scalability", "high availability", "fault tolerance",
+        "performance optimization", "code review", "product instincts",
+        "product thinking", "go-to-market", "stakeholder management",
+        "cross-functional collaboration", "strategic thinking", "mentoring",
+        "leadership", "communication", "problem solving", "critical thinking",
+        "team management", "project management", "data-driven", "customer-facing",
+        "user-facing", "real-time", "end-to-end", "full-stack thinking",
+        "technical depth", "penetration testing", "cloud-native engineering",
+        "full lifecycle engineering",
+      ])
+
+      // If it's a concept and user clicked "skills", redirect to summary
+      if (target === "skills" && CONCEPT_BLOCKLIST.has(kw.toLowerCase().trim())) {
+        target = "summary"
+        toast.info(`"${kw}" is better placed in your summary, not skills`)
+      }
+
       const resume = (resumeData as any)?.resume ?? resumeData
-      const content: Record<string, any> = { ...(resume?.content ?? {}) }
+      const content: Record<string, any> = JSON.parse(JSON.stringify(resume?.content ?? {}))
 
       if (target === "skills") {
         if (Array.isArray(content.skills)) {
-          // Determine if it's string[] or object[]
-          const firstItem = content.skills[0]
-          if (firstItem === undefined || typeof firstItem === "string") {
-            content.skills = [...content.skills, kw]
+          // Check if categorized format: [{category, items}] or [{category, skills}]
+          const isCategorized = content.skills.some((s: any) => s?.items || s?.skills)
+          if (isCategorized) {
+            // Insert into the best matching category
+            const itemsKey = content.skills[0]?.items ? "items" : "skills"
+            let inserted = false
+            // Try to find a matching category using simple keyword heuristics
+            const kwLower = kw.toLowerCase()
+            for (const cat of content.skills) {
+              if (!cat?.[itemsKey]) continue
+              const catItems: string[] = cat[itemsKey]
+              // Check if any existing item in this category is related
+              const catItemsLower = catItems.map((i: string) => (i || "").toLowerCase())
+              if (catItemsLower.includes(kwLower)) { inserted = true; break } // already exists
+              // Simple heuristic: if category seems right based on the keyword
+              const catName = (cat.category || "").toLowerCase()
+              if (
+                (catName.includes("language") && /^(python|java|sql|typescript|javascript|c\+\+|c#|golang|ruby|rust|scala|r|bash|php|swift|kotlin|html|css)$/i.test(kw)) ||
+                (catName.includes("ml") || catName.includes("ai") ? /pytorch|tensorflow|keras|scikit|langchain|openai|hugging|bert|gpt|llm|nlp/i.test(kwLower) : false) ||
+                (catName.includes("cloud") && /aws|azure|gcp|ec2|s3|lambda|sagemaker/i.test(kwLower)) ||
+                (catName.includes("devops") || catName.includes("infrastructure") ? /docker|kubernetes|terraform|ci\/cd|jenkins|github actions/i.test(kwLower) : false) ||
+                (catName.includes("database") && /postgresql|mongodb|redis|mysql|elasticsearch|snowflake|dynamodb/i.test(kwLower)) ||
+                (catName.includes("framework") && /react|angular|vue|node|fastapi|flask|django|express|next/i.test(kwLower))
+              ) {
+                cat[itemsKey] = [...catItems, kw]
+                inserted = true
+                break
+              }
+            }
+            if (!inserted) {
+              // Add to last category
+              const lastCat = content.skills[content.skills.length - 1]
+              if (lastCat?.[itemsKey]) {
+                lastCat[itemsKey] = [...lastCat[itemsKey], kw]
+              }
+            }
           } else {
-            content.skills = [...content.skills, { name: kw }]
+            // Flat or legacy format
+            const firstItem = content.skills[0]
+            if (firstItem === undefined || typeof firstItem === "string") {
+              content.skills = [...content.skills, kw]
+            } else {
+              content.skills = [...content.skills, { name: kw }]
+            }
           }
         } else {
           content.skills = [kw]
         }
       } else {
-        // target === 'summary'
-        if (typeof content.summary === "string" && content.summary.trim()) {
-          content.summary = `${content.summary}, ${kw}`
-        } else if (typeof content.objective === "string" && content.objective.trim()) {
-          content.objective = `${content.objective}, ${kw}`
-        } else {
-          content.summary = kw
-        }
+        // target === 'summary' — do NOT just append with comma
+        // The summary will be properly rewritten by the AI; for now just note the keyword
+        toast.info(`"${kw}" should be woven into your summary naturally. Use AI suggestions to rewrite.`)
+        setInsertedKeywords((prev) => (prev.includes(kw) ? prev : [...prev, kw]))
+        return
       }
 
       try {
-        // Use mutateAsync directly — suppress the default success toast
-        // We do this by catching and re-ignoring the toast from the hook;
-        // the hook fires toast.success but that's acceptable here (it says "Resume saved")
-        // To keep it truly silent we override: call the raw api via mutateAsync
-        // and silence by wrapping in a custom call. We rely on mutateAsync + silence pattern.
         await updateResumeAsync({ id: selectedResumeId, data: { content } })
-
         setInsertedKeywords((prev) => (prev.includes(kw) ? prev : [...prev, kw]))
       } catch {
         toast.error(`Failed to insert "${kw}"`)

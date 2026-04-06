@@ -11,12 +11,12 @@ from app.core.config import get_settings
 settings = get_settings()
 client = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-SYSTEM_PROMPT = """You are an expert ATS analyst and job requirements parser.
-Extract precise, structured information from job descriptions.
-Be conservative — only extract what is explicitly stated or strongly implied.
+SYSTEM_PROMPT = """You are an expert ATS (Applicant Tracking System) analyst.
+Extract ALL technical skills, tools, and requirements from job descriptions.
+Be thorough — extract every technology, tool, methodology, and skill mentioned.
 Return only valid JSON, no other text."""
 
-USER_PROMPT = """Analyze this job description and extract structured requirements.
+USER_PROMPT = """Analyze this job description and extract ALL requirements for ATS matching.
 
 JOB DESCRIPTION:
 {jd_text}
@@ -25,25 +25,25 @@ Return this exact JSON structure (no markdown, no extra text):
 {{
   "company": "company name or null",
   "role": "exact job title",
-  "required_skills": ["skill1", "skill2"],
-  "nice_to_have_skills": ["skill1"],
-  "must_have_keywords": ["keyword or phrase that must appear in ATS-optimized resume"],
-  "domain_phrases": ["industry-specific terminology that signals domain expertise"],
+  "required_skills": ["every technical skill, tool, framework, language mentioned as required"],
+  "nice_to_have_skills": ["skills marked as preferred/bonus/plus"],
+  "must_have_keywords": ["ALL critical ATS keywords: tool names, technologies, methodologies, certifications — be thorough, extract 10-20+"],
+  "nice_to_have_keywords": ["preferred/bonus keywords"],
+  "domain_phrases": ["industry-specific 2-4 word technical phrases"],
   "seniority_level": "junior|mid|senior|staff|principal|director|vp",
   "years_required": null,
   "education_required": "bachelors|masters|phd|any|null",
-  "ats_risks": ["specific format/content issues that commonly fail ATS for this role"],
-  "responsibilities_summary": ["top 5 core responsibilities as brief phrases"],
+  "ats_risks": ["specific issues that commonly fail ATS for this role"],
+  "responsibilities_summary": ["top 5-8 core responsibilities as brief phrases"],
   "confidence": 0.0
 }}
 
 Rules:
-- required_skills: only skills marked as "required", "must have", or strongly implied as mandatory
-- nice_to_have_skills: "preferred", "bonus", "plus" items only
-- must_have_keywords: exact ATS-critical terms (tool names, certifications, methodology names)
-- domain_phrases: 3-6 word phrases that signal deep expertise in this domain
-- seniority_level: infer from title, years required, and responsibility scope
-- ats_risks: common failure patterns for this specific role type
+- required_skills: Extract EVERY skill/tool/technology mentioned in qualifications or requirements. Include both explicit ("must have Python") and strongly implied skills. Be thorough — more is better for ATS matching.
+- must_have_keywords: ALL terms an ATS would scan for. Include tool names (Python, AWS, Docker), methodologies (Agile, CI/CD), domains (machine learning, data engineering), and role-specific terms. Extract 10-20+ keywords minimum.
+- nice_to_have_skills/keywords: Only items explicitly marked as "preferred", "bonus", "nice to have", "plus"
+- domain_phrases: Short technical phrases (2-4 words) that signal domain expertise
+- responsibilities_summary: Key duties — extract technical terms from each responsibility
 - confidence: your confidence in accuracy (0.0-1.0)"""
 
 
@@ -118,5 +118,6 @@ async def analyze_jd(jd_text: str) -> dict:
     analysis["domain_phrases"] = analysis.get("domain_phrases") or []
     analysis["ats_risks"] = analysis.get("ats_risks") or []
     analysis["responsibilities_summary"] = analysis.get("responsibilities_summary") or []
+    analysis["nice_to_have_keywords"] = analysis.get("nice_to_have_keywords") or []
 
     return analysis

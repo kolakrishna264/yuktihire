@@ -172,7 +172,13 @@ def generate_docx_sync(resume_content: dict) -> bytes:
         categories = []
         if has_items:
             # New format: [{category: "Languages", items: ["Python", ...]}]
-            categories = [{"category": s["category"], "skills": s["items"]} for s in raw_skills if isinstance(s, dict) and s.get("items")]
+            # Filter out concept phrases that were incorrectly stuffed in by tailoring
+            from pdf_gen import _is_valid_skill
+            categories = [
+                {"category": s["category"], "skills": [i for i in s["items"] if isinstance(i, str) and _is_valid_skill(i)]}
+                for s in raw_skills if isinstance(s, dict) and s.get("items")
+            ]
+            categories = [c for c in categories if c["skills"]]  # Remove empty categories
         elif has_legacy:
             # Legacy: [{category: "Languages", name: "Python"}]
             by_cat: dict[str, list] = {}
