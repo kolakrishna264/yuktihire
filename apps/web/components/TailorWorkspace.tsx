@@ -378,9 +378,9 @@ export function TailorWorkspace() {
       )}
 
       {step === "results" && sessionData && (
-        <div className="flex-1 grid lg:grid-cols-2 gap-0 overflow-hidden">
-          {/* Left: ATS score + suggestions */}
-          <div className="border-r border-border overflow-y-auto scrollbar-thin p-5 space-y-4">
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left: ATS score + suggestions (narrower) */}
+          <div className="w-[340px] shrink-0 border-r border-border overflow-y-auto scrollbar-thin p-4 space-y-3">
             {isPolling ? (
               <TailoringRunningState compact />
             ) : (
@@ -412,8 +412,8 @@ export function TailorWorkspace() {
             )}
           </div>
 
-          {/* Right: Live resume preview + editor */}
-          <div className="overflow-y-auto scrollbar-thin p-5">
+          {/* Right: Live resume preview + editor (takes remaining space) */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
             {isPolling ? (
               <div className="space-y-3">
                 {[1, 2, 3, 4].map((i) => (
