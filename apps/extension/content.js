@@ -62,57 +62,86 @@ if (document.location.hostname.includes("yuktihire.com")) {
 
     var style = document.createElement("style")
     style.textContent = `
-      #yh-assistant { position:fixed; top:80px; right:0; z-index:999998; font-family:system-ui,-apple-system,sans-serif; }
-      #yh-assistant * { box-sizing:border-box; margin:0; padding:0; }
-      #yh-tab { position:absolute; right:0; top:0; width:36px; height:80px; background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; border-radius:10px 0 0 10px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:10px; font-weight:700; box-shadow:-2px 2px 12px rgba(108,99,255,0.3); transition:width 0.15s; writing-mode:vertical-rl; text-orientation:mixed; letter-spacing:1px; }
-      #yh-tab:hover { width:40px; }
-      #yh-dock { position:absolute; right:0; top:0; width:340px; background:#fff; border:1px solid #e5e7eb; border-right:none; border-radius:16px 0 0 16px; box-shadow:-4px 0 30px rgba(0,0,0,0.1); display:none; max-height:calc(100vh - 100px); overflow:hidden; flex-direction:column; }
-      .yh-header { padding:10px 14px; background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; display:flex; align-items:center; justify-content:space-between; }
-      .yh-header-title { font-weight:700; font-size:13px; }
-      .yh-minimize { cursor:pointer; font-size:16px; opacity:0.8; background:none; border:none; color:#fff; }
-      .yh-minimize:hover { opacity:1; }
-      .yh-job-ctx { padding:8px 14px; background:#f9fafb; border-bottom:1px solid #f3f4f6; font-size:11px; color:#6b7280; }
-      .yh-job-ctx strong { color:#111827; font-size:12px; display:block; margin-bottom:2px; }
-      .yh-actions { padding:10px 14px; display:grid; grid-template-columns:1fr 1fr; gap:6px; border-bottom:1px solid #f3f4f6; }
-      .yh-btn { padding:8px 6px; border:1.5px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; font-size:10px; font-weight:600; color:#374151; transition:all 0.15s; text-align:center; }
-      .yh-btn:hover { border-color:#c4b5fd; background:#faf9ff; }
-      .yh-btn:disabled { opacity:0.5; cursor:not-allowed; }
+      @keyframes yh-slide-in { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+      @keyframes yh-pulse { 0%,100% { box-shadow:-2px 2px 16px rgba(108,99,255,0.35); } 50% { box-shadow:-2px 2px 24px rgba(108,99,255,0.55); } }
+      #yh-assistant { position:fixed; top:0; right:0; z-index:999998; font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif; }
+      #yh-assistant * { box-sizing:border-box; margin:0; padding:0; line-height:1.45; }
+      /* ── Floating Tab ── */
+      #yh-tab { position:fixed; right:0; top:50%; transform:translateY(-50%); width:32px; padding:14px 0; background:linear-gradient(180deg,#6c63ff 0%,#8b5cf6 100%); color:#fff; border-radius:12px 0 0 12px; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; box-shadow:-2px 4px 20px rgba(108,99,255,0.4); transition:all 0.2s; z-index:999999; }
+      #yh-tab:hover { width:38px; animation:yh-pulse 1.5s infinite; }
+      #yh-tab svg { width:18px; height:18px; }
+      #yh-tab span { writing-mode:vertical-rl; font-size:9px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; }
+      /* ── Main Dock ── */
+      #yh-dock { position:fixed; right:0; top:0; width:360px; height:100vh; background:#fafbfc; border-left:1px solid #e8eaed; display:none; flex-direction:column; animation:yh-slide-in 0.25s ease-out; z-index:999998; }
+      /* ── Header ── */
+      .yh-header { padding:12px 16px; background:linear-gradient(135deg,#6c63ff 0%,#7c6cff 50%,#8b5cf6 100%); color:#fff; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+      .yh-header-left { display:flex; align-items:center; gap:8px; }
+      .yh-header-logo { width:22px; height:22px; background:rgba(255,255,255,0.2); border-radius:6px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; }
+      .yh-header-title { font-weight:700; font-size:13px; letter-spacing:-0.2px; }
+      .yh-header-subtitle { font-size:9px; opacity:0.7; font-weight:500; }
+      .yh-minimize { cursor:pointer; width:28px; height:28px; border-radius:6px; background:rgba(255,255,255,0.15); border:none; color:#fff; display:flex; align-items:center; justify-content:center; transition:background 0.15s; }
+      .yh-minimize:hover { background:rgba(255,255,255,0.3); }
+      .yh-minimize svg { width:14px; height:14px; }
+      /* ── Job Context ── */
+      .yh-job-ctx { padding:10px 16px; background:#fff; border-bottom:1px solid #f0f1f3; }
+      .yh-job-ctx strong { color:#1a1a2e; font-size:12px; font-weight:700; display:block; margin-bottom:1px; line-height:1.3; }
+      .yh-job-ctx span { font-size:11px; color:#6b7280; }
+      /* ── ATS Bar ── */
+      .yh-ats-bar { padding:8px 16px; background:linear-gradient(90deg,#f0f9ff,#eff6ff); border-bottom:1px solid #dbeafe; font-size:10px; display:none; align-items:center; gap:8px; }
+      .yh-ats-score { font-size:20px; font-weight:800; background:linear-gradient(135deg,#6c63ff,#8b5cf6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+      /* ── Action Grid ── */
+      .yh-actions { padding:12px 16px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; border-bottom:1px solid #f0f1f3; background:#fff; }
+      .yh-btn { padding:10px 4px; border:1.5px solid #e8eaed; border-radius:10px; background:#fff; cursor:pointer; font-size:9px; font-weight:600; color:#4b5563; transition:all 0.15s; text-align:center; display:flex; flex-direction:column; align-items:center; gap:5px; }
+      .yh-btn svg { width:16px; height:16px; stroke-width:1.8; color:#6b7280; transition:color 0.15s; }
+      .yh-btn:hover { border-color:#c4b5fd; background:#faf9ff; transform:translateY(-1px); box-shadow:0 2px 8px rgba(108,99,255,0.1); }
+      .yh-btn:hover svg { color:#6c63ff; }
+      .yh-btn:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
       .yh-btn-primary { background:linear-gradient(135deg,#6c63ff,#8b5cf6); color:#fff; border-color:transparent; }
-      .yh-btn-primary:hover { opacity:0.9; }
-      .yh-progress { padding:8px 14px; border-bottom:1px solid #f3f4f6; }
-      .yh-progress-bar { height:4px; background:#e5e7eb; border-radius:99px; overflow:hidden; margin-top:4px; }
-      .yh-progress-fill { height:100%; background:linear-gradient(90deg,#6c63ff,#22c55e); border-radius:99px; transition:width 0.3s; width:0%; }
-      .yh-stats { display:flex; gap:8px; font-size:10px; font-weight:600; margin-top:4px; }
-      .yh-stat-ok { color:#22c55e; } .yh-stat-warn { color:#f59e0b; } .yh-stat-fail { color:#ef4444; }
-      .yh-log-area { flex:1; overflow-y:auto; max-height:300px; padding:6px 14px; }
-      .yh-log { padding:3px 0; font-size:10px; color:#6b7280; border-bottom:1px solid #f9fafb; display:flex; gap:4px; align-items:flex-start; }
-      .yh-log-icon { flex-shrink:0; font-size:11px; }
-      .yh-log-ok .yh-log-icon { color:#22c55e; }
-      .yh-log-warn .yh-log-icon { color:#f59e0b; }
-      .yh-log-fail .yh-log-icon { color:#ef4444; }
-      .yh-status-msg { padding:6px 14px; font-size:10px; font-weight:500; text-align:center; }
-      .yh-confidence { font-size:9px; font-weight:600; padding:1px 5px; border-radius:99px; margin-left:4px; }
-      .yh-conf-high { background:#ecfdf5; color:#059669; }
-      .yh-conf-medium { background:#ede9fe; color:#7c3aed; }
-      .yh-conf-low { background:#fef3c7; color:#92400e; }
-      .yh-conf-review { background:#fef2f2; color:#dc2626; }
-      .yh-submit-bar { padding:10px 14px; background:#f0fdf4; border-top:1px solid #bbf7d0; display:none; text-align:center; }
-      .yh-submit-bar p { font-size:11px; font-weight:600; color:#15803d; margin-bottom:6px; }
-      .yh-submit-btns { display:flex; gap:6px; justify-content:center; }
-      .yh-resume-hint { padding:6px 14px; background:#fffbeb; border-bottom:1px solid #fde68a; font-size:10px; color:#92400e; display:none; }
-      .yh-ats-bar { padding:6px 14px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:10px; display:none; }
-      .yh-ats-score { font-size:18px; font-weight:800; color:#6c63ff; }
+      .yh-btn-primary svg { color:#fff; }
+      .yh-btn-primary:hover { opacity:0.92; background:linear-gradient(135deg,#5b54e6,#7c4fe0); }
+      /* ── Progress ── */
+      .yh-progress { padding:10px 16px; border-bottom:1px solid #f0f1f3; background:#fff; }
+      .yh-status-msg { font-size:11px; font-weight:600; color:#374151; margin-bottom:6px; }
+      .yh-progress-bar { height:5px; background:#e5e7eb; border-radius:99px; overflow:hidden; }
+      .yh-progress-fill { height:100%; background:linear-gradient(90deg,#6c63ff,#22c55e); border-radius:99px; transition:width 0.4s ease; width:0%; }
+      .yh-stats { display:flex; gap:12px; font-size:10px; font-weight:600; margin-top:6px; }
+      .yh-stat-ok { color:#16a34a; } .yh-stat-warn { color:#d97706; } .yh-stat-fail { color:#dc2626; }
+      /* ── Logs ── */
+      .yh-log-area { flex:1; overflow-y:auto; padding:8px 16px; background:#fafbfc; }
+      .yh-log-area::-webkit-scrollbar { width:4px; } .yh-log-area::-webkit-scrollbar-thumb { background:#d1d5db; border-radius:99px; }
+      .yh-log { padding:5px 0; font-size:10px; color:#6b7280; border-bottom:1px solid #f3f4f6; display:flex; gap:6px; align-items:flex-start; }
+      .yh-log-icon { flex-shrink:0; font-size:11px; margin-top:1px; }
+      .yh-log-ok .yh-log-icon { color:#16a34a; } .yh-log-warn .yh-log-icon { color:#d97706; } .yh-log-fail .yh-log-icon { color:#dc2626; }
+      .yh-confidence { font-size:8px; font-weight:700; padding:2px 6px; border-radius:99px; margin-left:auto; flex-shrink:0; text-transform:uppercase; letter-spacing:0.5px; }
+      .yh-conf-high { background:#dcfce7; color:#15803d; } .yh-conf-medium { background:#ede9fe; color:#6d28d9; }
+      .yh-conf-low { background:#fef9c3; color:#854d0e; } .yh-conf-review { background:#fee2e2; color:#b91c1c; }
+      /* ── Bottom Bars ── */
+      .yh-submit-bar { padding:12px 16px; background:linear-gradient(90deg,#f0fdf4,#ecfdf5); border-top:1px solid #bbf7d0; display:none; text-align:center; flex-shrink:0; }
+      .yh-submit-bar p { font-size:11px; font-weight:700; color:#15803d; margin-bottom:8px; }
+      .yh-submit-btns { display:flex; gap:8px; justify-content:center; }
+      .yh-resume-hint { padding:8px 16px; background:#fffbeb; border-bottom:1px solid #fde68a; font-size:10px; color:#92400e; display:none; font-weight:500; }
     `
     document.head.appendChild(style)
 
     var panel = document.createElement("div")
     panel.id = "yh-assistant"
     panel.innerHTML = `
-      <div id="yh-tab">Y H</div>
+      <div id="yh-tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span>YH</span>
+      </div>
       <div id="yh-dock">
         <div class="yh-header">
-          <span class="yh-header-title">YuktiHire Assistant</span>
-          <button class="yh-minimize" id="yh-min">&minus;</button>
+          <div class="yh-header-left">
+            <div class="yh-header-logo">YH</div>
+            <div>
+              <div class="yh-header-title">YuktiHire</div>
+              <div class="yh-header-subtitle">AI Job Assistant</div>
+            </div>
+          </div>
+          <button class="yh-minimize" id="yh-min">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 17l5-5-5-5M6 17l5-5-5-5"/></svg>
+          </button>
         </div>
         <div class="yh-job-ctx" id="yh-job-ctx">
           <strong id="yh-job-title">Detecting job...</strong>
@@ -120,15 +149,33 @@ if (document.location.hostname.includes("yuktihire.com")) {
         </div>
         <div class="yh-ats-bar" id="yh-ats-bar">
           ATS Match: <span class="yh-ats-score" id="yh-ats-score">--</span>%
-          <button class="yh-btn" id="yh-auto-tailor" style="float:right;padding:3px 8px;font-size:9px">Auto Tailor</button>
+          <button class="yh-btn" id="yh-auto-tailor" style="margin-left:auto;padding:4px 10px;font-size:9px;flex-direction:row;gap:4px">Auto Tailor</button>
         </div>
         <div class="yh-actions">
-          <button class="yh-btn" id="yh-save">Save Job</button>
-          <button class="yh-btn yh-btn-primary" id="yh-fill">Fill Everything</button>
-          <button class="yh-btn" id="yh-tailor">Tailor Resume</button>
-          <button class="yh-btn" id="yh-cover">Cover Letter</button>
-          <button class="yh-btn" id="yh-download">Download Resume</button>
-          <button class="yh-btn" id="yh-dash">Dashboard</button>
+          <button class="yh-btn" id="yh-save">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save Job
+          </button>
+          <button class="yh-btn yh-btn-primary" id="yh-fill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Fill All
+          </button>
+          <button class="yh-btn" id="yh-tailor">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Tailor
+          </button>
+          <button class="yh-btn" id="yh-cover">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Cover Letter
+          </button>
+          <button class="yh-btn" id="yh-download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Resume
+          </button>
+          <button class="yh-btn" id="yh-dash">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+          </button>
         </div>
         <div class="yh-resume-hint" id="yh-resume-hint">Attach your resume to the file input highlighted below</div>
         <div class="yh-progress" id="yh-progress" style="display:none">
@@ -141,7 +188,7 @@ if (document.location.hostname.includes("yuktihire.com")) {
           <p>All required fields filled</p>
           <div class="yh-submit-btns">
             <button class="yh-btn" id="yh-review">Review Form</button>
-            <button class="yh-btn yh-btn-primary" id="yh-submit-click">Submit Application</button>
+            <button class="yh-btn yh-btn-primary" id="yh-submit-click" style="flex-direction:row">Submit Application</button>
           </div>
         </div>
       </div>
