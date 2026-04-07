@@ -292,6 +292,7 @@ from app.routers.jobs import router as applications_router, saved_router
 from app.routers.tailor import router as tailor_router
 from app.routers.exports import router as exports_router
 from app.routers.billing import router as billing_router
+from app.routers.job_feed import router as job_feed_router
 from app.routers.job_board import router as job_board_router
 from app.routers.discover import router as discover_router
 from app.routers.tracker import router as tracker_router
@@ -314,6 +315,7 @@ app.include_router(saved_router, prefix=API_PREFIX)
 app.include_router(tailor_router, prefix=API_PREFIX)
 app.include_router(exports_router, prefix=API_PREFIX)
 app.include_router(billing_router, prefix=API_PREFIX)
+app.include_router(job_feed_router, prefix=API_PREFIX)
 app.include_router(job_board_router, prefix=API_PREFIX)
 app.include_router(discover_router, prefix=API_PREFIX)
 app.include_router(tracker_router, prefix=API_PREFIX)
