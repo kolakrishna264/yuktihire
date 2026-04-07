@@ -254,8 +254,7 @@ async def run_pipeline_background(
             # ── AUTO-ADD missing keywords until score reaches 80%+ ──
             # Add ALL missing keywords that aren't true gaps.
             # Skills go to skills section, concepts go to summary.
-            from migrate_clean_skills import is_valid_skill, categorize_clean_skills
-            from ats_scorer import _keyword_in_text
+            from migrate_clean_skills import categorize_clean_skills
             true_gaps = set(g.lower() for g in gap_analysis_result.get("true_skill_gaps", []))
 
             missing_kws = ats_mid.get("missing_keywords", [])
@@ -270,27 +269,14 @@ async def run_pipeline_background(
 
             print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
 
-            # Check which missing keywords are ALREADY in resume text via equivalence
-            # (they score as matched but didn't pass strict check — no need to add them)
-            resume_full_text = (tailored_content.get("summary", "") or "") + " "
-            for exp in tailored_content.get("experiences", []):
-                resume_full_text += " ".join(exp.get("bullets", [])) + " "
-                resume_full_text += (exp.get("title", "") or "") + " "
-            for sk in tailored_content.get("skills", []):
-                if isinstance(sk, dict):
-                    for k in ["items", "skills"]:
-                        resume_full_text += " ".join(str(i) for i in sk.get(k, [])) + " "
-                elif isinstance(sk, str):
-                    resume_full_text += sk + " "
-
+            # Add ALL missing keywords — don't skip any.
+            # Even if equivalence says "already present", adding the exact keyword
+            # form ensures the ATS scorer finds it on the next check.
             skills_to_add = []
             summary_additions = []
             for kw in all_missing:
                 kw_lower = kw.lower().strip()
                 if kw_lower in true_gaps:
-                    continue
-                # Skip if already in resume via equivalence match
-                if _keyword_in_text(kw, resume_full_text):
                     continue
                 # Multi-word phrases (>3 words) go to summary, short ones to skills
                 if len(kw.split()) > 3:
