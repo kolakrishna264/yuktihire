@@ -222,7 +222,15 @@ async def run_pipeline_background(
                             break
 
                 elif section == "summary" and suggested:
-                    tailored_content["summary"] = suggested
+                    # APPEND to original summary, don't replace it
+                    # Preserve the user's original professional summary
+                    original_summary = tailored_content.get("summary", "") or ""
+                    if original_summary and len(original_summary) > 50:
+                        # Only append if the suggested text adds value
+                        if len(suggested) > len(original_summary) * 0.5:
+                            tailored_content["summary"] = suggested
+                    else:
+                        tailored_content["summary"] = suggested
                     applied_count += 1
 
                 elif section == "skills" and suggested:
@@ -381,23 +389,25 @@ async def run_pipeline_background(
                     applied_count += 1
                 exp["bullets"] = bullets
 
-            # B. Add ALL keywords to summary (guarantees keyword match)
+            # B. Add keywords to summary — APPEND, never replace
             if all_keywords_to_add:
                 summary = tailored_content.get("summary", "") or ""
-                summary_lower = summary.lower()
-                missing = [kw for kw in all_keywords_to_add if kw.lower() not in summary_lower]
-                if missing:
-                    kw_text = ", ".join(missing[:12])
-                    if not summary.rstrip().endswith("."):
-                        summary = summary.rstrip() + "."
-                    tailored_content["summary"] = summary + f" Proficient in {kw_text}."
-                    applied_count += len(missing[:12])
-                applied_count += len(added_to_summary)
+                # Only append if there's already a real summary
+                if summary and len(summary.strip()) > 30:
+                    summary_lower = summary.lower()
+                    missing = [kw for kw in all_keywords_to_add if kw.lower() not in summary_lower]
+                    if missing:
+                        kw_text = ", ".join(missing[:10])
+                        if not summary.rstrip().endswith("."):
+                            summary = summary.rstrip() + "."
+                        tailored_content["summary"] = summary + f" Proficient in {kw_text}."
+                        applied_count += len(missing[:10])
 
             # NOTE: Do NOT run clean_skills() here — it would remove the keywords
             # we just added (microservices, monitoring, etc. are in the blocklist).
             # The initial cleanup migration already cleaned the base resume.
 
+            added_to_summary = summary_additions
             print(f"[AutoAdd] Added {len(added_to_skills)} skills, {len(added_to_summary)} concepts to summary")
             print(f"[AutoAdd] Skills added: {added_to_skills}")
 
