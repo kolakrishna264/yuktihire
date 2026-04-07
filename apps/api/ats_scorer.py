@@ -407,11 +407,13 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience (best of gap-based and keyword-based) ──
+    # ── Experience (keyword-based takes priority after tailoring) ──
     alignments = gap_analysis.get("bullet_alignments", [])
     gap_exp = int(sum(a.get("alignment_score", 50) for a in alignments) / max(len(alignments), 1)) if alignments else 50
     kw_exp = experience_keyword_score(sections, all_keywords)
-    exp_score = max(gap_exp, kw_exp, 55)
+    # After tailoring adds keywords to bullets, kw_exp should dominate
+    # Weight: 70% keyword-based + 30% gap-based (gap is from pre-tailoring AI)
+    exp_score = max(int(kw_exp * 0.7 + gap_exp * 0.3), kw_exp, 55)
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
