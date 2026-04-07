@@ -112,6 +112,22 @@ var YuktiEngine = (function () {
 
     // ── Open-ended (essay) ──
     additionalInfo:  { patterns: ["additional information", "anything else", "additional comments", "is there anything", "cover letter"], category: "openEnded", shape: "essay" },
+
+    // ── Additional Patterns (expanded coverage) ──
+    pronoun:         { patterns: ["pronoun", "pronouns", "preferred pronoun", "gender pronoun", "he/him", "she/her", "they/them"], category: "identity", shape: "enum_choice" },
+    languagesSpoken: { patterns: ["languages spoken", "languages you speak", "fluent in", "language proficiency", "speak any other"], category: "professional", shape: "short_text" },
+    salaryRange:     { patterns: ["salary range", "pay range", "desired pay", "expected compensation", "compensation range"], category: "contextual", shape: "short_text" },
+    noticePeriod:    { patterns: ["notice period", "notice required", "how much notice", "current notice"], category: "contextual", shape: "date_or_timeline" },
+    referralSource:  { patterns: ["how did you hear", "hear about us", "hear about this", "referral source", "source of application", "where did you find", "how did you find", "found this job"], category: "logistics", shape: "enum_choice" },
+    referralName:    { patterns: ["referral name", "referred by", "who referred", "referrer name"], category: "logistics", shape: "short_text" },
+    ndaConsent:      { patterns: ["non-disclosure", "nda", "confidentiality agreement", "proprietary information"], category: "consent", shape: "boolean" },
+    drugTest:        { patterns: ["drug test", "drug screen", "substance test", "pre-employment test"], category: "consent", shape: "boolean" },
+    ageVerify:       { patterns: ["18 years", "over 18", "age requirement", "are you at least", "legal age"], category: "consent", shape: "boolean" },
+    clearanceLevel:  { patterns: ["security clearance", "clearance level", "ts/sci", "top secret", "secret clearance"], category: "authorization", shape: "short_text" },
+
+    // ── Login fields (safe-fill from stored profile) ──
+    loginEmail:      { patterns: ["sign in", "log in", "login email", "username", "account email"], category: "login", shape: "short_text" },
+    loginPassword:   { patterns: ["password", "passcode", "your password"], category: "login", shape: "short_text" },
   }
 
   // ── LAYER 2: UI Interaction Detection ──────────────────────────────────
@@ -157,6 +173,8 @@ var YuktiEngine = (function () {
     openEnded:     "ai",
     // Tier 3 — Manual review only (NEVER auto-fill)
     sensitive:     "review_only",
+    // Login — email only from profile, password NEVER auto-filled
+    login:         "login_safe",
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -175,6 +193,13 @@ var YuktiEngine = (function () {
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), ' +
       'select, textarea'
     )
+    // Also include password fields for safe login fill (email only)
+    var pwFields = document.querySelectorAll('input[type="password"]')
+    var allElements = Array.from(elements)
+    for (var pi = 0; pi < pwFields.length; pi++) {
+      if (!allElements.includes(pwFields[pi])) allElements.push(pwFields[pi])
+    }
+    elements = allElements
 
     for (var i = 0; i < elements.length; i++) {
       var el = elements[i]
@@ -226,6 +251,7 @@ var YuktiEngine = (function () {
     if (t === "radio") return "radio"
     if (t === "checkbox") return "checkbox"
     if (t === "file") return "file"
+    if (t === "password") return "password"
     return "shortText"
   }
 
@@ -604,6 +630,15 @@ var YuktiEngine = (function () {
       return { value: null, source: "needsReview", confidence: "review" }
     }
 
+    // ── Login — only fill email, NEVER fill password ──
+    if (strategy === "login_safe") {
+      if (intent === "loginEmail" && pd.email) {
+        return { value: pd.email, source: "profile", confidence: "medium" }
+      }
+      // Password fields: NEVER auto-fill for security
+      return { value: null, source: "needsReview", confidence: "review" }
+    }
+
     // ── Tier 1: Profile-based answers (deterministic) ──
     if (strategy === "profile" || strategy === "profile_or_ai") {
       var profileAnswer = getProfileAnswer(intent, pd)
@@ -693,6 +728,14 @@ var YuktiEngine = (function () {
       gradYear: pd.gradYear || "",
       // Logistics
       interviewedBefore: pd.interviewedBefore || "",
+      referralSource: pd.referralSource || "",
+      referralName: pd.referralName || "",
+      // Extended
+      pronoun: pd.pronoun || "",
+      languagesSpoken: pd.languages || "English",
+      noticePeriod: pd.noticePeriod || "",
+      salaryRange: pd.salaryExpectation || "",
+      clearanceLevel: pd.securityClearance || "",
     }
     return map[intent] !== undefined ? map[intent] : null
   }
@@ -703,6 +746,11 @@ var YuktiEngine = (function () {
       termsConsent:      true,
       privacyConsent:    true,
       aiPolicy:          "Yes",
+      ndaConsent:        true,
+      drugTest:          "Yes",
+      ageVerify:         "Yes",
+      bgCheck:           "Yes",
+      smsConsent:        true,
     }
     return map[intent] !== undefined ? map[intent] : null
   }
@@ -718,6 +766,7 @@ var YuktiEngine = (function () {
     switch (block.inputType) {
       case "shortText":
       case "longText":
+      case "password":
         return fillText(el, strValue)
 
       case "nativeSelect":
@@ -741,15 +790,27 @@ var YuktiEngine = (function () {
   function fillText(el, value) {
     try {
       el.focus()
-      // Use React-compatible setter
-      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set ||
-                   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      // Clear first (some React forms need this)
+      el.value = ""
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+
+      // Use React-compatible setter (React 16+ uses synthetic events)
+      var proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      var setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
       if (setter) setter.call(el, value)
       else el.value = value
 
+      // Fire comprehensive events for React/Angular/Vue compatibility
       el.dispatchEvent(new Event("input", { bubbles: true }))
       el.dispatchEvent(new Event("change", { bubbles: true }))
+      el.dispatchEvent(new KeyboardEvent("keyup", { key: "a", bubbles: true }))
       el.dispatchEvent(new Event("blur", { bubbles: true }))
+      // React 17+ may need nativeInputValueSetter
+      try {
+        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        nativeInputValueSetter.call(el, value)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+      } catch(e) {}
       highlightEl(el, "success")
       return { ok: true, method: "text" }
     } catch (e) {
@@ -1074,7 +1135,15 @@ var YuktiEngine = (function () {
 
   function verifyFill(block) {
     var newValue = readCurrentValue(block.element, block.inputType, block.radioGroupName)
-    return newValue && newValue.trim() !== "" && newValue.toLowerCase() !== "select" && newValue.toLowerCase() !== "select..."
+    if (!newValue || newValue.trim() === "") return false
+    var nv = newValue.toLowerCase()
+    if (nv === "select" || nv === "select..." || nv === "choose..." || nv === "-- select --") return false
+    // For text fields, also verify the value matches what we set (React can reset it)
+    if ((block.inputType === "shortText" || block.inputType === "longText" || block.inputType === "password") && block.suggestedAnswer) {
+      var expected = String(block.suggestedAnswer).trim().toLowerCase()
+      if (expected && nv !== expected && !nv.includes(expected.slice(0, 10))) return false
+    }
+    return true
   }
 
   // ── 7. Visual Feedback ────────────────────────────────────────────────
@@ -1121,8 +1190,25 @@ var YuktiEngine = (function () {
     if (host.includes("teamtailor")) return "teamtailor"
     if (host.includes("recruitee")) return "recruitee"
     if (host.includes("workable") || host.includes("apply.workable")) return "workable"
+    // Tier 4: Additional portals
+    if (host.includes("breezyhr") || host.includes("breezy.hr")) return "breezyhr"
+    if (host.includes("successfactors") || host.includes("sap.com") && path.includes("career")) return "successfactors"
+    if (host.includes("cornerstone") || host.includes("csod.com")) return "cornerstone"
+    if (host.includes("phenom") || host.includes("phenompeople")) return "phenom"
+    if (host.includes("clearcompany")) return "clearcompany"
+    if (host.includes("jazzhr") || host.includes("applytojob")) return "jazzhr"
+    if (host.includes("ziprecruiter") || host.includes("zipapply")) return "ziprecruiter"
+    if (host.includes("careerbuilder")) return "careerbuilder"
+    if (host.includes("hirebridge")) return "hirebridge"
+    if (host.includes("ultipro") || host.includes("ukg")) return "ultipro"
+    if (host.includes("dayforce") || host.includes("ceridian")) return "dayforce"
+    if (host.includes("pinpointhq") || host.includes("pinpoint")) return "pinpoint"
+    if (host.includes("dover.com") || host.includes("dover.io")) return "dover"
+    if (host.includes("wellfound") || host.includes("angel.co")) return "wellfound"
+    // Login pages
+    if (path.includes("/login") || path.includes("/signin") || path.includes("/sign-in") || path.includes("/auth")) return "login_page"
     // Common career page patterns
-    if (path.includes("/careers") || path.includes("/jobs") || path.includes("/apply")) return "generic_career"
+    if (path.includes("/careers") || path.includes("/jobs") || path.includes("/apply") || path.includes("/openings")) return "generic_career"
     return "generic"
   }
 
@@ -1471,6 +1557,13 @@ var YuktiEngine = (function () {
         if (fillResult.ok) {
           // Verify the fill actually worked
           var verified = verifyFill(block)
+          if (!verified) {
+            // Retry once with a slight delay (React state update may need time)
+            try {
+              var retryResult = fillBlock(block, answer.value)
+              if (retryResult.ok) verified = verifyFill(block)
+            } catch (retryErr) {}
+          }
           block.status = verified ? "filled" : "unverified"
           results.filled.push({
             label: block.questionText.slice(0, 50),
