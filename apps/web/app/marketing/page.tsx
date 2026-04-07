@@ -260,7 +260,7 @@ export default function MarketingPage() {
                     One click fills name, email, experience, and generates AI answers for custom questions. Saves 12+ min per application.
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {["Form Detection", "AI Answers", "Answer Memory", "Multi-Step"].map(tag => (
+                    {["Form Detection", "AI Answers", "Smart Autofill", "Multi-Step"].map(tag => (
                       <span key={tag} className="px-3 py-1 rounded-full text-[11px] font-semibold bg-white/15 backdrop-blur-sm">{tag}</span>
                     ))}
                   </div>

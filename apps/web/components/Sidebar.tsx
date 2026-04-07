@@ -31,7 +31,6 @@ const navItems = [
   { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
   { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
   { href: "/dashboard/interview", label: "Mock Interview", icon: MessageCircle },
-  { href: "/dashboard/answers", label: "AI Answers", icon: MessageSquare },
   { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
   { href: "/dashboard/profile", label: "Profile", icon: User },
   { href: "/dashboard/extension", label: "Extension", icon: Chrome },

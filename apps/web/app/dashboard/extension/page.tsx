@@ -235,8 +235,8 @@ export default function ExtensionPage() {
         <div className="grid sm:grid-cols-2 gap-3">
           {[
             { title: "Fill Everything", desc: "One click fills name, email, phone, LinkedIn, work authorization, and more", gradient: "gradient-card-indigo" },
-            { title: "AI Answers", desc: "Generates answers for 'Why this company?', experience questions, and open-ended fields", gradient: "gradient-card-violet" },
-            { title: "Answer Memory", desc: "Remembers your answers — reuses them on the next application automatically", gradient: "gradient-card-emerald" },
+            { title: "AI Answers", desc: "Generates personalized answers using your resume and the specific job description", gradient: "gradient-card-violet" },
+            { title: "Smart Autofill", desc: "Learns your preferences and fills applications faster over time", gradient: "gradient-card-emerald" },
             { title: "Multi-Step Forms", desc: "Detects when new form sections appear and re-fills them", gradient: "gradient-card-amber" },
           ].map((f, i) => (
             <div key={i} className={`p-4 rounded-xl ${f.gradient} border border-white/60 hover:shadow-lg transition-all duration-300`}>

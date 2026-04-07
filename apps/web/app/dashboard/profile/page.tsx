@@ -49,7 +49,7 @@ export default function ProfilePage() {
     { id: "education", label: "Education", icon: GraduationCap },
     { id: "skills", label: "Skills", icon: Zap },
     { id: "application", label: "Application Info", icon: Zap },
-    { id: "answers", label: "Saved Answers", icon: Zap },
+    // Answer memory tab removed from visible UI — system uses it internally
   ]
 
   return (
@@ -139,7 +139,7 @@ export default function ProfilePage() {
           {tab === "education" && <EducationTab />}
           {tab === "skills" && <SkillsTab />}
           {tab === "application" && <ApplicationInfoTab />}
-          {tab === "answers" && <AnswerMemoryTab />}
+          {/* AnswerMemoryTab removed from visible UI */}
         </>
       )}
     </div>
