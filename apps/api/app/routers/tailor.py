@@ -106,36 +106,37 @@ async def run_pipeline_background(
             )
             print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
-            # ── SAVE ATS SCORE IMMEDIATELY — before any auto-add that might crash ──
+            # ── SAVE ATS SCORE IN SEPARATE DB SESSION — guaranteed to work ──
             jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
             gap_analysis_result = result.get("gap_analysis", {})
             early_score = calculate_ats_score(resume_content, jd_analysis_result, gap_analysis_result)
             try:
-                early_ats = AtsScore(
-                    session_id=session_id,
-                    overall_score=int(early_score.get("overall_score", 0)),
-                    keyword_score=int(early_score.get("keyword_score", 0)),
-                    skills_score=int(early_score.get("skills_score", 0)),
-                    experience_score=int(early_score.get("experience_score", 0)),
-                    education_score=int(early_score.get("education_score", 0)),
-                    format_score=int(early_score.get("format_score", 0)),
-                    matched_keywords=early_score.get("matched_keywords", []),
-                    missing_keywords=early_score.get("missing_keywords", []),
-                    tips=early_score.get("tips", []),
-                )
-                db.add(early_ats)
-                # Mark session complete early
-                sess_early = await db.execute(select(TailoringSession).where(TailoringSession.id == session_id))
-                sess_obj_early = sess_early.scalar_one_or_none()
-                if sess_obj_early:
-                    sess_obj_early.status = SessionStatus.COMPLETED
-                    sess_obj_early.match_score = int(early_score.get("overall_score", 0))
-                    sess_obj_early.passes_completed = 3
-                    sess_obj_early.completed_at = datetime.utcnow()
-                await db.commit()
-                print(f"[Pipeline] Early ATS score saved: {early_score.get('overall_score')}%")
+                async with AsyncSessionLocal() as score_db:
+                    score_obj = AtsScore(
+                        session_id=session_id,
+                        overall_score=int(early_score.get("overall_score", 0)),
+                        keyword_score=int(early_score.get("keyword_score", 0)),
+                        skills_score=int(early_score.get("skills_score", 0)),
+                        experience_score=int(early_score.get("experience_score", 0)),
+                        education_score=int(early_score.get("education_score", 0)),
+                        format_score=int(early_score.get("format_score", 0)),
+                        matched_keywords=early_score.get("matched_keywords", []),
+                        missing_keywords=early_score.get("missing_keywords", []),
+                        tips=early_score.get("tips", []),
+                    )
+                    score_db.add(score_obj)
+                    sess_r = await score_db.execute(select(TailoringSession).where(TailoringSession.id == session_id))
+                    sess_o = sess_r.scalar_one_or_none()
+                    if sess_o:
+                        sess_o.status = SessionStatus.COMPLETED
+                        sess_o.match_score = int(early_score.get("overall_score", 0))
+                        sess_o.passes_completed = 3
+                        sess_o.completed_at = datetime.utcnow()
+                    await score_db.commit()
+                    print(f"[Pipeline] ATS score saved: {early_score.get('overall_score')}%")
             except Exception as early_err:
-                print(f"[Pipeline] Early score save error: {early_err}")
+                print(f"[Pipeline] Score save error: {early_err}")
+                import traceback; traceback.print_exc()
 
             # ── Now do auto-add (if this crashes, ATS score is already saved) ──
             # ── Restore original summary — try multiple sources ──
