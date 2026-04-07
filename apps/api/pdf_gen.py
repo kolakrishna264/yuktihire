@@ -23,8 +23,8 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   .header-line { border: none; border-top: 1px solid #000; margin: 4px 0 0 0; }
 
   .section { margin-bottom: 2px; }
-  .section-title { font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
-    margin-bottom: 1px; color: #000; padding-top: 2px; }
+  .section-title { font-size: 11pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    margin-bottom: 2px; color: #000; padding-top: 3px; }
 
   .exp-item { margin-bottom: 3px; }
   .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
