@@ -25,8 +25,14 @@ import {
   Target,
   MessageSquare,
 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { apiFetch } from "@/lib/api/client"
 
 export default function ExtensionPage() {
+  const [isAdmin, setIsAdmin] = useState(false)
+  useEffect(() => {
+    apiFetch("/permissions").then((p: any) => setIsAdmin(p?.isAdmin === true)).catch(() => {})
+  }, [])
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-8">
 
@@ -61,13 +67,16 @@ export default function ExtensionPage() {
             <p className="text-[11px] text-white/40 mt-2">
               Currently under review — available for install soon
             </p>
-            <a
-              href="/yuktihire-extension.zip"
-              download
-              className="text-[10px] text-white/25 hover:text-white/50 mt-3 inline-block underline"
-            >
-              Developer install (beta testers only)
-            </a>
+            {isAdmin && (
+              <a
+                href="/yuktihire-extension.zip"
+                download
+                className="inline-flex items-center gap-2 px-5 py-2.5 mt-3 bg-white text-indigo-700 rounded-xl font-bold text-xs hover:bg-white/90 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Extension (Admin)
+              </a>
+            )}
           </div>
 
           {/* Right — floating mocks */}
