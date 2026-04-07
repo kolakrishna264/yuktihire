@@ -275,6 +275,19 @@ export default function LoginPage() {
                     "rgba(255,255,255,0.12)")
                 }
               />
+              <div style={{ textAlign: "right", marginTop: "4px" }}>
+                <Link
+                  href="/auth/forgot-password"
+                  style={{
+                    fontSize: "12px",
+                    color: "#a78bfa",
+                    textDecoration: "none",
+                    fontWeight: 500,
+                  }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
             <button
