@@ -528,14 +528,15 @@ body {
   transform: none;
 }
 
-.action-btn-v2.primary {
-  background: linear-gradient(135deg, #6c63ff, #8b5cf6);
+.action-btn-v2.fill-btn {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
   color: #fff;
   border-color: transparent;
 }
 
-.action-btn-v2.primary:hover {
+.action-btn-v2.fill-btn:hover {
   opacity: 0.9;
+  background: linear-gradient(135deg, #16a34a, #15803d);
 }
 
 .action-icon-v2 {
