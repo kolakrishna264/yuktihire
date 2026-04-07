@@ -344,7 +344,12 @@ async def run_pipeline_background(
                     seen_missing.add(kw.lower())
                     all_missing.append(kw)
 
-            print(f"[AutoAdd] {len(all_missing)} keywords missing from experience (out of {len(all_jd_keywords)} total JD keywords)")
+            print(f"[AutoAdd] JD keywords: {len(all_jd_keywords)}, exp_text length: {len(exp_text)}")
+            print(f"[AutoAdd] {len(all_missing)} keywords missing from experience")
+            if all_missing:
+                print(f"[AutoAdd] Missing from exp: {all_missing[:10]}")
+            else:
+                print(f"[AutoAdd] WARNING: no missing keywords! JD keys: {all_jd_keywords[:5]}")
 
             # ── Route keywords to the RIGHT section ──
             # Real tools → skills (max 5 new)
