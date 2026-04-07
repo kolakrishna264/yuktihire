@@ -167,6 +167,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       body: JSON.stringify({
         question: msg.data.question,
         tone: "professional",
+        company: msg.data.company || null,
+        role: msg.data.role || null,
+        job_description: msg.data.job_description || null,
+        answer_shape: msg.data.shape || "essay",
       }),
     })
       .then(data => sendResponse({ ok: true, data }))

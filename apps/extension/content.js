@@ -517,40 +517,56 @@ if (document.location.hostname.includes("yuktihire.com")) {
           await sleep(300)
         }
 
-        // AI fill
+        // AI fill — pass job context for better answers
+        var jobTitle = document.getElementById("yh-job-title")?.textContent || ""
+        var jobCompany = document.getElementById("yh-job-company")?.textContent || ""
+        // Try to get JD from page
+        var pageJD = ""
+        try {
+          var jdSelectors = ["[class*='job-description']", "[class*='jobDescription']", "[class*='posting-description']", "[data-testid*='description']", ".job-description", "#job-description"]
+          for (var js = 0; js < jdSelectors.length; js++) {
+            var jdEl = document.querySelector(jdSelectors[js])
+            if (jdEl && jdEl.textContent.length > 100) { pageJD = jdEl.textContent.slice(0, 2000); break }
+          }
+          if (!pageJD) {
+            // Fallback: look for large text blocks that look like a JD
+            var allPs = document.querySelectorAll("p, li, div")
+            var jdParts = []
+            for (var pp = 0; pp < allPs.length && jdParts.length < 20; pp++) {
+              var pText = allPs[pp].textContent.trim()
+              if (pText.length > 50 && pText.length < 500 && /qualif|responsib|require|experience|skill/i.test(pText)) {
+                jdParts.push(pText)
+              }
+            }
+            if (jdParts.length > 3) pageJD = jdParts.join("\n").slice(0, 2000)
+          }
+        } catch(e) {}
+
         for (var ai = 0; ai < result.needsAI.length; ai++) {
           var field = result.needsAI[ai]
           if (!field.label) continue
           setStatus("AI: " + field.label.slice(0, 25) + "...")
           setBar(Math.min(90, 10 + pass * 15 + ai * 3))
 
-          // ── Build shape-aware prompt ──
           var shape = field.answerShape || "essay"
-          var prompt = ""
-
+          // Build the question — the backend prompt handles length/format
+          var question = field.label
+          if (field.helperText) question += " (" + field.helperText.slice(0, 200) + ")"
           if (field.options && field.options.length > 0) {
-            // Has options → always pick from them
-            prompt = 'Pick the BEST option for "' + field.label + '". Options: ' + field.options.join(", ") + '. Reply with ONLY the exact option text, nothing else.'
-          } else if (shape === "boolean") {
-            prompt = 'Answer this yes/no question with ONLY "Yes" or "No":\n"' + field.label + '"'
-          } else if (shape === "numeric") {
-            prompt = 'Answer with ONLY a number (e.g. "5" or "3-5"):\n"' + field.label + '"'
-          } else if (shape === "short_text") {
-            prompt = 'Answer in 1-10 words maximum:\n"' + field.label + '"'
-          } else if (shape === "location") {
-            prompt = 'Answer with ONLY a city/state location (e.g. "Arlington, TX"):\n"' + field.label + '"'
-          } else if (shape === "date_or_timeline") {
-            prompt = 'Answer with ONLY a short timeline (e.g. "2 weeks from offer" or "No deadlines"):\n"' + field.label + '"'
-          } else if (shape === "enum_choice") {
-            prompt = 'Answer with the single best short choice for:\n"' + field.label + '"\nReply with ONLY the answer text, nothing else.'
-          } else {
-            // essay
-            prompt = 'Answer this job application question professionally (200-400 words):\n\n"' + field.label + '"'
-            if (field.helperText) prompt += '\n\nContext: ' + field.helperText.slice(0, 300)
+            question += " Options: " + field.options.join(", ")
           }
 
           try {
-            var answer = await sendMsg({ type: "GENERATE_ANSWER", data: { question: prompt } })
+            var answer = await sendMsg({
+              type: "GENERATE_ANSWER",
+              data: {
+                question: question,
+                shape: shape,
+                company: jobCompany,
+                role: jobTitle,
+                job_description: pageJD.slice(0, 1500),
+              }
+            })
             if (answer?.ok && answer.data?.answer) {
               var val = answer.data.answer.trim()
 
