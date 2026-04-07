@@ -33,20 +33,23 @@ export default function LoginPage() {
 
   const handleGoogle = async () => {
     setGoogleLoading(true)
+    setError("")
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: {
-          access_type: "offline",
-          prompt: "consent",
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
-      },
-    })
-    if (error) {
+      })
+      if (error) {
+        setGoogleLoading(false)
+        setError(error.message)
+      }
+      // If data.url exists, the browser will redirect automatically
+    } catch (e: any) {
       setGoogleLoading(false)
-      setError(error.message)
+      setError(e?.message || "Google sign-in failed")
     }
   }
 
