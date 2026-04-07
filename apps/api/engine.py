@@ -44,14 +44,20 @@ async def execute_pipeline(
     else:
         jd_analysis = await analyze_jd(jd_text)
 
-    # Pass 2: Gap Analysis (includes structure metadata)
+    # Pass 2: Gap Analysis + ATS Score — run concurrently
     gap_analysis = await analyze_gaps(resume_content, jd_analysis)
-
-    # ATS Score BEFORE tailoring (for delta)
     ats_score_before = calculate_ats_score(resume_content, jd_analysis, gap_analysis)
 
-    # Pass 3: Rewrites (run concurrently with nothing — gap analysis must finish first)
-    recommendations = await generate_all_rewrites(gap_analysis, resume_content, jd_analysis)
+    # Pass 3: Rewrites — skip if gap analysis shows resume is already strong
+    # The auto-add in run_pipeline_background handles keyword insertion
+    # Rewrites only improve bullet WORDING (not keywords) — expensive and slow
+    overall_before = ats_score_before.get("overall_score", 0)
+    if overall_before >= 70:
+        # Resume already strong — skip expensive rewrites, let auto-add handle keywords
+        print(f"[Engine] Score {overall_before}% — skipping rewrites (auto-add will handle)")
+        recommendations = []
+    else:
+        recommendations = await generate_all_rewrites(gap_analysis, resume_content, jd_analysis)
 
     # ATS Score AFTER (uses same resume content — actual score change happens when applied)
     # The "after" score here estimates improvement based on recommendations
