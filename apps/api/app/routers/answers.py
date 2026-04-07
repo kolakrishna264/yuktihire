@@ -199,9 +199,11 @@ Applicant Background:
 
 Answer the question now. Follow the FORMAT instruction exactly."""
 
+    # Use Haiku for short answers (fast), Sonnet for essays (quality)
+    model = "claude-haiku-4-5-20251001" if data.answer_shape in ("boolean", "numeric", "short_text", "location", "date_or_timeline", "enum_choice") else "claude-sonnet-4-6"
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=model,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],

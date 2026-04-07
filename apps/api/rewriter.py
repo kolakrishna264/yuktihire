@@ -305,73 +305,62 @@ async def generate_all_rewrites(
     # Get concept keywords (for bullets, NOT for skills)
     concept_keywords = gap_analysis.get("concept_keywords_for_bullets", [])
 
-    # ── 1. Rewrite experience bullets with adaptive retention ──
+    # ── 1. Rewrite experience bullets — PARALLEL ──
+    import asyncio
+    gap_rewrite_tasks = []
+    gap_rewrite_meta = []
+
     for alignment in gap_analysis.get("bullet_alignments", []):
-        # Rewrite if: AI flagged it OR alignment is below 75%
-        # This ensures bullets get improved even when the AI is too conservative
         has_opportunity = alignment.get("rewrite_opportunity", False)
         low_alignment = alignment.get("alignment_score", 100) < 75
         if not has_opportunity and not low_alignment:
             continue
-
-        # Skip very-high-scoring bullets (already well-aligned)
         if alignment.get("alignment_score", 100) >= 85:
             continue
 
-        # Handle true gaps — flag but don't fabricate
         if alignment.get("truthfulness_check") == "cannot_add":
             gap_keywords = alignment.get("addable_keywords", [])
             recommendations.append({
-                "section": "experience",
-                "field": "bullet",
-                "original": alignment["bullet"],
-                "suggested": alignment["bullet"],
-                "reason": f"Skill gap: {', '.join(gap_keywords[:3])} not found in your experience. "
-                          f"Consider highlighting adjacent skills or upskilling.",
-                "confidence": 1.0,
-                "keywords_added": [],
-                "truthful": True,
-                "is_gap": True,
+                "section": "experience", "field": "bullet",
+                "original": alignment["bullet"], "suggested": alignment["bullet"],
+                "reason": f"Skill gap: {', '.join(gap_keywords[:3])} — consider upskilling.",
+                "confidence": 1.0, "keywords_added": [], "truthful": True, "is_gap": True,
             })
             continue
 
-        # Get experience context
         exp_idx = alignment.get("experience_index", 0)
         exp = experiences[exp_idx] if exp_idx < len(experiences) else {}
         role_rel = role_relevance_map.get(exp_idx, 60)
-
-        # Combine JD keywords with concept keywords for bullet enrichment
-        addable = alignment.get("addable_keywords", [])
-        # Add relevant concept keywords that fit this bullet's context
+        addable = list(alignment.get("addable_keywords", []))
         for ck in concept_keywords[:3]:
             if ck.lower() not in " ".join(addable).lower():
                 addable.append(ck)
-
-        # Adaptive word limit based on original bullet length and role relevance
         max_words = _get_adaptive_max_words(alignment["bullet"], role_rel)
 
-        result = await rewrite_bullet(
-            original=alignment["bullet"],
-            title=exp.get("title", ""),
+        gap_rewrite_tasks.append(rewrite_bullet(
+            original=alignment["bullet"], title=exp.get("title", ""),
             company=exp.get("company", ""),
             skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
-            keywords_to_add=addable[:6],
-            seniority=seniority,
-            max_words=max_words,
-        )
+            keywords_to_add=addable[:6], seniority=seniority, max_words=max_words,
+        ))
+        gap_rewrite_meta.append({"exp_idx": exp_idx, "bullet": alignment["bullet"]})
 
-        if result.get("changed") and result.get("truthful"):
-            recommendations.append({
-                "section": "experience",
-                "field": f"experience_{exp_idx}_bullet",
-                "original": alignment["bullet"],
-                "suggested": result["suggested"],
-                "reason": result["reason"],
-                "confidence": result.get("confidence", 0.8),
-                "keywords_added": result.get("keywords_added", []),
-                "truthful": True,
-                "is_gap": False,
-            })
+    # Run gap-analysis rewrites in parallel
+    if gap_rewrite_tasks:
+        print(f"[Rewriter] Running {len(gap_rewrite_tasks)} gap-based rewrites in PARALLEL")
+        gap_results = await asyncio.gather(*gap_rewrite_tasks, return_exceptions=True)
+        for i, result in enumerate(gap_results):
+            if isinstance(result, Exception):
+                continue
+            if result.get("changed") and result.get("truthful"):
+                meta = gap_rewrite_meta[i]
+                recommendations.append({
+                    "section": "experience", "field": f"experience_{meta['exp_idx']}_bullet",
+                    "original": meta["bullet"], "suggested": result["suggested"],
+                    "reason": result["reason"], "confidence": result.get("confidence", 0.8),
+                    "keywords_added": result.get("keywords_added", []),
+                    "truthful": True, "is_gap": False,
+                })
 
     # ── 1b. ALWAYS rewrite top bullets to weave in JD keywords ──
     bullet_rewrites_count = len([r for r in recommendations if r.get("section") == "experience" and not r.get("is_gap")])
@@ -382,16 +371,17 @@ async def generate_all_rewrites(
         required = jd_analysis.get("required_skills", [])
         domain = jd_analysis.get("domain_phrases", [])
         top_keywords = list(dict.fromkeys(must_have + required + domain))[:15]
-        print(f"[Rewriter] Force-rewrite with {len(top_keywords)} keywords: {top_keywords[:8]}")
 
-        if not top_keywords:
-            print("[Rewriter] WARNING: No keywords available for force-rewrite!")
-        else:
+        if top_keywords:
+            # ── PARALLEL bullet rewrites — all bullets at once ──
+            import asyncio
+            rewrite_tasks = []
+            rewrite_meta = []  # track which bullet each task corresponds to
+
             for exp_i, exp in enumerate(experiences[:2]):
                 bullets = exp.get("bullets", [])
                 num_to_rewrite = 4 if exp_i == 0 else 2
                 already_rewritten = set(r.get("original", "") for r in recommendations if r.get("section") == "experience")
-                print(f"[Rewriter] Experience {exp_i}: {len(bullets)} bullets, rewriting {num_to_rewrite}")
 
                 for bi, bullet in enumerate(bullets[:num_to_rewrite]):
                     if not bullet or len(bullet.strip()) < 20:
@@ -399,42 +389,42 @@ async def generate_all_rewrites(
                     if bullet in already_rewritten:
                         continue
 
-                    # Rotate keywords: each bullet gets 3 different keywords
                     idx = (exp_i * 4 + bi) % len(top_keywords)
-                    kws = []
-                    for k in range(3):
-                        kws.append(top_keywords[(idx + k) % len(top_keywords)])
-                    kws = list(dict.fromkeys(kws))  # deduplicate
+                    kws = list(dict.fromkeys([top_keywords[(idx + k) % len(top_keywords)] for k in range(3)]))
 
-                    print(f"[Rewriter] Rewriting bullet {exp_i}.{bi} with keywords: {kws}")
-                    try:
-                        result = await rewrite_bullet(
-                            original=bullet,
-                            title=exp.get("title", ""),
-                            company=exp.get("company", ""),
-                            skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
-                            keywords_to_add=kws,
-                            seniority=seniority,
-                            max_words=max(len(bullet.split()) + 8, 40),
-                        )
-                        suggested = result.get("suggested", "")
-                        changed = suggested and suggested.strip() != bullet.strip()
-                        print(f"[Rewriter] Result: changed={changed}, confidence={result.get('confidence')}")
+                    rewrite_tasks.append(rewrite_bullet(
+                        original=bullet,
+                        title=exp.get("title", ""),
+                        company=exp.get("company", ""),
+                        skills_used=exp.get("skills_used", exp.get("skillsUsed", [])),
+                        keywords_to_add=kws,
+                        seniority=seniority,
+                        max_words=max(len(bullet.split()) + 8, 40),
+                    ))
+                    rewrite_meta.append({"exp_i": exp_i, "bullet": bullet, "kws": kws})
 
-                        if changed:
-                            recommendations.append({
-                                "section": "experience",
-                                "field": f"experience_{exp_i}_bullet",
-                                "original": bullet,
-                                "suggested": suggested,
-                                "reason": result.get("reason", "Rewritten to include JD keywords"),
-                                "confidence": result.get("confidence", 0.8),
-                                "keywords_added": result.get("keywords_added", kws),
-                                "truthful": True,
-                                "is_gap": False,
-                            })
-                    except Exception as rewrite_err:
-                        print(f"[Rewriter] ERROR rewriting bullet: {rewrite_err}")
+            # Run ALL bullet rewrites concurrently
+            if rewrite_tasks:
+                print(f"[Rewriter] Running {len(rewrite_tasks)} bullet rewrites in PARALLEL")
+                results = await asyncio.gather(*rewrite_tasks, return_exceptions=True)
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        print(f"[Rewriter] ERROR: {result}")
+                        continue
+                    meta = rewrite_meta[i]
+                    suggested = result.get("suggested", "")
+                    if suggested and suggested.strip() != meta["bullet"].strip():
+                        recommendations.append({
+                            "section": "experience",
+                            "field": f"experience_{meta['exp_i']}_bullet",
+                            "original": meta["bullet"],
+                            "suggested": suggested,
+                            "reason": result.get("reason", "Rewritten to include JD keywords"),
+                            "confidence": result.get("confidence", 0.8),
+                            "keywords_added": result.get("keywords_added", meta["kws"]),
+                            "truthful": True,
+                            "is_gap": False,
+                        })
 
     print(f"[Rewriter] Total recommendations: {len(recommendations)}")
 

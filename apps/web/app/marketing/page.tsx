@@ -257,7 +257,7 @@ export default function MarketingPage() {
                   </span>
                   <h3 className="text-2xl lg:text-3xl font-black tracking-tight mb-3">AI Autofill Copilot</h3>
                   <p className="text-base text-white/70 leading-relaxed mb-6 max-w-md">
-                    One click fills name, email, experience, and generates AI answers for custom questions. Saves 12+ min per application.
+                    One click fills name, email, experience, and generates AI answers for custom questions. Saves ~25 min per application.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {["Form Detection", "AI Answers", "Smart Autofill", "Multi-Step"].map(tag => (

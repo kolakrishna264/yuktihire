@@ -265,8 +265,6 @@ export default function ResumesPage() {
     pendingFileRef.current = { name: resumeName, parsed }
     setParsedProfile(parsed)
 
-    // Brief pause so step 2 is visible before jumping to done
-    await new Promise((r) => setTimeout(r, 500))
     setUploadPhase("done")
   }, [])
 
