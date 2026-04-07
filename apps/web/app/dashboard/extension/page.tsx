@@ -54,15 +54,20 @@ export default function ExtensionPage() {
             <p className="text-base text-white/60 max-w-md leading-relaxed mb-6">
               Save jobs from any website, autofill applications, and tailor resumes — all from your browser.
             </p>
-            <a
-              href="/yuktihire-extension.zip"
-              download
-              className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white text-indigo-700 rounded-2xl font-bold text-sm hover:bg-white/90 transition-all shadow-xl shadow-black/10 hover:-translate-y-0.5"
-            >
-              <Download className="w-4 h-4" />
-              Download Extension
-              <ArrowRight className="w-4 h-4" />
-            </a>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <a
+                href="/yuktihire-extension.zip"
+                download
+                className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white text-indigo-700 rounded-2xl font-bold text-sm hover:bg-white/90 transition-all shadow-xl shadow-black/10 hover:-translate-y-0.5"
+              >
+                <Download className="w-4 h-4" />
+                Install Extension
+                <ArrowRight className="w-4 h-4" />
+              </a>
+              <span className="text-[11px] text-white/40 self-center">
+                Chrome Web Store coming soon
+              </span>
+            </div>
           </div>
 
           {/* Right — floating mocks */}
@@ -82,23 +87,28 @@ export default function ExtensionPage() {
       {/* ── Quick Install Steps ────────────────────────────────────────── */}
       <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-6">
         <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5" /> Quick setup (1 minute)
+          <Sparkles className="w-3.5 h-3.5" /> Quick setup (under 1 minute)
         </p>
-        <div className="grid sm:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-3 gap-4">
           {[
-            { step: "1", text: "Download & unzip the extension", icon: Download },
-            { step: "2", text: "Open chrome://extensions", icon: Chrome },
-            { step: "3", text: "Enable Developer Mode → Load unpacked", icon: Shield },
-            { step: "4", text: "Select the yuktihire-extension folder", icon: Check },
+            { step: "1", title: "Download", text: "Click the Install button above and unzip the downloaded file", icon: Download },
+            { step: "2", title: "Open Chrome Extensions", text: "Go to chrome://extensions and turn on Developer Mode (top right toggle)", icon: Chrome },
+            { step: "3", title: "Load Extension", text: "Click 'Load unpacked' and select the yuktihire-extension folder", icon: Check },
           ].map((item) => (
-            <div key={item.step} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-indigo-100/60">
-              <span className="w-7 h-7 rounded-lg gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
+            <div key={item.step} className="flex items-start gap-3 p-4 rounded-xl bg-white border border-indigo-100/60">
+              <span className="w-8 h-8 rounded-lg gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
                 {item.step}
               </span>
-              <p className="text-xs text-gray-600 leading-relaxed pt-0.5">{item.text}</p>
+              <div>
+                <p className="text-xs font-bold text-gray-800 mb-0.5">{item.title}</p>
+                <p className="text-[11px] text-gray-500 leading-relaxed">{item.text}</p>
+              </div>
             </div>
           ))}
         </div>
+        <p className="text-[11px] text-gray-400 mt-3 text-center">
+          Chrome Web Store version coming soon — one-click install without developer mode
+        </p>
       </div>
 
       {/* ── Feature Posters ────────────────────────────────────────────── */}
