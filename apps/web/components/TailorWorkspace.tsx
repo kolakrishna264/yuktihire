@@ -24,6 +24,7 @@ type Step = "setup" | "running" | "results"
 export function TailorWorkspace() {
   const searchParams = useSearchParams()
   const trackerId = searchParams?.get("tracker") || ""
+  const urlJD = searchParams?.get("jd") || ""
 
   const [step, setStep] = useState<Step>("setup")
   const [selectedResumeId, setSelectedResumeId] = useState<string>("")
@@ -33,7 +34,7 @@ export function TailorWorkspace() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [insertedKeywords, setInsertedKeywords] = useState<string[]>([])
   const [acceptingAll, setAcceptingAll] = useState(false)
-  const [prefilledJD, setPrefilledJD] = useState("")
+  const [prefilledJD, setPrefilledJD] = useState(urlJD)
   const [jdText, setJdText] = useState("")
 
   const { data: resumes = [] } = useResumes()
