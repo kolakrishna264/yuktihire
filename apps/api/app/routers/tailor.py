@@ -531,21 +531,17 @@ async def run_pipeline_background(
                 # Each bullet ≈ 2 lines on page. A full page fits ~25-30 bullet lines.
                 # Target: keep total bullets reasonable for the resume's page count
                 if total_existing_bullets <= 8:
-                    # 1-page resume: add only 1-2 per exp (stay on 1 page)
                     max_new_per_exp = 1
-                    max_total_new = 3
+                    max_total_new = 2
                 elif total_existing_bullets <= 16:
-                    # 1.5-page resume: add 2 per exp to fill page 2
-                    max_new_per_exp = 2
-                    max_total_new = 5
-                elif total_existing_bullets <= 24:
-                    # 2-page resume: add 1-2 per exp to fill gap on page 2
-                    max_new_per_exp = 2
-                    max_total_new = 4
-                else:
-                    # 3+ page resume: add 1 per exp
                     max_new_per_exp = 1
                     max_total_new = 3
+                elif total_existing_bullets <= 24:
+                    max_new_per_exp = 1
+                    max_total_new = 2
+                else:
+                    max_new_per_exp = 1
+                    max_total_new = 2
 
                 total_added = 0
 
