@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional
@@ -504,21 +504,27 @@ async def run_pipeline_background(
                     status=RecommendationStatus.ACCEPTED,
                 ))
 
-            # Save ATS score (use the AFTER score, not the before score)
+            # Save ATS score
             ats = ats_after
-            ats_score = AtsScore(
-                session_id=session_id,
-                overall_score=int(ats.get("overall_score", 0)),
-                keyword_score=int(ats.get("keyword_score", 0)),
-                skills_score=int(ats.get("skills_score", 0)),
-                experience_score=int(ats.get("experience_score", 0)),
-                education_score=int(ats.get("education_score", 0)),
-                format_score=int(ats.get("format_score", 0)),
-                matched_keywords=ats.get("matched_keywords", []),
-                missing_keywords=ats.get("missing_keywords", []),
-                tips=ats.get("tips", []),
-            )
-            db.add(ats_score)
+            print(f"[Pipeline] Saving ATS score: {ats.get('overall_score')}%")
+            try:
+                ats_score_obj = AtsScore(
+                    session_id=session_id,
+                    overall_score=int(ats.get("overall_score", 0)),
+                    keyword_score=int(ats.get("keyword_score", 0)),
+                    skills_score=int(ats.get("skills_score", 0)),
+                    experience_score=int(ats.get("experience_score", 0)),
+                    education_score=int(ats.get("education_score", 0)),
+                    format_score=int(ats.get("format_score", 0)),
+                    matched_keywords=ats.get("matched_keywords", []),
+                    missing_keywords=ats.get("missing_keywords", []),
+                    tips=ats.get("tips", []),
+                )
+                db.add(ats_score_obj)
+                print(f"[Pipeline] ATS score object added to session")
+            except Exception as score_err:
+                print(f"[Pipeline] ATS score save ERROR: {score_err}")
+                import traceback; traceback.print_exc()
 
             # Update session status
             session_result2 = await db.execute(
