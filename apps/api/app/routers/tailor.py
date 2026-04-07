@@ -383,25 +383,41 @@ async def run_pipeline_background(
                 applied_count += 1
             tailored_content["skills"] = current_skills
 
-            # ── 2. Add ALL missing keywords to experience + summary ──
+            # ── 2. Add missing keywords as bullets across ALL experiences ──
             all_keywords_to_add = experience_keywords + summary_additions
+            experiences = tailored_content.get("experiences", [])
+            num_exp = len(experiences)
 
-            # A. Add to experience bullets (each keyword gets its own mention)
-            if all_keywords_to_add and tailored_content.get("experiences"):
-                exp = tailored_content["experiences"][0]
-                bullets = exp.get("bullets", [])
-                # Group 3 keywords per bullet, max 6 new bullets
-                groups = [all_keywords_to_add[i:i+3] for i in range(0, len(all_keywords_to_add), 3)]
-                for group in groups[:6]:
-                    if len(group) >= 3:
-                        bullet = f"Applied {group[0]}, {group[1]}, and {group[2]} in building scalable production-grade ML systems and infrastructure."
-                    elif len(group) == 2:
-                        bullet = f"Leveraged {group[0]} and {group[1]} across engineering teams to deliver high-quality solutions."
-                    else:
-                        bullet = f"Utilized {group[0]} in production engineering workflows and system design."
-                    bullets.append(bullet)
-                    applied_count += 1
-                exp["bullets"] = bullets
+            if all_keywords_to_add and num_exp > 0:
+                # Distribute keywords evenly across all experiences
+                # Each experience gets 2-3 new bullets with JD keywords
+                bullets_per_exp = max(2, min(3, len(all_keywords_to_add) // max(num_exp, 1)))
+                kw_idx = 0
+                verbs = ["Applied", "Leveraged", "Implemented", "Utilized", "Demonstrated", "Delivered"]
+
+                for exp_i, exp in enumerate(experiences):
+                    bullets = exp.get("bullets", [])
+                    added_for_exp = 0
+
+                    while kw_idx < len(all_keywords_to_add) and added_for_exp < bullets_per_exp:
+                        # Take 2-3 keywords for this bullet
+                        chunk = all_keywords_to_add[kw_idx:kw_idx+3]
+                        kw_idx += len(chunk)
+                        if not chunk:
+                            break
+
+                        verb = verbs[(exp_i * 3 + added_for_exp) % len(verbs)]
+                        if len(chunk) >= 3:
+                            bullet = f"{verb} {chunk[0]}, {chunk[1]}, and {chunk[2]} to enhance system performance and deliver production-ready solutions."
+                        elif len(chunk) == 2:
+                            bullet = f"{verb} {chunk[0]} and {chunk[1]} in cross-functional engineering projects and production deployments."
+                        else:
+                            bullet = f"{verb} {chunk[0]} across engineering workflows to improve system reliability and quality."
+                        bullets.append(bullet)
+                        applied_count += 1
+                        added_for_exp += 1
+
+                    exp["bullets"] = bullets
 
             # B. Add keywords to summary — APPEND naturally, never replace
             if all_keywords_to_add:
