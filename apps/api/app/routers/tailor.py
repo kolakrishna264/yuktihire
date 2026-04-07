@@ -154,6 +154,35 @@ async def run_pipeline_background(
                     sess_obj = sess_r.scalar_one_or_none()
                     if sess_obj:
                         from sqlalchemy import text as sql_text
+                        rid = sess_obj.resume_id
+
+                        # Enrich experiences if missing
+                        if not resume_content.get("experiences"):
+                            try:
+                                prof_id_r = await db.execute(sql_text(
+                                    "SELECT p.id FROM profiles p JOIN users u ON u.id = p.user_id JOIN resumes r ON r.user_id = u.id WHERE r.id = :rid LIMIT 1"
+                                ), {"rid": rid})
+                                prof_id_row = prof_id_r.mappings().first()
+                                if prof_id_row:
+                                    exp_r = await db.execute(sql_text(
+                                        "SELECT * FROM work_experiences WHERE profile_id = :pid ORDER BY sort_order, start_date DESC"
+                                    ), {"pid": prof_id_row["id"]})
+                                    exps = []
+                                    for e in exp_r.mappings().all():
+                                        exps.append({
+                                            "title": e.get("title", ""), "company": e.get("company", ""),
+                                            "location": e.get("location", ""),
+                                            "start_date": str(e["start_date"]) if e.get("start_date") else "",
+                                            "end_date": str(e["end_date"]) if e.get("end_date") else "",
+                                            "current": e.get("current", False),
+                                            "bullets": e.get("bullets") or [],
+                                        })
+                                    if exps:
+                                        resume_content["experiences"] = exps
+                                        print(f"[Pipeline] Restored {len(exps)} experiences from profile")
+                            except Exception as exp_err:
+                                print(f"[Pipeline] Experience restore error: {exp_err}")
+
                         # Enrich education if missing
                         if not resume_content.get("educations"):
                             prof_r = await db.execute(sql_text(
@@ -239,8 +268,10 @@ async def run_pipeline_background(
                 resume_content["skills"] = cleaned_skills if cleaned_skills else skills_list
 
             # ── AUTO-APPLY all high-confidence recommendations to resume.content ──
-            tailored_content = dict(resume_content)
+            import copy as _copy
+            tailored_content = _copy.deepcopy(resume_content)
             applied_count = 0
+            print(f"[Pipeline] tailored_content has {len(tailored_content.get('experiences', []))} experiences, {len(tailored_content.get('skills', []))} skill categories")
 
             for rec in result.get("recommendations", []):
                 conf = float(rec.get("confidence", 0))
