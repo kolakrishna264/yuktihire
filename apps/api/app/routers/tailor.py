@@ -536,12 +536,16 @@ async def run_pipeline_background(
             if all_keywords_to_add and experiences:
                 # Calculate how many bullets to add based on page fill
                 total_bullets = sum(len(e.get("bullets", [])) for e in experiences)
-                # A 2-page resume typically fits 28-32 bullets total
-                # Add enough to reach ~28 but not exceed ~30
-                target_total = 28
+                # Target: fill page 2 properly
+                # 1-page resume (≤12 bullets): target 12 (stay on 1 page)
+                # 2-page resume (13-30 bullets): target 32 (fill page 2)
+                if total_bullets <= 12:
+                    target_total = total_bullets  # don't add to 1-page
+                else:
+                    target_total = 32
                 can_add = max(0, target_total - total_bullets)
-                can_add = min(can_add, len(all_keywords_to_add) // 2)  # 2 keywords per bullet
-                can_add = min(can_add, 6)  # absolute max 6 new bullets
+                can_add = min(can_add, len(all_keywords_to_add) // 2)
+                can_add = min(can_add, 10)  # max 10 new bullets
 
                 if can_add > 0:
                     kw_idx = 0
@@ -553,8 +557,8 @@ async def run_pipeline_background(
                         if added >= can_add:
                             break
                         bullets = exp.get("bullets", [])
-                        # Add 1-2 per experience
-                        max_for_exp = 2 if exp_i == 0 else 2
+                        # Add up to 4 per experience
+                        max_for_exp = 4
                         for _ in range(min(max_for_exp, can_add - added)):
                             if kw_idx + 2 > len(all_keywords_to_add):
                                 break
