@@ -235,12 +235,12 @@ def keyword_placement_score(sections: dict, keywords: list[str]) -> tuple[int, d
 
 
 def experience_keyword_score(sections: dict, keywords: list[str]) -> int:
-    """Score experience by keyword presence (always current after rewrites)."""
+    """Score experience by keyword presence — no artificial cap."""
     exp = sections.get("experience", "")
     if not exp or not keywords:
         return 50
     matched = sum(1 for kw in keywords if _keyword_in_text(kw, exp))
-    return min(95, int(matched / max(len(keywords), 1) * 100))
+    return int(matched / max(len(keywords), 1) * 100)
 
 
 def education_score(resume_content: dict, jd_analysis: dict) -> int:
@@ -407,19 +407,15 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience (keyword-based takes priority after tailoring) ──
-    alignments = gap_analysis.get("bullet_alignments", [])
-    gap_exp = int(sum(a.get("alignment_score", 50) for a in alignments) / max(len(alignments), 1)) if alignments else 50
+    # ── Experience — use keyword presence in bullets (no cap) ──
     kw_exp = experience_keyword_score(sections, all_keywords)
-    # After tailoring adds keywords to bullets, kw_exp should dominate
-    # Weight: 70% keyword-based + 30% gap-based (gap is from pre-tailoring AI)
-    exp_score = max(int(kw_exp * 0.7 + gap_exp * 0.3), kw_exp, 55)
+    exp_score = kw_exp  # Direct — no artificial limits
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
     target_kws = (must_have + required_skills)[:15]
     summary_hits = sum(1 for kw in target_kws if _keyword_in_text(kw, summary_text))
-    summary_score = min(95, 50 + summary_hits * 6) if summary_text else 30
+    summary_score = min(100, 50 + summary_hits * 7) if summary_text else 30
 
     # ── Education ──
     edu_scr = education_score(resume_content, jd_analysis)
@@ -430,7 +426,7 @@ def calculate_ats_score(
     # ── Projects ──
     proj_text = sections.get("projects", "")
     proj_hits = sum(1 for kw in target_kws if _keyword_in_text(kw, proj_text))
-    proj_score = min(95, 40 + proj_hits * 10) if proj_text else 50
+    proj_score = min(100, 40 + proj_hits * 10) if proj_text else 50
 
     # ══════════════════════════════════════════════════════════════════
     # WEIGHTED OVERALL
