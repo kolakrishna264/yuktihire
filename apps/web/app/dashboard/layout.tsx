@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Sidebar } from "@/components/Sidebar"
 import { TopNav } from "@/components/TopNav"
+import { FeedbackWidget } from "@/components/FeedbackWidget"
 
 export default async function DashboardLayout({
   children,
@@ -24,6 +25,7 @@ export default async function DashboardLayout({
         <TopNav user={user} />
         <main className="flex-1 overflow-auto">{children}</main>
       </div>
+      <FeedbackWidget />
     </div>
   )
 }

@@ -523,3 +523,112 @@ async def _log_admin_action(db: AsyncSession, admin_id: str, action: str, target
         )
     except Exception:
         pass  # Don't fail the main operation if logging fails
+
+
+# ── Beta Feedback Review ─────────────────────────────────────────────────
+
+@router.get("/feedback")
+async def list_feedback(
+    limit: int = Query(50, le=200),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all user feedback for admin review."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin only")
+    result = await db.execute(text("""
+        SELECT f.*, u.email, u.full_name
+        FROM user_feedback f
+        LEFT JOIN users u ON f.user_id = u.id
+        ORDER BY f.created_at DESC LIMIT :limit
+    """), {"limit": limit})
+    rows = result.mappings().all()
+    return {
+        "feedback": [dict(r) for r in rows],
+        "total": len(rows),
+    }
+
+
+@router.get("/beta-events")
+async def list_beta_events(
+    event_type: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List beta events for admin monitoring."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin only")
+    where = "WHERE e.event_type = :et" if event_type else ""
+    params = {"limit": limit}
+    if event_type:
+        params["et"] = event_type
+    result = await db.execute(text(f"""
+        SELECT e.*, u.email
+        FROM beta_events e
+        LEFT JOIN users u ON e.user_id = u.id
+        {where}
+        ORDER BY e.created_at DESC LIMIT :limit
+    """), params)
+    rows = result.mappings().all()
+
+    # Also get event type counts
+    counts_result = await db.execute(text("""
+        SELECT event_type, COUNT(*) as count
+        FROM beta_events
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY event_type ORDER BY count DESC
+    """))
+    counts = [dict(r) for r in counts_result.mappings().all()]
+
+    return {
+        "events": [dict(r) for r in rows],
+        "eventCounts": counts,
+        "total": len(rows),
+    }
+
+
+@router.get("/beta-summary")
+async def beta_summary(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get beta health summary — key metrics for monitoring."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin only")
+
+    metrics = {}
+    try:
+        # User counts
+        r = await db.execute(text("SELECT COUNT(*) FROM users"))
+        metrics["totalUsers"] = r.scalar()
+
+        r = await db.execute(text("SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '7 days'"))
+        metrics["newUsersLast7Days"] = r.scalar()
+
+        # Feature usage (last 7 days)
+        r = await db.execute(text("SELECT COUNT(*) FROM tailoring_sessions WHERE created_at >= NOW() - INTERVAL '7 days'"))
+        metrics["tailoringSessions7d"] = r.scalar()
+
+        r = await db.execute(text("SELECT COUNT(*) FROM job_applications WHERE created_at >= NOW() - INTERVAL '7 days'"))
+        metrics["jobsSaved7d"] = r.scalar()
+
+        r = await db.execute(text("SELECT COUNT(*) FROM autofill_sessions WHERE created_at >= NOW() - INTERVAL '7 days'"))
+        metrics["autofillSessions7d"] = r.scalar()
+
+        # Feedback
+        r = await db.execute(text("SELECT COUNT(*) FROM user_feedback"))
+        metrics["totalFeedback"] = r.scalar()
+
+        r = await db.execute(text("SELECT AVG(rating) FROM user_feedback WHERE rating IS NOT NULL"))
+        avg = r.scalar()
+        metrics["avgRating"] = round(float(avg), 1) if avg else None
+
+        # Errors (from processing_jobs)
+        r = await db.execute(text("SELECT COUNT(*) FROM processing_jobs WHERE status = 'failed' AND created_at >= NOW() - INTERVAL '7 days'"))
+        metrics["failedJobs7d"] = r.scalar()
+
+    except Exception as e:
+        metrics["error"] = str(e)
+
+    return metrics

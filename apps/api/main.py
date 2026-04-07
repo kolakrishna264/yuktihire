@@ -105,6 +105,24 @@ async def lifespan(app: FastAPI):
                         description TEXT,
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     )""",
+                    """CREATE TABLE IF NOT EXISTS user_feedback (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR REFERENCES users(id),
+                        rating INTEGER,
+                        category VARCHAR(50),
+                        message TEXT,
+                        page VARCHAR(500),
+                        user_agent VARCHAR(500),
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS beta_events (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR REFERENCES users(id),
+                        event_type VARCHAR(100) NOT NULL,
+                        event_data TEXT,
+                        page VARCHAR(500),
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
                     """CREATE TABLE IF NOT EXISTS curated_jobs (
                         id VARCHAR PRIMARY KEY,
                         title VARCHAR(500) NOT NULL,
@@ -485,3 +503,55 @@ async def get_permissions(
     """Return all feature permissions for the current user — used by frontend to show/hide features."""
     from app.core.permissions import get_user_permissions
     return await get_user_permissions(current_user, db)
+
+
+# ── Beta Feedback & Event Tracking ───────────────────────────────────────
+
+from pydantic import BaseModel as PydanticModel
+from typing import Optional as Opt
+
+class FeedbackPayload(PydanticModel):
+    rating: Opt[int] = None
+    category: Opt[str] = None
+    message: Opt[str] = None
+    page: Opt[str] = None
+    userAgent: Opt[str] = None
+
+class EventPayload(PydanticModel):
+    event_type: str
+    event_data: Opt[str] = None
+    page: Opt[str] = None
+
+@app.post(API_PREFIX + "/feedback")
+async def submit_feedback(
+    data: FeedbackPayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import uuid
+    await db.execute(
+        text("""INSERT INTO user_feedback (id, user_id, rating, category, message, page, user_agent)
+                VALUES (:id, :uid, :rating, :cat, :msg, :page, :ua)"""),
+        {"id": str(uuid.uuid4()), "uid": current_user.id, "rating": data.rating,
+         "cat": data.category, "msg": (data.message or "")[:5000],
+         "page": data.page, "ua": data.userAgent},
+    )
+    await db.commit()
+    print(f"[Feedback] {current_user.id}: {data.category} | rating={data.rating} | {(data.message or '')[:80]}")
+    return {"status": "received"}
+
+@app.post(API_PREFIX + "/events")
+async def track_event(
+    data: EventPayload,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import uuid
+    await db.execute(
+        text("""INSERT INTO beta_events (id, user_id, event_type, event_data, page)
+                VALUES (:id, :uid, :type, :data, :page)"""),
+        {"id": str(uuid.uuid4()), "uid": current_user.id,
+         "type": data.event_type, "data": data.event_data, "page": data.page},
+    )
+    await db.commit()
+    return {"status": "tracked"}

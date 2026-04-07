@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
+import { trackEvent, EVENTS } from "@/lib/track"
 import { useResumes } from "@/lib/hooks/useResumes"
 import { apiFetch } from "@/lib/api/client"
 import { Button } from "@/components/ui/Button"
@@ -51,6 +52,7 @@ export default function MockInterviewPage() {
     if (!selectedResumeId) { toast.error("Select a resume first"); return }
     setLoading(true)
     setState("active")
+    trackEvent(EVENTS.MOCK_INTERVIEW_STARTED, { interviewType, company, role })
     setMessages([{ role: "system", content: "Starting mock interview..." }])
 
     try {
@@ -103,7 +105,10 @@ export default function MockInterviewPage() {
         ...prev,
         { role: "interviewer", content: res.question, questionNumber: res.questionNumber },
       ])
-      if (res.isComplete) setState("complete")
+      if (res.isComplete) {
+        setState("complete")
+        trackEvent(EVENTS.MOCK_INTERVIEW_COMPLETED, { questionCount: res.questionNumber })
+      }
     } catch {
       toast.error("Failed to get next question")
     } finally {

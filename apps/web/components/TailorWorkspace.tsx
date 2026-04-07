@@ -1,6 +1,7 @@
 "use client"
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
+import { trackEvent, EVENTS } from "@/lib/track"
 import { useResumes, useResume, useUpdateResume } from "@/lib/hooks/useResumes"
 import { useRunTailoring, useTailoringSession, useUpdateRecommendation, useApplyRecommendations } from "@/lib/hooks/useTailor"
 import { useTrackerDetail } from "@/lib/hooks/useTracker"
@@ -82,12 +83,14 @@ export function TailorWorkspace() {
     setStep("running")
     // Clear inserted keywords banner when re-running
     setInsertedKeywords([])
+    trackEvent(EVENTS.TAILORING_STARTED, { resumeId: selectedResumeId })
     runTailoring(
       { resumeId: selectedResumeId, jobDescriptionId: jdAnalysis.jobDescriptionId },
       {
         onSuccess: ({ sessionId: sid }) => {
           setSessionId(sid)
           setStep("results")
+          trackEvent(EVENTS.TAILORING_COMPLETED, { sessionId: sid })
         },
         onError: () => setStep("setup"),
       }
