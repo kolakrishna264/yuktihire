@@ -407,12 +407,9 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience — keyword presence drives the score ──
+    # ── Experience — direct keyword match, no stale gap analysis ──
     kw_exp = experience_keyword_score(sections, all_keywords)
-    # 80% keyword match + 20% baseline quality
-    gap_alignments = gap_analysis.get("bullet_alignments", [])
-    gap_avg = int(sum(a.get("alignment_score", 50) for a in gap_alignments) / max(len(gap_alignments), 1)) if gap_alignments else 55
-    exp_score = int(kw_exp * 0.8 + gap_avg * 0.2)
+    exp_score = kw_exp
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
