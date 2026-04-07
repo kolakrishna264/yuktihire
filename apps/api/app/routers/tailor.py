@@ -137,47 +137,61 @@ async def run_pipeline_background(
                 except Exception as enrich_err:
                     print(f"[Pipeline] Education enrich error: {enrich_err}")
 
-            # ── Clean up "Other" category before tailoring ──
-            # Re-categorize any items in "Other" that now have proper categories
-            from migrate_clean_skills import categorize_clean_skills as _recat
+            # ── HARD CLEAN all skills: cap per category, strip non-tool items ──
+            REAL_TOOL_SET = {
+                "python", "java", "javascript", "typescript", "c++", "c#", "golang", "go",
+                "ruby", "rust", "scala", "julia", "sql", "bash", "php", "swift", "kotlin",
+                "nosql", "r", "html", "css", "perl", "matlab", "lua", "dart",
+                "pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost",
+                "lightgbm", "hugging face", "transformers", "opencv", "spacy", "nltk",
+                "langchain", "openai", "anthropic", "claude", "gemini", "llama", "gpt",
+                "bert", "faiss", "pinecone", "mlflow", "wandb", "tensorboard",
+                "fine-tuning", "prompt engineering", "nlp", "deep learning", "rag",
+                "generative ai", "ai agents", "machine learning", "computer vision",
+                "docker", "kubernetes", "terraform", "ansible", "jenkins", "ci/cd",
+                "github actions", "devops", "devsecops", "linux", "prometheus", "grafana",
+                "aws", "azure", "gcp", "sagemaker", "ec2", "s3", "lambda", "bedrock",
+                "postgresql", "mongodb", "redis", "elasticsearch", "snowflake", "dynamodb",
+                "react", "angular", "vue", "node", "nodejs", "express", "fastapi", "flask",
+                "django", ".net", ".net core", "graphql", "rest api",
+                "spark", "pyspark", "kafka", "airflow", "pandas", "numpy", "hadoop",
+                "matplotlib", "seaborn", "streamlit", "tableau", "etl",
+                "git", "github", "jira", "agile", "scrum", "oop", "design patterns",
+                "vector databases", "data pipeline design", "model training",
+            }
             if resume_content.get("skills"):
                 skills_list = resume_content["skills"]
                 has_items_key = any(isinstance(s, dict) and s.get("items") for s in skills_list)
                 items_key = "items" if has_items_key else "skills"
-                new_skills = []
+                cleaned_skills = []
                 for cat_obj in skills_list:
                     if not isinstance(cat_obj, dict):
                         continue
                     cat_name = cat_obj.get("category", "")
                     items = cat_obj.get(items_key, [])
-                    if cat_name.lower() == "other" and items:
-                        # Try to re-categorize each "Other" item
-                        for item in items:
-                            if not isinstance(item, str):
-                                continue
-                            rc = _recat([item])
-                            if rc and rc[0]["category"].lower() != "other":
-                                # Move to proper category
-                                target_cat = rc[0]["category"]
-                                found = False
-                                for existing in new_skills:
-                                    if existing.get("category", "").lower() == target_cat.lower():
-                                        existing.get(items_key, []).append(item)
-                                        found = True
-                                        break
-                                if not found:
-                                    # Check original categories too
-                                    for existing in skills_list:
-                                        if isinstance(existing, dict) and existing.get("category", "").lower() == target_cat.lower():
-                                            existing.get(items_key, []).append(item)
-                                            found = True
-                                            break
-                                if not found:
-                                    new_skills.append({"category": target_cat, items_key: [item]})
-                            # else: drop it — "Other" items that are still "Other" after expanded categorizer are noise
-                    else:
-                        new_skills.append(cat_obj)
-                resume_content["skills"] = new_skills if new_skills else skills_list
+                    if not items:
+                        continue
+                    # Drop "Other" category entirely
+                    if cat_name.lower() == "other":
+                        continue
+                    # Filter: only keep items that are real tools/skills (≤3 words, in tool set or short)
+                    clean_items = []
+                    for item in items:
+                        if not isinstance(item, str):
+                            continue
+                        il = item.lower().strip()
+                        # Keep if it's a known tool
+                        if il in REAL_TOOL_SET:
+                            clean_items.append(item)
+                        # Keep if it's short (1-2 words) — likely a real tool name
+                        elif len(il.split()) <= 2 and len(il) <= 25:
+                            clean_items.append(item)
+                        # Drop multi-word concept phrases
+                    # Cap at 15 items per category
+                    clean_items = clean_items[:15]
+                    if clean_items:
+                        cleaned_skills.append({"category": cat_name, items_key: clean_items})
+                resume_content["skills"] = cleaned_skills if cleaned_skills else skills_list
 
             # ── AUTO-APPLY all high-confidence recommendations to resume.content ──
             tailored_content = dict(resume_content)
