@@ -342,16 +342,17 @@ async def get_personalized_feed(
         except Exception as e:
             print(f"[Feed] saved jobs error: {e}")
 
-        # ── Source 4: Live API fallback (if DB has no jobs) ──
-        if len(all_jobs) == 0:
-            try:
-                import httpx
-                search_terms = preferred_titles[:2] if preferred_titles else ["engineer"]
-                for term in search_terms[:1]:
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        resp = await client.get(f"https://remotive.com/api/remote-jobs?search={term}&limit=20")
+        # ── Source 4: Live API — always fetch to supplement DB ──
+        try:
+            import httpx
+            search_terms = preferred_titles[:3] if preferred_titles else ["software engineer"]
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for term in search_terms:
+                    # Remotive API
+                    try:
+                        resp = await client.get(f"https://remotive.com/api/remote-jobs?search={term}&limit=25")
                         if resp.status_code == 200:
-                            for job in resp.json().get("jobs", [])[:20]:
+                            for job in resp.json().get("jobs", [])[:25]:
                                 all_jobs.append({
                                     "id": str(job.get("id", "")),
                                     "title": job.get("title", ""),
@@ -369,16 +370,67 @@ async def get_personalized_feed(
                                     "postedAt": job.get("publication_date", ""),
                                     "sourceType": "remotive",
                                 })
-            except Exception as e:
-                print(f"[Feed] live API fallback error: {e}")
+                    except Exception:
+                        pass
 
-        # ── Filter by preferences (in Python, not SQL — more reliable) ──
+                    # Arbeitnow API
+                    try:
+                        resp2 = await client.get(f"https://www.arbeitnow.com/api/job-board-api?search={term}&per_page=25")
+                        if resp2.status_code == 200:
+                            for job in resp2.json().get("data", [])[:25]:
+                                all_jobs.append({
+                                    "id": str(job.get("slug", "")),
+                                    "title": job.get("title", ""),
+                                    "company": job.get("company_name", ""),
+                                    "location": job.get("location", ""),
+                                    "url": job.get("url", ""),
+                                    "description": (job.get("description", "") or "")[:500],
+                                    "fullDescription": job.get("description", ""),
+                                    "workType": "remote" if job.get("remote") else "onsite",
+                                    "employmentType": "",
+                                    "experienceLevel": "",
+                                    "salaryRange": "",
+                                    "skills": ", ".join(job.get("tags", [])[:5]),
+                                    "tags": "",
+                                    "postedAt": job.get("created_at", ""),
+                                    "sourceType": "arbeitnow",
+                                })
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[Feed] live API error: {e}")
+
+        # ── Filter by preferences — STRICT matching ──
         if preferred_titles and not q:
             title_lower = [t.lower() for t in preferred_titles]
-            matched = [j for j in all_jobs if any(t in j["title"].lower() for t in title_lower)]
-            # If title filter returns results, use them. Otherwise show all.
-            if matched:
-                all_jobs = matched
+            # Extract key words from each preferred title for broader matching
+            # "ai ml engineer" → ["ai", "ml", "engineer"]
+            pref_words = set()
+            for t in title_lower:
+                for w in t.split():
+                    if len(w) > 2:  # skip "ai" (too short and matches too broadly)
+                        pref_words.add(w)
+            # Also keep full phrases for exact matching
+            pref_words.update(title_lower)
+
+            def _is_relevant(job_title: str) -> bool:
+                tl = job_title.lower()
+                # Exact phrase match (best)
+                if any(t in tl for t in title_lower):
+                    return True
+                # Word overlap: at least 2 preference words in the title
+                title_words = set(tl.split())
+                overlap = pref_words & title_words
+                if len(overlap) >= 2:
+                    return True
+                # Key role words
+                role_signals = {"engineer", "scientist", "developer", "researcher", "analyst"}
+                if overlap and (overlap & role_signals):
+                    return True
+                return False
+
+            matched = [j for j in all_jobs if _is_relevant(j["title"])]
+            all_jobs = matched  # STRICT — only show matched, never fall back to all
 
         # Filter by search query
         if q:
