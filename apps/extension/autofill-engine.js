@@ -28,9 +28,9 @@ var YuktiEngine = (function () {
   // US-only product — optimized for US job application patterns
   var INTENT_PATTERNS = {
     // ── Tier 1: Identity / Contact (deterministic) ──
-    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name"], category: "identity", shape: "short_text" },
-    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name"], category: "identity", shape: "short_text" },
-    fullName:        { patterns: ["full name", "your name", "candidate name", "applicant name", "fullname", "name *"], category: "identity", shape: "short_text" },
+    firstName:       { patterns: ["first name", "first_name", "fname", "given name", "given_name", "legal first", "legal given"], category: "identity", shape: "short_text" },
+    lastName:        { patterns: ["last name", "last_name", "lname", "surname", "family name", "family_name", "legal last", "legal family"], category: "identity", shape: "short_text" },
+    fullName:        { patterns: ["full name", "your name", "candidate name", "applicant name", "fullname", "name *", "legal name"], category: "identity", shape: "short_text" },
     preferredName:   { patterns: ["preferred name", "preferred first", "nickname", "goes by", "known as"], category: "identity", shape: "short_text" },
     email:           { patterns: ["email", "e-mail", "email address"], category: "identity", shape: "short_text" },
     phone:           { patterns: ["phone", "mobile", "telephone", "cell", "contact number", "phone number"], category: "identity", shape: "short_text" },
@@ -698,13 +698,13 @@ var YuktiEngine = (function () {
       phone: pd.phone,
       address: pd.address || pd.location,
       city: cityVal,
-      state: stateInfo.full || stateInfo.abbr,  // Try full name first, then abbr
+      state: stateInfo.full || stateInfo.abbr || rawState,  // Try full, then abbr, then raw
       zip: pd.zip || pd.zipCode || "",
       location: pd.location,
       linkedin: pd.linkedin,
       github: pd.github,
       portfolio: pd.portfolio,
-      country: "United States",
+      country: "United States of America",
       // Tier 1: US Work Authorization
       workAuth: pd.workAuthorization || "",
       sponsorship: pd.sponsorship || "",
