@@ -27,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.models.user import User, Plan
 
-# Admin email — this account auto-gets admin role
-ADMIN_EMAIL = "support@yuktihire.com"
+# Admin emails — these accounts auto-get admin role
+ADMIN_EMAILS = {"support@yuktihire.com", "mohankrishna0089@gmail.com"}
 
 # ── Feature Definitions ──────────────────────────────────────────────────
 # None = unlimited (no limit enforced)
@@ -99,18 +99,19 @@ async def is_admin(user_id: str, db: AsyncSession) -> bool:
         row = result.first()
         if not row:
             return False
-        return row[0] == "admin" or (row[1] and row[1].lower() == ADMIN_EMAIL)
+        return row[0] == "admin" or (row[1] and row[1].lower() in ADMIN_EMAILS)
     except Exception:
         return False
 
 
 async def ensure_admin_role(db: AsyncSession):
-    """Auto-set admin role for the admin email on startup/login."""
+    """Auto-set admin role for all admin emails on startup/login."""
     try:
-        await db.execute(
-            text("UPDATE users SET role = 'admin' WHERE LOWER(email) = :email AND (role IS NULL OR role != 'admin')"),
-            {"email": ADMIN_EMAIL},
-        )
+        for email in ADMIN_EMAILS:
+            await db.execute(
+                text("UPDATE users SET role = 'admin' WHERE LOWER(email) = :email AND (role IS NULL OR role != 'admin')"),
+                {"email": email},
+            )
         await db.commit()
     except Exception:
         pass
