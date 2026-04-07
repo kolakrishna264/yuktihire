@@ -259,8 +259,8 @@ async def get_personalized_feed(
         try: preferred_work_types = json.loads(pref_row.get("preferred_work_types") or "[]")
         except: pass
 
-    # Freshness: last 7 days
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    # Freshness: last 30 days (7 was too strict for a new product)
+    cutoff = datetime.utcnow() - timedelta(days=30)
     cutoff_str = cutoff.isoformat()
 
     # ── Build search conditions ──
@@ -269,99 +269,124 @@ async def get_personalized_feed(
 
     # Search query
     if q:
-        where_parts.append("(LOWER(title) LIKE :q OR LOWER(company) LIKE :q OR LOWER(description) LIKE :q)")
+        where_parts.append("(LOWER(title) LIKE :q OR LOWER(company) LIKE :q OR LOWER(COALESCE(description,'')) LIKE :q)")
         params["q"] = f"%{q.lower()}%"
 
     # Work type filter
     if work_type:
-        where_parts.append("LOWER(work_type) = :wt")
+        where_parts.append("LOWER(COALESCE(work_type,'')) = :wt")
         params["wt"] = work_type.lower()
 
-    # Title matching from preferences
-    title_clause, title_params = _build_title_match_clause(preferred_titles + ([q] if q else []))
+    # Title matching from preferences — use OR, not AND with other filters
+    title_clause = "TRUE"
     if preferred_titles or q:
+        all_titles = preferred_titles + ([q] if q else [])
+        tc, tp = _build_title_match_clause(all_titles)
+        title_clause = tc
+        params.update(tp)
         where_parts.append(title_clause)
-        params.update(title_params)
 
     where_sql = " AND ".join(where_parts) if where_parts else "TRUE"
+    # Also build a relaxed version without title filter (for fallback)
+    where_sql_no_title = " AND ".join([p for p in where_parts if p != title_clause]) or "TRUE"
 
-    # ── Query curated_jobs ──
-    curated_sql = f"""
-        SELECT id, title, company, location, url, description, work_type,
-               employment_type, experience_level, salary_range, skills, tags,
-               job_family, seniority, created_at, 'curated' as source_type
-        FROM curated_jobs
-        WHERE is_active = TRUE AND {where_sql}
-        ORDER BY created_at DESC
-    """
-
-    # ── Query discovered jobs ──
-    # Map column names (jobs table has different schema)
-    discover_where = where_sql.replace("description", "description_text").replace("created_at >= :cutoff", "(posted_at >= :cutoff OR created_at >= :cutoff)")
-
-    discover_sql = f"""
-        SELECT id, title, company, location, url, description_text as description,
-               work_type, employment_type, experience_level,
-               CASE WHEN salary_min IS NOT NULL THEN salary_min::text || '-' || COALESCE(salary_max::text, '') ELSE salary_raw END as salary_range,
-               '' as skills, '' as tags, '' as job_family, '' as seniority,
-               COALESCE(posted_at, created_at) as created_at, 'discovered' as source_type
-        FROM jobs
-        WHERE is_active = TRUE AND {discover_where}
-        ORDER BY COALESCE(posted_at, created_at) DESC
-    """
-
-    # ── Union and paginate ──
-    union_sql = f"""
-        SELECT * FROM (
-            ({curated_sql})
-            UNION ALL
-            ({discover_sql})
-        ) combined
-        ORDER BY created_at DESC
-        LIMIT :limit OFFSET :offset
-    """
-
-    # Count total
-    count_sql = f"""
-        SELECT (
-            (SELECT COUNT(*) FROM curated_jobs WHERE is_active = TRUE AND {where_sql}) +
-            (SELECT COUNT(*) FROM jobs WHERE is_active = TRUE AND {discover_where})
-        ) as total
-    """
+    def _format_job(row, source_type=""):
+        return {
+            "id": row.get("id", ""),
+            "title": row.get("title") or row.get("role", ""),
+            "company": row.get("company", ""),
+            "location": row.get("location") or "",
+            "url": row.get("url") or "",
+            "description": (row.get("description") or row.get("description_text") or "")[:500],
+            "fullDescription": row.get("description") or row.get("description_text") or "",
+            "workType": row.get("work_type") or "",
+            "employmentType": row.get("employment_type") or "",
+            "experienceLevel": row.get("experience_level") or "",
+            "salaryRange": row.get("salary_range") or row.get("salary") or "",
+            "skills": row.get("skills") or "",
+            "tags": row.get("tags") or "",
+            "postedAt": str(row.get("created_at") or row.get("posted_at") or ""),
+            "sourceType": source_type,
+        }
 
     try:
-        # Execute
-        result = await db.execute(text(union_sql), params)
-        rows = result.mappings().all()
+        all_jobs = []
 
-        count_result = await db.execute(text(count_sql), params)
-        total = count_result.scalar() or 0
+        # ── Query curated_jobs ──
+        try:
+            curated_result = await db.execute(text(f"""
+                SELECT * FROM curated_jobs
+                WHERE is_active = TRUE AND created_at >= :cutoff
+                ORDER BY created_at DESC LIMIT 50
+            """), {"cutoff": cutoff_str})
+            for row in curated_result.mappings().all():
+                all_jobs.append(_format_job(dict(row), "curated"))
+        except Exception as e:
+            print(f"[Feed] curated_jobs query error: {e}")
 
-        # Format response
-        jobs = []
-        for row in rows:
-            jobs.append({
-                "id": row["id"],
-                "title": row["title"],
-                "company": row["company"],
-                "location": row.get("location") or "",
-                "url": row.get("url") or "",
-                "description": (row.get("description") or "")[:500],
-                "fullDescription": row.get("description") or "",
-                "workType": row.get("work_type") or "",
-                "employmentType": row.get("employment_type") or "",
-                "experienceLevel": row.get("experience_level") or "",
-                "salaryRange": row.get("salary_range") or "",
-                "skills": row.get("skills") or "",
-                "tags": row.get("tags") or "",
-                "jobFamily": row.get("job_family") or "",
-                "seniority": row.get("seniority") or "",
-                "postedAt": str(row.get("created_at") or ""),
-                "sourceType": row.get("source_type") or "",
-            })
+        # ── Query discovered jobs ──
+        try:
+            discover_result = await db.execute(text(f"""
+                SELECT * FROM jobs
+                WHERE is_active = TRUE AND (posted_at >= :cutoff OR created_at >= :cutoff)
+                ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50
+            """), {"cutoff": cutoff_str})
+            for row in discover_result.mappings().all():
+                all_jobs.append(_format_job(dict(row), "discovered"))
+        except Exception as e:
+            print(f"[Feed] jobs query error: {e}")
+
+        # ── Query user's saved jobs as fallback ──
+        try:
+            saved_result = await db.execute(text(f"""
+                SELECT id, role as title, company, location, url, description, salary,
+                       work_type, experience_level, created_at
+                FROM job_applications
+                WHERE user_id = :uid AND created_at >= :cutoff
+                ORDER BY created_at DESC LIMIT 20
+            """), {"uid": current_user.id, "cutoff": cutoff_str})
+            for row in saved_result.mappings().all():
+                all_jobs.append(_format_job(dict(row), "saved"))
+        except Exception as e:
+            print(f"[Feed] saved jobs query error: {e}")
+
+        # ── Filter by preferences (in Python, not SQL — more reliable) ──
+        if preferred_titles and not q:
+            title_lower = [t.lower() for t in preferred_titles]
+            matched = [j for j in all_jobs if any(t in j["title"].lower() for t in title_lower)]
+            # If title filter returns results, use them. Otherwise show all.
+            if matched:
+                all_jobs = matched
+
+        # Filter by search query
+        if q:
+            ql = q.lower()
+            all_jobs = [j for j in all_jobs if ql in j["title"].lower() or ql in j["company"].lower() or ql in j["description"].lower()]
+
+        # Filter by work type
+        if work_type:
+            wtl = work_type.lower()
+            filtered = [j for j in all_jobs if wtl in (j["workType"] or "").lower()]
+            if filtered:
+                all_jobs = filtered
+
+        # Deduplicate by URL
+        seen_urls = set()
+        deduped = []
+        for j in all_jobs:
+            url_key = (j["url"] or j["title"] + j["company"]).lower()
+            if url_key not in seen_urls:
+                seen_urls.add(url_key)
+                deduped.append(j)
+        all_jobs = deduped
+
+        # Paginate
+        total = len(all_jobs)
+        start = (page - 1) * per_page
+        page_jobs = all_jobs[start:start + per_page]
 
         return {
-            "jobs": jobs,
+            "jobs": page_jobs,
             "total": total,
             "page": page,
             "perPage": per_page,
