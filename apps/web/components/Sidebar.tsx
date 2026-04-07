@@ -19,6 +19,7 @@ import {
   LogOut,
   Rss,
   Shield,
+  MessageCircle,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { apiFetch } from "@/lib/api/client"
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/dashboard/feed", label: "Job Feed", icon: Rss },
   { href: "/dashboard/add-job", label: "Add Job", icon: PlusCircle },
   { href: "/dashboard/tailor", label: "Tailor", icon: Wand2, highlight: true },
+  { href: "/dashboard/interview", label: "Mock Interview", icon: MessageCircle },
   { href: "/dashboard/answers", label: "AI Answers", icon: MessageSquare },
   { href: "/dashboard/resumes", label: "Resumes", icon: FileText },
   { href: "/dashboard/profile", label: "Profile", icon: User },

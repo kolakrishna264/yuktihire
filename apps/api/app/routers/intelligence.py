@@ -33,7 +33,12 @@ async def _get_context(data: IntelRequest, current_user: User, db: AsyncSession)
             for exp in c.get("experiences", []):
                 parts.append(f"{exp.get('title','')} at {exp.get('company','')}")
                 parts.extend(exp.get("bullets", []))
-            parts.extend([s if isinstance(s, str) else s.get("name","") for s in c.get("skills", [])])
+            for sk in c.get("skills", []):
+                if isinstance(sk, str): parts.append(sk)
+                elif isinstance(sk, dict):
+                    cat = sk.get("category", "")
+                    items = sk.get("items", sk.get("skills", []))
+                    if cat and items: parts.append(f"{cat}: {', '.join(str(i) for i in items)}")
             resume_text = "\n".join(p for p in parts if p)
 
     jd = data.job_description or ""
@@ -325,3 +330,256 @@ Be specific and actionable."""
 
     result = await _call_ai(prompt)
     return {"strategy": result, "company": ctx["company"], "role": ctx["role"]}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# MOCK INTERVIEW — Interactive chat-based interview practice
+# ══════════════════════════════════════════════════════════════════════════
+
+class MockInterviewStartRequest(BaseModel):
+    resume_id: Optional[str] = None
+    job_description: Optional[str] = None
+    company: Optional[str] = None
+    role: Optional[str] = None
+    tracker_id: Optional[str] = None
+    interview_type: str = "full"  # full, recruiter, technical, behavioral, final
+
+
+class MockInterviewReplyRequest(BaseModel):
+    session_context: str  # The conversation so far (JSON)
+    user_answer: str
+    resume_id: Optional[str] = None
+    job_description: Optional[str] = None
+    company: Optional[str] = None
+    role: Optional[str] = None
+
+
+INTERVIEW_SYSTEM = """You are an expert interviewer conducting a realistic mock interview.
+
+You are interviewing a candidate for the role of {role} at {company}.
+
+Your style:
+- Act as a real interviewer — professional, warm but probing
+- Ask ONE question at a time
+- Wait for the candidate's response before moving on
+- Ask follow-up questions based on their answers (like a real interviewer would)
+- Mix question types: opening/rapport, behavioral, technical, situational, role-specific
+- Calibrate difficulty to the seniority level implied by the JD
+
+Interview structure:
+1. Start with a warm greeting and opening question ("Tell me about yourself" or "Walk me through your background")
+2. Then ask 2-3 role-specific technical questions based on the JD
+3. Then 1-2 behavioral questions (STAR format expected)
+4. Then 1 situational/problem-solving question
+5. End with "Do you have any questions for us?"
+
+When the candidate answers:
+- Acknowledge their answer briefly (like a real interviewer: "That's interesting" or "Good example")
+- Then ask the next question naturally
+
+CRITICAL: Only ask ONE question per message. Wait for the response."""
+
+FEEDBACK_SYSTEM = """You are an expert interview coach providing feedback on a candidate's answer.
+
+Evaluate the answer on:
+1. RELEVANCE (0-10): Does it answer the question asked?
+2. SPECIFICITY (0-10): Does it use concrete examples, numbers, technologies?
+3. STRUCTURE (0-10): Is it well-organized (STAR for behavioral, clear for technical)?
+4. CONFIDENCE (0-10): Does it sound confident and professional?
+
+Provide:
+- Overall score (average of 4 dimensions)
+- 1-2 specific strengths
+- 1-2 specific improvements
+- A suggested stronger answer (100-150 words)
+
+Be constructive, not harsh. This is practice."""
+
+
+@router.post("/mock-interview/start")
+async def start_mock_interview(
+    data: MockInterviewStartRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Start a mock interview. Returns the first question."""
+    ctx = await _get_context(
+        IntelRequest(resume_id=data.resume_id, job_description=data.job_description,
+                     company=data.company, role=data.role, tracker_id=data.tracker_id),
+        current_user, db
+    )
+
+    company = ctx["company"] or "the company"
+    role = ctx["role"] or "the position"
+
+    from anthropic import AsyncAnthropic
+    from app.core.config import get_settings
+    settings = get_settings()
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    system = INTERVIEW_SYSTEM.format(role=role, company=company)
+
+    user_msg = f"""Begin the interview now. Here is the context:
+
+Job Description:
+{ctx['jd'][:2000] or 'No JD provided — ask general questions for this role.'}
+
+Candidate's Resume:
+{ctx['resume_text'][:2000] or 'No resume provided.'}
+
+Interview Type: {data.interview_type}
+
+Start with a warm greeting and your first question. Remember: only ONE question."""
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=500,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        first_question = response.content[0].text.strip()
+    except Exception as e:
+        first_question = f"Hello! Thank you for taking the time to interview with us today. Could you start by telling me a bit about yourself and what drew you to this {role} position at {company}?"
+
+    return {
+        "question": first_question,
+        "questionNumber": 1,
+        "interviewType": data.interview_type,
+        "company": company,
+        "role": role,
+        "sessionContext": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+            {"role": "assistant", "content": first_question},
+        ],
+    }
+
+
+@router.post("/mock-interview/reply")
+async def mock_interview_reply(
+    data: MockInterviewReplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Continue the mock interview. Send candidate's answer, get next question."""
+    import json
+
+    try:
+        session = json.loads(data.session_context) if isinstance(data.session_context, str) else data.session_context
+    except:
+        session = []
+
+    # Add candidate's answer
+    session.append({"role": "user", "content": data.user_answer})
+
+    # Count questions asked so far
+    q_count = sum(1 for m in session if m["role"] == "assistant")
+
+    from anthropic import AsyncAnthropic
+    from app.core.config import get_settings
+    settings = get_settings()
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    # Extract system message
+    system_msg = ""
+    api_messages = []
+    for m in session:
+        if m["role"] == "system":
+            system_msg = m["content"]
+        else:
+            api_messages.append({"role": m["role"], "content": m["content"]})
+
+    # After 6-7 questions, wrap up
+    if q_count >= 7:
+        api_messages.append({
+            "role": "user",
+            "content": "(System note: This is question 7+. Wrap up the interview naturally. Thank the candidate and ask if they have any questions for you.)"
+        })
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            system=system_msg,
+            messages=api_messages,
+        )
+        next_question = response.content[0].text.strip()
+    except Exception as e:
+        next_question = "Thank you for that answer. That's all the questions I have for now. Do you have any questions for us?"
+
+    session.append({"role": "assistant", "content": next_question})
+
+    is_complete = q_count >= 8 or "questions for us" in next_question.lower() or "questions for me" in next_question.lower()
+
+    return {
+        "question": next_question,
+        "questionNumber": q_count + 1,
+        "isComplete": is_complete,
+        "sessionContext": session,
+    }
+
+
+@router.post("/mock-interview/feedback")
+async def mock_interview_feedback(
+    data: MockInterviewReplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get feedback on a specific answer during the interview."""
+    import json
+
+    try:
+        session = json.loads(data.session_context) if isinstance(data.session_context, str) else data.session_context
+    except:
+        session = []
+
+    # Find the last interviewer question
+    last_question = ""
+    for m in reversed(session):
+        if m["role"] == "assistant":
+            last_question = m["content"]
+            break
+
+    # Get resume context for suggested answer
+    ctx = await _get_context(
+        IntelRequest(resume_id=data.resume_id, job_description=data.job_description,
+                     company=data.company, role=data.role),
+        current_user, db
+    )
+
+    from anthropic import AsyncAnthropic
+    from app.core.config import get_settings
+    settings = get_settings()
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    prompt = f"""Interview Question: {last_question}
+
+Candidate's Answer: {data.user_answer}
+
+Candidate's Resume (for context):
+{ctx['resume_text'][:1500]}
+
+{FEEDBACK_SYSTEM}
+
+Provide your feedback now in this format:
+SCORE: X/10
+STRENGTHS: ...
+IMPROVEMENTS: ...
+SUGGESTED ANSWER: ..."""
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        feedback = response.content[0].text.strip()
+    except Exception as e:
+        feedback = f"Error generating feedback: {str(e)}"
+
+    return {
+        "question": last_question,
+        "userAnswer": data.user_answer,
+        "feedback": feedback,
+    }
