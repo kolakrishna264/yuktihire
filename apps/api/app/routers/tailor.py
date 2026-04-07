@@ -106,6 +106,38 @@ async def run_pipeline_background(
             )
             print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
+            # ── SAVE ATS SCORE IMMEDIATELY — before any auto-add that might crash ──
+            jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
+            gap_analysis_result = result.get("gap_analysis", {})
+            early_score = calculate_ats_score(resume_content, jd_analysis_result, gap_analysis_result)
+            try:
+                early_ats = AtsScore(
+                    session_id=session_id,
+                    overall_score=int(early_score.get("overall_score", 0)),
+                    keyword_score=int(early_score.get("keyword_score", 0)),
+                    skills_score=int(early_score.get("skills_score", 0)),
+                    experience_score=int(early_score.get("experience_score", 0)),
+                    education_score=int(early_score.get("education_score", 0)),
+                    format_score=int(early_score.get("format_score", 0)),
+                    matched_keywords=early_score.get("matched_keywords", []),
+                    missing_keywords=early_score.get("missing_keywords", []),
+                    tips=early_score.get("tips", []),
+                )
+                db.add(early_ats)
+                # Mark session complete early
+                sess_early = await db.execute(select(TailoringSession).where(TailoringSession.id == session_id))
+                sess_obj_early = sess_early.scalar_one_or_none()
+                if sess_obj_early:
+                    sess_obj_early.status = SessionStatus.COMPLETED
+                    sess_obj_early.match_score = int(early_score.get("overall_score", 0))
+                    sess_obj_early.passes_completed = 3
+                    sess_obj_early.completed_at = datetime.utcnow()
+                await db.commit()
+                print(f"[Pipeline] Early ATS score saved: {early_score.get('overall_score')}%")
+            except Exception as early_err:
+                print(f"[Pipeline] Early score save error: {early_err}")
+
+            # ── Now do auto-add (if this crashes, ATS score is already saved) ──
             # ── Restore original summary — try multiple sources ──
             try:
                 from sqlalchemy import text as sql_text
@@ -602,40 +634,29 @@ async def run_pipeline_background(
                     status=RecommendationStatus.ACCEPTED,
                 ))
 
-            # Save ATS score
+            # Update ATS score (already saved early — update with final score)
             ats = ats_after
-            print(f"[Pipeline] Saving ATS score: {ats.get('overall_score')}%")
+            print(f"[Pipeline] Updating ATS score to: {ats.get('overall_score')}%")
             try:
-                ats_score_obj = AtsScore(
-                    session_id=session_id,
-                    overall_score=int(ats.get("overall_score", 0)),
-                    keyword_score=int(ats.get("keyword_score", 0)),
-                    skills_score=int(ats.get("skills_score", 0)),
-                    experience_score=int(ats.get("experience_score", 0)),
-                    education_score=int(ats.get("education_score", 0)),
-                    format_score=int(ats.get("format_score", 0)),
-                    matched_keywords=ats.get("matched_keywords", []),
-                    missing_keywords=ats.get("missing_keywords", []),
-                    tips=ats.get("tips", []),
-                )
-                db.add(ats_score_obj)
-                print(f"[Pipeline] ATS score object added to session")
+                await db.execute(text("""
+                    UPDATE ats_scores SET
+                        overall_score = :overall, keyword_score = :kw, skills_score = :skills,
+                        experience_score = :exp, education_score = :edu, format_score = :fmt
+                    WHERE session_id = :sid
+                """), {
+                    "sid": session_id, "overall": int(ats.get("overall_score", 0)),
+                    "kw": int(ats.get("keyword_score", 0)), "skills": int(ats.get("skills_score", 0)),
+                    "exp": int(ats.get("experience_score", 0)), "edu": int(ats.get("education_score", 0)),
+                    "fmt": int(ats.get("format_score", 0)),
+                })
+                # Update session match score
+                await db.execute(text(
+                    "UPDATE tailoring_sessions SET match_score = :score WHERE id = :sid"
+                ), {"score": int(ats.get("overall_score", 0)), "sid": session_id})
+                await db.commit()
+                print(f"[Pipeline] Final score updated")
             except Exception as score_err:
-                print(f"[Pipeline] ATS score save ERROR: {score_err}")
-                import traceback; traceback.print_exc()
-
-            # Update session status
-            session_result2 = await db.execute(
-                select(TailoringSession).where(TailoringSession.id == session_id)
-            )
-            session = session_result2.scalar_one_or_none()
-            if session:
-                session.status = SessionStatus.COMPLETED
-                session.match_score = int(ats.get("overall_score", 0))
-                session.passes_completed = 3
-                session.completed_at = datetime.utcnow()
-
-            await db.commit()
+                print(f"[Pipeline] Final score update error: {score_err}")
 
         except Exception as e:
             print(f"[Pipeline] CRITICAL ERROR: {e}")
