@@ -22,11 +22,11 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   .contact { font-size: 9.5pt; color: #333; margin-top: 2px; }
   .header-line { border: none; border-top: 1px solid #000; margin: 4px 0 0 0; }
 
-  .section { margin-bottom: 4px; }
-  .section-title { font-size: 10.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
-    margin-bottom: 2px; color: #000; padding-top: 3px; }
+  .section { margin-bottom: 2px; }
+  .section-title { font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+    margin-bottom: 1px; color: #000; padding-top: 2px; }
 
-  .exp-item { margin-bottom: 4px; }
+  .exp-item { margin-bottom: 3px; }
   .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
   .exp-company { font-weight: bold; font-size: 10.5pt; }
   .exp-dates { font-size: 9.5pt; color: #333; }
@@ -64,7 +64,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 {% if summary %}
 <div class="section">
   <div class="section-title">Professional Summary</div>
-  <p style="font-size:10pt; line-height:1.35;">{{ summary }}</p>
+  <p style="font-size:9.5pt; line-height:1.2;">{{ summary }}</p>
 </div>
 {% endif %}
 
