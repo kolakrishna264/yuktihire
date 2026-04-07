@@ -106,20 +106,42 @@ async def run_pipeline_background(
             )
             print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
-            # ── ALWAYS restore original summary from profile ──
-            # The saved resume.content.summary may have been overwritten by previous tailoring
-            # Always use the profile's original summary as the base
+            # ── Restore original summary — try multiple sources ──
             try:
                 from sqlalchemy import text as sql_text
-                prof_summary = await db.execute(sql_text(
-                    "SELECT summary, headline FROM profiles WHERE user_id = (SELECT user_id FROM resumes WHERE id = (SELECT resume_id FROM tailoring_sessions WHERE id = :sid) LIMIT 1) LIMIT 1"
-                ), {"sid": session_id})
-                prof_row = prof_summary.mappings().first()
-                if prof_row:
-                    restored = prof_row.get("summary") or prof_row.get("headline") or ""
-                    if restored and len(restored) > 50:
-                        resume_content["summary"] = restored
-                        print(f"[Pipeline] Restored summary from profile ({len(restored)} chars)")
+                sess_for_resume = await db.execute(
+                    select(TailoringSession).where(TailoringSession.id == session_id)
+                )
+                sess_obj_for_resume = sess_for_resume.scalar_one_or_none()
+                if sess_obj_for_resume:
+                    rid = sess_obj_for_resume.resume_id
+                    # Source 1: earliest resume_version (the original upload)
+                    ver_result = await db.execute(sql_text(
+                        "SELECT content FROM resume_versions WHERE resume_id = :rid ORDER BY created_at ASC LIMIT 1"
+                    ), {"rid": rid})
+                    ver_row = ver_result.mappings().first()
+                    if ver_row and ver_row.get("content"):
+                        import json as _json
+                        ver_content = ver_row["content"]
+                        if isinstance(ver_content, str):
+                            try: ver_content = _json.loads(ver_content)
+                            except: ver_content = {}
+                        original_summary = (ver_content.get("summary", "") or "").strip() if isinstance(ver_content, dict) else ""
+                        if original_summary and len(original_summary) > 80:
+                            resume_content["summary"] = original_summary
+                            print(f"[Pipeline] Restored summary from first version ({len(original_summary)} chars)")
+
+                    # Source 2: profile summary (fallback)
+                    if not resume_content.get("summary") or len((resume_content.get("summary", "") or "").strip()) < 50:
+                        prof_result = await db.execute(sql_text(
+                            "SELECT summary, headline FROM profiles WHERE user_id = (SELECT user_id FROM resumes WHERE id = :rid LIMIT 1) LIMIT 1"
+                        ), {"rid": rid})
+                        prof_row = prof_result.mappings().first()
+                        if prof_row:
+                            restored = prof_row.get("summary") or prof_row.get("headline") or ""
+                            if restored and len(restored) > 50:
+                                resume_content["summary"] = restored
+                                print(f"[Pipeline] Restored summary from profile ({len(restored)} chars)")
             except Exception as e:
                 print(f"[Pipeline] Summary restore error: {e}")
 
