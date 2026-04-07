@@ -529,31 +529,50 @@ async def run_pipeline_background(
                 applied_count += 1
             tailored_content["skills"] = current_skills
 
-            # ── 2. Extend EXISTING bullets with JD keywords (no new bullets) ──
+            # ── 2. Add keyword bullets to fill page gap ──
             all_keywords_to_add = experience_keywords + summary_additions
             experiences = tailored_content.get("experiences", [])
 
             if all_keywords_to_add and experiences:
-                # Distribute keywords across existing bullets by appending to shorter ones
-                kw_idx = 0
-                for exp in experiences:
-                    bullets = exp.get("bullets", [])
-                    for bi in range(len(bullets)):
-                        if kw_idx >= len(all_keywords_to_add):
+                # Calculate how many bullets to add based on page fill
+                total_bullets = sum(len(e.get("bullets", [])) for e in experiences)
+                # A 2-page resume typically fits 28-32 bullets total
+                # Add enough to reach ~28 but not exceed ~30
+                target_total = 28
+                can_add = max(0, target_total - total_bullets)
+                can_add = min(can_add, len(all_keywords_to_add) // 2)  # 2 keywords per bullet
+                can_add = min(can_add, 6)  # absolute max 6 new bullets
+
+                if can_add > 0:
+                    kw_idx = 0
+                    verbs = ["Applied", "Leveraged", "Implemented", "Utilized", "Demonstrated", "Delivered"]
+                    added = 0
+
+                    # Add to each experience proportionally
+                    for exp_i, exp in enumerate(experiences):
+                        if added >= can_add:
                             break
-                        bullet = bullets[bi]
-                        # Only extend bullets that are short (< 150 chars)
-                        if len(bullet) < 150:
-                            kw = all_keywords_to_add[kw_idx]
-                            # Append keyword naturally to the end of the bullet
-                            if bullet.rstrip().endswith("."):
-                                bullet = bullet.rstrip()[:-1] + f", incorporating {kw} best practices."
+                        bullets = exp.get("bullets", [])
+                        # Add 1-2 per experience
+                        max_for_exp = 2 if exp_i == 0 else 2
+                        for _ in range(min(max_for_exp, can_add - added)):
+                            if kw_idx + 2 > len(all_keywords_to_add):
+                                break
+                            kw1 = all_keywords_to_add[kw_idx]
+                            kw2 = all_keywords_to_add[kw_idx + 1] if kw_idx + 1 < len(all_keywords_to_add) else ""
+                            kw_idx += 2 if kw2 else 1
+                            verb = verbs[added % len(verbs)]
+                            if kw2:
+                                bullet = f"{verb} {kw1} and {kw2} methodologies to optimize system performance and deliver high-quality engineering outcomes."
                             else:
-                                bullet = bullet.rstrip() + f", leveraging {kw}."
-                            bullets[bi] = bullet
-                            kw_idx += 1
-                    exp["bullets"] = bullets
-                print(f"[AutoAdd] Extended {kw_idx} existing bullets with JD keywords")
+                                bullet = f"{verb} {kw1} techniques across production workflows to improve system reliability and scalability."
+                            bullets.append(bullet)
+                            added += 1
+                        exp["bullets"] = bullets
+
+                    print(f"[AutoAdd] Added {added} keyword bullets (total now {total_bullets + added}, target {target_total})")
+                else:
+                    print(f"[AutoAdd] No bullets needed (total {total_bullets} already near target {target_total})")
 
             # Add keywords to summary — APPEND naturally, never replace
             if all_keywords_to_add:
