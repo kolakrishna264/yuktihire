@@ -510,43 +510,6 @@ async def get_permissions(
 from pydantic import BaseModel as PydanticModel
 from typing import Optional as Opt
 
-@app.get(API_PREFIX + "/extension/download")
-async def download_extension():
-    """Serve only the Chrome extension files as a zip — NOT the full source code."""
-    import zipfile
-    import io
-    import os
-
-    ext_dir = os.path.join(os.path.dirname(__file__), "..", "apps", "extension")
-    # Fallback: try relative to current working directory
-    if not os.path.isdir(ext_dir):
-        ext_dir = os.path.join(os.getcwd(), "apps", "extension")
-    if not os.path.isdir(ext_dir):
-        # If extension files aren't on the API server, return a redirect to a hosted zip
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse("https://yuktihire.com/yuktihire-extension.zip")
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(ext_dir):
-            # Skip node_modules, .git, __pycache__
-            dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", "__pycache__"}]
-            for f in files:
-                if f.endswith((".py", ".pyc", ".env", ".gitignore")):
-                    continue
-                filepath = os.path.join(root, f)
-                arcname = os.path.join("yuktihire-extension", os.path.relpath(filepath, ext_dir))
-                zf.write(filepath, arcname)
-
-    buffer.seek(0)
-    from fastapi.responses import StreamingResponse
-    return StreamingResponse(
-        iter([buffer.getvalue()]),
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="yuktihire-extension.zip"'},
-    )
-
-
 class FeedbackPayload(PydanticModel):
     rating: Opt[int] = None
     category: Opt[str] = None

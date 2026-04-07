@@ -25,6 +25,51 @@ class CaptureData(BaseModel):
     experience_level: Optional[str] = None
 
 
+@router.get("/download")
+async def download_extension():
+    """Serve only the Chrome extension files as a zip — NOT the full source code."""
+    import zipfile
+    import io
+    import os
+    from fastapi.responses import StreamingResponse
+
+    # Try multiple paths to find the extension directory
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "apps", "extension"),
+        os.path.join(os.getcwd(), "apps", "extension"),
+        os.path.join(os.getcwd(), "extension"),
+        "/app/apps/extension",  # Railway container path
+    ]
+
+    ext_dir = None
+    for path in candidates:
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, "manifest.json")):
+            ext_dir = path
+            break
+
+    if not ext_dir:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Extension files not found on server. Contact support.")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, dirs, files in os.walk(ext_dir):
+            dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", "__pycache__"}]
+            for f in files:
+                if f.endswith((".py", ".pyc", ".env", ".gitignore")):
+                    continue
+                filepath = os.path.join(root, f)
+                arcname = os.path.join("yuktihire-extension", os.path.relpath(filepath, ext_dir))
+                zf.write(filepath, arcname)
+
+    buffer.seek(0)
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="yuktihire-extension.zip"'},
+    )
+
+
 @router.get("/status")
 async def extension_status(current_user: User = Depends(get_current_user)):
     """Auth check + return user plan info for extension."""
