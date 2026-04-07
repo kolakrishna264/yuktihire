@@ -106,23 +106,22 @@ async def run_pipeline_background(
             )
             print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
-            # ── Fix corrupted summary (keyword-dump from previous tailoring) ──
-            current_summary = (resume_content.get("summary", "") or "").strip()
-            if current_summary.startswith(".") or current_summary.startswith("Skilled in") or current_summary.startswith("Proficient in") or len(current_summary) < 30:
-                # Summary is corrupted — try to restore from profile
-                try:
-                    from sqlalchemy import text as sql_text
-                    prof_summary = await db.execute(sql_text(
-                        "SELECT summary, headline FROM profiles WHERE user_id = (SELECT user_id FROM resumes WHERE id = (SELECT resume_id FROM tailoring_sessions WHERE id = :sid) LIMIT 1) LIMIT 1"
-                    ), {"sid": session_id})
-                    prof_row = prof_summary.mappings().first()
-                    if prof_row:
-                        restored = prof_row.get("summary") or prof_row.get("headline") or ""
-                        if restored and len(restored) > 50:
-                            resume_content["summary"] = restored
-                            print(f"[Pipeline] Restored summary from profile ({len(restored)} chars)")
-                except Exception as e:
-                    print(f"[Pipeline] Summary restore error: {e}")
+            # ── ALWAYS restore original summary from profile ──
+            # The saved resume.content.summary may have been overwritten by previous tailoring
+            # Always use the profile's original summary as the base
+            try:
+                from sqlalchemy import text as sql_text
+                prof_summary = await db.execute(sql_text(
+                    "SELECT summary, headline FROM profiles WHERE user_id = (SELECT user_id FROM resumes WHERE id = (SELECT resume_id FROM tailoring_sessions WHERE id = :sid) LIMIT 1) LIMIT 1"
+                ), {"sid": session_id})
+                prof_row = prof_summary.mappings().first()
+                if prof_row:
+                    restored = prof_row.get("summary") or prof_row.get("headline") or ""
+                    if restored and len(restored) > 50:
+                        resume_content["summary"] = restored
+                        print(f"[Pipeline] Restored summary from profile ({len(restored)} chars)")
+            except Exception as e:
+                print(f"[Pipeline] Summary restore error: {e}")
 
             # ── Enrich resume content if sections are missing ──
             if session_id:

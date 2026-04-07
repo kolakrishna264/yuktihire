@@ -411,8 +411,8 @@ def calculate_ats_score(
     kw_exp = experience_keyword_score(sections, all_keywords)
     # If overall keywords match is high, experience should also be high
     # Floor: at least 70% of the keyword score (keywords ARE in the resume)
-    exp_floor = int(kw_score * 0.75) if kw_score >= 80 else int(kw_score * 0.6)
-    exp_score = max(kw_exp, exp_floor)
+    # Floor matches keyword score — no artificial reduction
+    exp_score = max(kw_exp, kw_score)
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
