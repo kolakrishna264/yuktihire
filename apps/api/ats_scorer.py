@@ -457,8 +457,9 @@ def calculate_ats_score(
         overall = min(overall + 5, 100)
     if title_score >= 80:
         overall = min(overall + 3, 100)
-    # Experience depth
-    high_align = sum(1 for a in alignments if a.get("alignment_score", 0) >= 60)
+    # Experience depth bonus
+    gap_alignments = gap_analysis.get("bullet_alignments", [])
+    high_align = sum(1 for a in gap_alignments if a.get("alignment_score", 0) >= 60)
     if high_align >= 5: overall = min(overall + 4, 100)
     elif high_align >= 3: overall = min(overall + 2, 100)
     # Well-distributed keywords bonus
