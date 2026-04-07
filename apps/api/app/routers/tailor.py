@@ -269,24 +269,45 @@ async def run_pipeline_background(
 
             print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
 
-            # Add ALL missing keywords — no exceptions.
-            # The gap analyzer's "true_skill_gaps" is unreliable — it marks things
-            # like "code reviews" and "scalable systems" as gaps when the user has them.
-            # Just add everything to maximize the ATS score.
-            skills_to_add = []
-            summary_additions = []
-            for kw in all_missing:
-                if len(kw.split()) > 3:
-                    summary_additions.append(kw)
-                else:
-                    skills_to_add.append(kw)
-            print(f"[AutoAdd] Adding {len(skills_to_add)} skills + {len(summary_additions)} to summary")
+            # ── Route keywords to the RIGHT section ──
+            # Real tools → skills (max 5 new)
+            # Concepts/practices → summary
+            # Everything else → new experience bullet
+            # ── Route: 80-90% to experience bullets, 10-20% to summary ──
+            # Only real tool names (Python, Docker, etc.) go to skills — max 5
+            REAL_TOOLS = {
+                "python", "java", "javascript", "typescript", "c++", "c#", "golang", "rust",
+                "ruby", "scala", "kotlin", "swift", "sql", "nosql", "bash", "r",
+                "pytorch", "tensorflow", "keras", "scikit-learn", "xgboost", "lightgbm",
+                "langchain", "openai", "hugging face", "faiss", "pinecone",
+                "docker", "kubernetes", "terraform", "ansible", "jenkins",
+                "aws", "azure", "gcp", "sagemaker", "ec2", "s3", "lambda",
+                "react", "angular", "vue", "node", "fastapi", "flask", "django",
+                "postgresql", "mongodb", "redis", "elasticsearch", "kafka",
+                "spark", "airflow", "pandas", "numpy", "matplotlib",
+                "git", "github", "jira", "grafana", "prometheus", "datadog",
+                "tableau", "streamlit", "mlflow",
+            }
 
-            # Add missing skills to the correct category
+            skills_to_add = []
+            bullet_keywords = []  # 80-90% go here
+            for kw in all_missing:
+                if kw.lower().strip() in REAL_TOOLS:
+                    skills_to_add.append(kw)
+                else:
+                    bullet_keywords.append(kw)
+
+            # Split bullet_keywords: 80% to experience, 20% to summary
+            split_idx = max(1, int(len(bullet_keywords) * 0.8))
+            experience_keywords = bullet_keywords[:split_idx]
+            summary_additions = bullet_keywords[split_idx:]
+
+            skills_to_add = skills_to_add[:5]
+            print(f"[AutoAdd] {len(skills_to_add)} tools→skills, {len(experience_keywords)} kws→experience, {len(summary_additions)} kws→summary")
+
+            # ── 1. Add real tools to skills (max 5) ──
             current_skills = tailored_content.get("skills", [])
             has_items = any(isinstance(s, dict) and s.get("items") for s in current_skills)
-            has_skeys = any(isinstance(s, dict) and s.get("skills") for s in current_skills)
-
             existing_lower = set()
             for s in current_skills:
                 if isinstance(s, dict):
@@ -299,34 +320,53 @@ async def run_pipeline_background(
             for ns in skills_to_add:
                 if ns.lower() in existing_lower:
                     continue
-                if has_items or has_skeys:
-                    items_key = "items" if has_items else "skills"
+                if has_items:
                     best_cat = _infer_skill_category_for_existing(ns, current_skills)
                     if best_cat:
                         for cat_obj in current_skills:
                             if isinstance(cat_obj, dict) and cat_obj.get("category") == best_cat:
-                                cat_obj.get(items_key, []).append(ns)
+                                cat_obj.get("items", []).append(ns)
                                 break
                     else:
-                        # No matching user category — use the backend categorizer's name
                         backend_result = categorize_clean_skills([ns])
-                        new_cat_name = backend_result[0]["category"] if backend_result else "Other"
-                        # Check if we already created this category
+                        cat_name = backend_result[0]["category"] if backend_result else "Other"
                         found = False
                         for cat_obj in current_skills:
-                            if isinstance(cat_obj, dict) and cat_obj.get("category", "").lower() == new_cat_name.lower():
-                                cat_obj.get(items_key, []).append(ns)
+                            if isinstance(cat_obj, dict) and cat_obj.get("category", "").lower() == cat_name.lower():
+                                cat_obj.get("items", []).append(ns)
                                 found = True
                                 break
                         if not found:
-                            current_skills.append({"category": new_cat_name, items_key: [ns]})
-                else:
-                    current_skills.append(ns)
+                            current_skills.append({"category": cat_name, "items": [ns]})
                 existing_lower.add(ns.lower())
                 added_to_skills.append(ns)
                 applied_count += 1
-
             tailored_content["skills"] = current_skills
+
+            # ── 2. Add 80% of keywords as experience bullets (main placement) ──
+            if experience_keywords and tailored_content.get("experiences"):
+                # Distribute across top 2 experiences
+                for exp_i, exp in enumerate(tailored_content["experiences"][:2]):
+                    bullets = exp.get("bullets", [])
+                    # Take a chunk of keywords for this experience
+                    if exp_i == 0:
+                        chunk = experience_keywords[:int(len(experience_keywords) * 0.6)]
+                    else:
+                        chunk = experience_keywords[int(len(experience_keywords) * 0.6):]
+                    if not chunk:
+                        continue
+                    # Create 2-4 new bullets grouping 2-3 keywords each
+                    groups = [chunk[i:i+3] for i in range(0, len(chunk), 3)]
+                    for group in groups[:3]:
+                        if len(group) >= 3:
+                            bullet = f"Leveraged {group[0]}, {group[1]}, and {group[2]} to build and optimize production-grade systems."
+                        elif len(group) == 2:
+                            bullet = f"Applied {group[0]} and {group[1]} practices across cross-functional engineering teams."
+                        else:
+                            bullet = f"Implemented {group[0]} methodologies in production ML infrastructure."
+                        bullets.append(bullet)
+                        applied_count += 1
+                    exp["bullets"] = bullets
 
             # Weave missing concept keywords into summary if not already there
             summary = tailored_content.get("summary", "")
