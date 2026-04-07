@@ -312,43 +312,65 @@ async def get_personalized_feed(
     try:
         all_jobs = []
 
-        # ── Query curated_jobs ──
+        # ── Source 1: Curated jobs ──
         try:
-            curated_result = await db.execute(text(f"""
-                SELECT * FROM curated_jobs
-                WHERE is_active = TRUE AND created_at >= :cutoff
-                ORDER BY created_at DESC LIMIT 50
-            """), {"cutoff": cutoff_str})
+            curated_result = await db.execute(text(
+                "SELECT * FROM curated_jobs WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 50"
+            ))
             for row in curated_result.mappings().all():
                 all_jobs.append(_format_job(dict(row), "curated"))
         except Exception as e:
-            print(f"[Feed] curated_jobs query error: {e}")
+            print(f"[Feed] curated_jobs error: {e}")
 
-        # ── Query discovered jobs ──
+        # ── Source 2: Discovered jobs ──
         try:
-            discover_result = await db.execute(text(f"""
-                SELECT * FROM jobs
-                WHERE is_active = TRUE AND (posted_at >= :cutoff OR created_at >= :cutoff)
-                ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50
-            """), {"cutoff": cutoff_str})
+            discover_result = await db.execute(text(
+                "SELECT * FROM jobs WHERE is_active = TRUE ORDER BY COALESCE(posted_at, created_at) DESC LIMIT 50"
+            ))
             for row in discover_result.mappings().all():
                 all_jobs.append(_format_job(dict(row), "discovered"))
         except Exception as e:
-            print(f"[Feed] jobs query error: {e}")
+            print(f"[Feed] jobs error: {e}")
 
-        # ── Query user's saved jobs as fallback ──
+        # ── Source 3: User's saved jobs ──
         try:
-            saved_result = await db.execute(text(f"""
-                SELECT id, role as title, company, location, url, description, salary,
-                       work_type, experience_level, created_at
-                FROM job_applications
-                WHERE user_id = :uid AND created_at >= :cutoff
-                ORDER BY created_at DESC LIMIT 20
-            """), {"uid": current_user.id, "cutoff": cutoff_str})
+            saved_result = await db.execute(text(
+                "SELECT id, role as title, company, location, url, description, salary, work_type, experience_level, created_at FROM job_applications WHERE user_id = :uid ORDER BY created_at DESC LIMIT 30"
+            ), {"uid": current_user.id})
             for row in saved_result.mappings().all():
                 all_jobs.append(_format_job(dict(row), "saved"))
         except Exception as e:
-            print(f"[Feed] saved jobs query error: {e}")
+            print(f"[Feed] saved jobs error: {e}")
+
+        # ── Source 4: Live API fallback (if DB has no jobs) ──
+        if len(all_jobs) == 0:
+            try:
+                import httpx
+                search_terms = preferred_titles[:2] if preferred_titles else ["engineer"]
+                for term in search_terms[:1]:
+                    async with httpx.AsyncClient(timeout=8.0) as client:
+                        resp = await client.get(f"https://remotive.com/api/remote-jobs?search={term}&limit=20")
+                        if resp.status_code == 200:
+                            for job in resp.json().get("jobs", [])[:20]:
+                                all_jobs.append({
+                                    "id": str(job.get("id", "")),
+                                    "title": job.get("title", ""),
+                                    "company": job.get("company_name", ""),
+                                    "location": job.get("candidate_required_location", ""),
+                                    "url": job.get("url", ""),
+                                    "description": (job.get("description", "") or "")[:500],
+                                    "fullDescription": job.get("description", ""),
+                                    "workType": "remote",
+                                    "employmentType": job.get("job_type", ""),
+                                    "experienceLevel": "",
+                                    "salaryRange": job.get("salary", ""),
+                                    "skills": ", ".join(job.get("tags", [])[:5]),
+                                    "tags": "",
+                                    "postedAt": job.get("publication_date", ""),
+                                    "sourceType": "remotive",
+                                })
+            except Exception as e:
+                print(f"[Feed] live API fallback error: {e}")
 
         # ── Filter by preferences (in Python, not SQL — more reliable) ──
         if preferred_titles and not q:
