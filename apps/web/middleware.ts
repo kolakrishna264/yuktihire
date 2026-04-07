@@ -2,6 +2,20 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function middleware(request: NextRequest) {
+  const { pathname, searchParams } = request.nextUrl
+
+  // ── Intercept OAuth code on ANY page and redirect to callback ──
+  // Google OAuth sometimes redirects to /?code=xxx instead of /auth/callback?code=xxx
+  const code = searchParams.get("code")
+  if (code && pathname !== "/auth/callback") {
+    const callbackUrl = new URL("/auth/callback", request.url)
+    callbackUrl.searchParams.set("code", code)
+    // Forward any other params
+    const next = searchParams.get("next")
+    if (next) callbackUrl.searchParams.set("next", next)
+    return NextResponse.redirect(callbackUrl)
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -25,8 +39,6 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh session — this keeps the auth cookie alive
-  // and is REQUIRED for OAuth PKCE flow to work
   await supabase.auth.getUser()
 
   return supabaseResponse
