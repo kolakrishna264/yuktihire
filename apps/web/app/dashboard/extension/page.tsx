@@ -55,7 +55,8 @@ export default function ExtensionPage() {
               Save jobs from any website, autofill applications, and tailor resumes — all from your browser.
             </p>
             <a
-              href="https://api.yuktihire.com/api/v1/extension/download"
+              href="/yuktihire-extension.zip"
+              download
               className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white text-indigo-700 rounded-2xl font-bold text-sm hover:bg-white/90 transition-all shadow-xl shadow-black/10 hover:-translate-y-0.5"
             >
               <Download className="w-4 h-4" />
