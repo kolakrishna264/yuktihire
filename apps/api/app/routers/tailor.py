@@ -268,6 +268,17 @@ async def run_pipeline_background(
                 except Exception as enrich_err:
                     print(f"[Pipeline] Education enrich error: {enrich_err}")
 
+            # ── Remove auto-added bullets from previous tailoring runs ──
+            auto_patterns = ["to enhance system performance", "to deliver production-ready",
+                             "in cross-functional engineering", "across engineering workflows",
+                             "to drive measurable impact", "in building scalable production"]
+            for exp in resume_content.get("experiences", []):
+                bullets = exp.get("bullets", [])
+                clean_bullets = [b for b in bullets if not any(p in b for p in auto_patterns)]
+                if len(clean_bullets) < len(bullets):
+                    print(f"[Pipeline] Removed {len(bullets) - len(clean_bullets)} auto-added bullets from {exp.get('company', '')}")
+                    exp["bullets"] = clean_bullets
+
             print(f"[Pipeline] Starting skills cleanup")
             # ── HARD CLEAN all skills: cap per category, strip non-tool items ──
             REAL_TOOL_SET = {

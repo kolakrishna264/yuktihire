@@ -13,11 +13,11 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { margin: 0.4in 0.5in; size: letter; }
+  @page { margin: 0.35in 0.45in; size: letter; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 10pt; line-height: 1.25; color: #000; }
 
-  .header { text-align: center; margin-bottom: 8px; }
+  .header { text-align: center; margin-bottom: 4px; }
   .name { font-size: 16pt; font-weight: bold; }
   .contact { font-size: 9.5pt; color: #333; margin-top: 2px; }
   .header-line { border: none; border-top: 1px solid #000; margin: 4px 0 0 0; }
@@ -33,7 +33,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   .exp-title { font-style: italic; font-size: 10pt; color: #222; margin-bottom: 1px; }
 
   ul.bullets { list-style-type: disc; margin-left: 18px; padding: 0; }
-  ul.bullets li { font-size: 10pt; margin-bottom: 1px; line-height: 1.3; color: #000; }
+  ul.bullets li { font-size: 10pt; margin-bottom: 0px; line-height: 1.2; color: #000; }
 
   .skills-text { font-size: 10pt; line-height: 1.4; }
   .skill-cat { margin-bottom: 1px; font-size: 10pt; line-height: 1.35; }
