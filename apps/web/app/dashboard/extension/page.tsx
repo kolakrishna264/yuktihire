@@ -54,20 +54,13 @@ export default function ExtensionPage() {
             <p className="text-base text-white/60 max-w-md leading-relaxed mb-6">
               Save jobs from any website, autofill applications, and tailor resumes — all from your browser.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <a
-                href="/yuktihire-extension.zip"
-                download
-                className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white text-indigo-700 rounded-2xl font-bold text-sm hover:bg-white/90 transition-all shadow-xl shadow-black/10 hover:-translate-y-0.5"
-              >
-                <Download className="w-4 h-4" />
-                Install Extension
-                <ArrowRight className="w-4 h-4" />
-              </a>
-              <span className="text-[11px] text-white/40 self-center">
-                Chrome Web Store coming soon
-              </span>
+            <div className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white/10 border border-white/20 text-white/80 rounded-2xl font-bold text-sm cursor-default">
+              <Chrome className="w-4 h-4" />
+              Coming Soon on Chrome Web Store
             </div>
+            <p className="text-[11px] text-white/40 mt-2">
+              Currently under review — available for install soon
+            </p>
           </div>
 
           {/* Right — floating mocks */}
@@ -85,29 +78,13 @@ export default function ExtensionPage() {
       </div>
 
       {/* ── Quick Install Steps ────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-6">
-        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5" /> Quick setup (under 1 minute)
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-6 text-center">
+        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5" /> Pending Chrome Web Store Review
         </p>
-        <div className="grid sm:grid-cols-3 gap-4">
-          {[
-            { step: "1", title: "Download", text: "Click the Install button above and unzip the downloaded file", icon: Download },
-            { step: "2", title: "Open Chrome Extensions", text: "Go to chrome://extensions and turn on Developer Mode (top right toggle)", icon: Chrome },
-            { step: "3", title: "Load Extension", text: "Click 'Load unpacked' and select the yuktihire-extension folder", icon: Check },
-          ].map((item) => (
-            <div key={item.step} className="flex items-start gap-3 p-4 rounded-xl bg-white border border-indigo-100/60">
-              <span className="w-8 h-8 rounded-lg gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
-                {item.step}
-              </span>
-              <div>
-                <p className="text-xs font-bold text-gray-800 mb-0.5">{item.title}</p>
-                <p className="text-[11px] text-gray-500 leading-relaxed">{item.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-[11px] text-gray-400 mt-3 text-center">
-          Chrome Web Store version coming soon — one-click install without developer mode
+        <p className="text-sm text-gray-600 max-w-md mx-auto">
+          The YuktiHire extension is currently under review by the Chrome Web Store team.
+          Once approved, you&apos;ll be able to install it with one click — just like any other Chrome extension.
         </p>
       </div>
 
