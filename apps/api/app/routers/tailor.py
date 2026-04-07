@@ -322,17 +322,29 @@ async def run_pipeline_background(
             from migrate_clean_skills import categorize_clean_skills
             true_gaps = set(g.lower() for g in gap_analysis_result.get("true_skill_gaps", []))
 
-            missing_kws = ats_mid.get("missing_keywords", [])
-            missing_skills_list = ats_mid.get("missing_skills", [])
+            # Get ALL JD keywords — not just "missing" from overall score
+            # We want keywords missing from EXPERIENCE specifically
+            from ats_scorer import extract_all_jd_keywords, _keyword_in_text, _extract_section_texts
+            all_jd_keywords = extract_all_jd_keywords(jd_analysis_result)
+
+            # Check which keywords are NOT in experience text
+            sections = _extract_section_texts(tailored_content)
+            exp_text = sections.get("experience", "")
 
             all_missing = []
             seen_missing = set()
-            for kw in missing_kws + missing_skills_list:
+            for kw in all_jd_keywords:
+                if kw.lower() not in seen_missing and not _keyword_in_text(kw, exp_text):
+                    seen_missing.add(kw.lower())
+                    all_missing.append(kw)
+
+            # Also add any from mid-score missing lists
+            for kw in ats_mid.get("missing_keywords", []) + ats_mid.get("missing_skills", []):
                 if kw.lower() not in seen_missing:
                     seen_missing.add(kw.lower())
                     all_missing.append(kw)
 
-            print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
+            print(f"[AutoAdd] {len(all_missing)} keywords missing from experience (out of {len(all_jd_keywords)} total JD keywords)")
 
             # ── Route keywords to the RIGHT section ──
             # Real tools → skills (max 5 new)
