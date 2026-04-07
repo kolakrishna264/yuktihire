@@ -8,9 +8,8 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next") ?? "/dashboard"
   const supabase = await createClient()
 
-  // ── Path 1: Email confirmation / OTP (token_hash + type) ─────────────────
-  // This is what Supabase sends in verification emails.
-  // The link looks like: /auth/callback?token_hash=xxx&type=signup
+  // ── Path 1: Email confirmation / OTP (token_hash + type) ──
+  // Used for: email verification, password recovery
   const token_hash = searchParams.get("token_hash")
   const type = searchParams.get("type") as EmailOtpType | null
 
@@ -22,12 +21,15 @@ export async function GET(request: NextRequest) {
         `${origin}/auth/error?message=${encodeURIComponent(error.message)}`
       )
     }
+    // For password recovery, redirect to reset page
+    if (type === "recovery") {
+      return NextResponse.redirect(`${origin}/auth/reset-password`)
+    }
     return NextResponse.redirect(`${origin}${next}`)
   }
 
-  // ── Path 2: OAuth / magic-link PKCE code exchange ────────────────────────
-  // Used by Google OAuth and magic links.
-  // The link looks like: /auth/callback?code=xxx
+  // ── Path 2: OAuth PKCE code exchange ──
+  // Used for: Google OAuth, magic links
   const code = searchParams.get("code")
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
@@ -40,7 +42,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${next}`)
   }
 
-  // ── Fallback: no usable params ────────────────────────────────────────────
+  // ── Fallback: no usable params ──
   console.warn("[auth/callback] No token_hash or code in query params")
   return NextResponse.redirect(
     `${origin}/auth/error?message=${encodeURIComponent("Invalid or expired verification link")}`
