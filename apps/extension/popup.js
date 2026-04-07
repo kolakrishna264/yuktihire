@@ -418,17 +418,18 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#tailor-progress").classList.add("hidden")
     $("#tailor-results").classList.add("hidden")
 
-    // Load resumes
+    // Load resumes — handle both {resumes:[...]} and [...] formats
     const r = await sendMessage({ type: "GET_RESUMES" })
-    if (r.ok && r.data?.resumes?.length) {
+    const resumes = r?.data?.resumes || r?.data || []
+    if (r.ok && resumes.length > 0) {
       const sel = $("#resume-select")
-      sel.innerHTML = r.data.resumes.map(res =>
-        `<option value="${res.id}" ${res.isDefault ? "selected" : ""}>${res.name}${res.isDefault ? " (default)" : ""}</option>`
+      sel.innerHTML = resumes.map(res =>
+        `<option value="${res.id}" ${res.isDefault ? "selected" : ""}>${res.name || "Resume"}${res.isDefault ? " (default)" : ""}</option>`
       ).join("")
-      tailorResumeId = r.data.resumes.find(r => r.isDefault)?.id || r.data.resumes[0]?.id
+      tailorResumeId = resumes.find(r => r.isDefault)?.id || resumes[0]?.id
       sel.onchange = () => { tailorResumeId = sel.value }
     } else {
-      showStatus("No resumes found. Upload one first.", "error")
+      showStatus("No resumes found. Upload one at yuktihire.com/dashboard/resumes", "error")
     }
   })
 

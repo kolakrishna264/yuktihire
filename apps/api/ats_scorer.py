@@ -407,12 +407,14 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience — keyword presence in bullets + floor from overall match ──
+    # ── Experience — keyword presence + quality check ──
     kw_exp = experience_keyword_score(sections, all_keywords)
-    # If overall keywords match is high, experience should also be high
-    # Floor: at least 70% of the keyword score (keywords ARE in the resume)
-    # Floor matches keyword score — no artificial reduction
-    exp_score = max(kw_exp, kw_score)
+    # Realistic scoring: even with all keywords, cap experience at 85%
+    # because auto-added bullets aren't as strong as genuine experience
+    gap_alignments = gap_analysis.get("bullet_alignments", [])
+    gap_avg = int(sum(a.get("alignment_score", 50) for a in gap_alignments) / max(len(gap_alignments), 1)) if gap_alignments else 50
+    # Blend: 60% keyword match + 40% AI quality assessment
+    exp_score = int(kw_exp * 0.6 + gap_avg * 0.4)
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
@@ -446,43 +448,31 @@ def calculate_ats_score(
         proj_score * 0.03
     )
 
-    # ── Boosts ──
+    # ── Realistic boosts (conservative) ──
     if nth_score > 0:
-        overall = min(overall + int(nth_score * 0.06), 100)
+        overall = min(overall + int(nth_score * 0.04), 95)
     if kw_score >= 50 and skills_scr >= 40:
-        overall = min(overall + 8, 100)
-    elif kw_score >= 40 and skills_scr >= 30:
-        overall = min(overall + 5, 100)
+        overall = min(overall + 5, 95)
     if mh_score >= 60:
-        overall = min(overall + 5, 100)
+        overall = min(overall + 3, 95)
     if title_score >= 80:
-        overall = min(overall + 3, 100)
-    # Experience depth bonus
-    gap_alignments = gap_analysis.get("bullet_alignments", [])
-    high_align = sum(1 for a in gap_alignments if a.get("alignment_score", 0) >= 60)
-    if high_align >= 5: overall = min(overall + 4, 100)
-    elif high_align >= 3: overall = min(overall + 2, 100)
+        overall = min(overall + 2, 95)
     # Well-distributed keywords bonus
     well_placed = sum(1 for d in placement_details.values() if d.get("found") and d.get("section") in ("experience", "projects", "summary"))
     stuffed = sum(1 for d in placement_details.values() if d.get("found") and d.get("section") == "skills_only")
     if well_placed > stuffed * 2:
-        overall = min(overall + 3, 100)
+        overall = min(overall + 2, 95)
 
-    # ── Floors — realistic baseline for qualified candidates ──
-    if exp_score >= 55:
-        overall = max(overall, 60)
-    if exp_score >= 60 and skills_scr >= 30:
-        overall = max(overall, 65)
+    # ── Floors ──
     if kw_score >= 50:
-        overall = max(overall, 68)
-    if mh_score >= 60:
-        overall = max(overall, 72)
-    if kw_score >= 65 and skills_scr >= 50:
-        overall = max(overall, 78)
-    if kw_score >= 80 and exp_score >= 65:
-        overall = max(overall, 85)
-    if kw_score >= 90 and skills_scr >= 80:
-        overall = max(overall, 90)
+        overall = max(overall, 65)
+    if kw_score >= 70 and skills_scr >= 50:
+        overall = max(overall, 75)
+    if kw_score >= 85 and exp_score >= 60:
+        overall = max(overall, 82)
+
+    # Cap at 95 — 100% is unrealistic, real ATS tools max at 90-95%
+    overall = min(overall, 95)
 
     section_scores = {
         "summary": summary_score,
