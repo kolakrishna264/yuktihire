@@ -407,9 +407,12 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience — use keyword presence in bullets (no cap) ──
+    # ── Experience — keyword presence in bullets + floor from overall match ──
     kw_exp = experience_keyword_score(sections, all_keywords)
-    exp_score = kw_exp  # Direct — no artificial limits
+    # If overall keywords match is high, experience should also be high
+    # Floor: at least 70% of the keyword score (keywords ARE in the resume)
+    exp_floor = int(kw_score * 0.75) if kw_score >= 80 else int(kw_score * 0.6)
+    exp_score = max(kw_exp, exp_floor)
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
