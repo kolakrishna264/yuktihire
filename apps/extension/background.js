@@ -250,29 +250,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "DOWNLOAD_RESUME") {
-    // Open download URL in new tab (browser handles the download)
     const format = msg.format || "pdf"
     const resumeId = msg.resumeId
     getToken().then(token => {
       if (!token) { sendResponse({ ok: false, error: "Not authenticated" }); return }
-      // Use fetch to get the file, then create a blob URL
       fetch(`${API_BASE}/extension/export?resume_id=${resumeId}&format=${format}`, {
         headers: { "Authorization": `Bearer ${token}` }
       })
         .then(resp => {
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-          return resp.blob()
+          return resp.arrayBuffer()
         })
-        .then(blob => {
-          const url = URL.createObjectURL(blob)
+        .then(buffer => {
+          // Convert to base64 data URI (works in MV3 service worker)
+          const bytes = new Uint8Array(buffer)
+          let binary = ""
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+          const base64 = btoa(binary)
+          const mime = format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          const dataUri = `data:${mime};base64,${base64}`
           chrome.downloads.download({
-            url,
-            filename: `resume.${format}`,
+            url: dataUri,
+            filename: `resume.${format === "docx" ? "docx" : "pdf"}`,
             saveAs: true,
-          }, () => {
-            sendResponse({ ok: true })
-            URL.revokeObjectURL(url)
-          })
+          }, () => sendResponse({ ok: true }))
         })
         .catch(err => sendResponse({ ok: false, error: err.message }))
     })
