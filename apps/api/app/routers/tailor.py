@@ -465,16 +465,27 @@ async def run_pipeline_background(
                 # Count existing total bullets to understand resume size
                 total_existing_bullets = sum(len(exp.get("bullets", [])) for exp in experiences)
 
-                # Adaptive: add bullets proportional to existing size
-                # Small resume (≤10 bullets): add 1-2 per experience (don't overwhelm)
-                # Medium resume (11-20 bullets): add 2-3 per experience
-                # Large resume (20+ bullets): add 3-4 per experience (fill the space)
-                if total_existing_bullets <= 10:
+                # Adaptive: add enough bullets to fill page gap without overflowing
+                # Each bullet ≈ 2 lines on page. A full page fits ~25-30 bullet lines.
+                # Target: keep total bullets reasonable for the resume's page count
+                if total_existing_bullets <= 8:
+                    # 1-page resume: add only 1-2 per exp (stay on 1 page)
+                    max_new_per_exp = 1
+                    max_total_new = 3
+                elif total_existing_bullets <= 16:
+                    # 1.5-page resume: add 2 per exp to fill page 2
                     max_new_per_exp = 2
-                elif total_existing_bullets <= 20:
-                    max_new_per_exp = 3
+                    max_total_new = 5
+                elif total_existing_bullets <= 24:
+                    # 2-page resume: add 1-2 per exp to fill gap on page 2
+                    max_new_per_exp = 2
+                    max_total_new = 4
                 else:
-                    max_new_per_exp = 4
+                    # 3+ page resume: add 1 per exp
+                    max_new_per_exp = 1
+                    max_total_new = 3
+
+                total_added = 0
 
                 kw_idx = 0
                 verbs = ["Applied", "Leveraged", "Implemented", "Utilized", "Demonstrated",
@@ -484,7 +495,7 @@ async def run_pipeline_background(
                     bullets = exp.get("bullets", [])
                     added_for_exp = 0
 
-                    while kw_idx < len(all_keywords_to_add) and added_for_exp < max_new_per_exp:
+                    while kw_idx < len(all_keywords_to_add) and added_for_exp < max_new_per_exp and total_added < max_total_new:
                         chunk = all_keywords_to_add[kw_idx:kw_idx+3]
                         kw_idx += len(chunk)
                         if not chunk:
@@ -500,22 +511,9 @@ async def run_pipeline_background(
                         bullets.append(bullet)
                         applied_count += 1
                         added_for_exp += 1
+                        total_added += 1
 
                     exp["bullets"] = bullets
-
-                # Remaining keywords: add to first experience (use all keywords)
-                if kw_idx < len(all_keywords_to_add) and experiences:
-                    exp0 = experiences[0]
-                    bullets0 = exp0.get("bullets", [])
-                    while kw_idx < len(all_keywords_to_add):
-                        chunk = all_keywords_to_add[kw_idx:kw_idx+2]
-                        kw_idx += len(chunk)
-                        if not chunk: break
-                        verb = verbs[kw_idx % len(verbs)]
-                        kw_text = " and ".join(chunk) if len(chunk) > 1 else chunk[0]
-                        bullets0.append(f"{verb} {kw_text} to drive measurable impact in production environments.")
-                        applied_count += 1
-                    exp0["bullets"] = bullets0
 
                 print(f"[AutoAdd] Total bullets now: {sum(len(e.get('bullets',[])) for e in experiences)} (was {total_existing_bullets})")
 
