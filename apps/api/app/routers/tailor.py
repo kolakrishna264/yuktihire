@@ -139,25 +139,34 @@ async def run_pipeline_background(
 
             # ── HARD CLEAN all skills: cap per category, strip non-tool items ──
             REAL_TOOL_SET = {
+                # Languages
                 "python", "java", "javascript", "typescript", "c++", "c#", "golang", "go",
-                "ruby", "rust", "scala", "julia", "sql", "bash", "php", "swift", "kotlin",
-                "nosql", "r", "html", "css", "perl", "matlab", "lua", "dart",
+                "ruby", "rust", "scala", "julia", "julia programming", "sql", "bash", "php",
+                "swift", "kotlin", "nosql", "r", "html", "css", "perl", "matlab", "lua", "dart",
+                # AI/ML tools
                 "pytorch", "tensorflow", "keras", "scikit-learn", "scikit", "xgboost",
                 "lightgbm", "hugging face", "transformers", "opencv", "spacy", "nltk",
                 "langchain", "openai", "anthropic", "claude", "gemini", "llama", "gpt",
                 "bert", "faiss", "pinecone", "mlflow", "wandb", "tensorboard",
                 "fine-tuning", "prompt engineering", "nlp", "deep learning", "rag",
                 "generative ai", "ai agents", "machine learning", "computer vision",
+                # Cloud
+                "aws", "azure", "gcp", "sagemaker", "aws sagemaker", "ec2", "s3", "lambda", "bedrock",
+                # DevOps
                 "docker", "kubernetes", "terraform", "ansible", "jenkins", "ci/cd",
                 "github actions", "devops", "devsecops", "linux", "prometheus", "grafana",
-                "aws", "azure", "gcp", "sagemaker", "ec2", "s3", "lambda", "bedrock",
+                # Databases
                 "postgresql", "mongodb", "redis", "elasticsearch", "snowflake", "dynamodb",
+                "vector databases",
+                # Web
                 "react", "angular", "vue", "node", "nodejs", "express", "fastapi", "flask",
                 "django", ".net", ".net core", "graphql", "rest api",
+                # Data
                 "spark", "pyspark", "kafka", "airflow", "pandas", "numpy", "hadoop",
                 "matplotlib", "seaborn", "streamlit", "tableau", "etl",
+                "data pipeline design",
+                # Tools
                 "git", "github", "jira", "agile", "scrum", "oop", "design patterns",
-                "vector databases", "data pipeline design", "model training",
             }
             if resume_content.get("skills"):
                 skills_list = resume_content["skills"]
@@ -174,19 +183,14 @@ async def run_pipeline_background(
                     # Drop "Other" category entirely
                     if cat_name.lower() == "other":
                         continue
-                    # Filter: only keep items that are real tools/skills (≤3 words, in tool set or short)
+                    # Filter: ONLY keep items in REAL_TOOL_SET — nothing else
                     clean_items = []
                     for item in items:
                         if not isinstance(item, str):
                             continue
                         il = item.lower().strip()
-                        # Keep if it's a known tool
                         if il in REAL_TOOL_SET:
                             clean_items.append(item)
-                        # Keep if it's short (1-2 words) — likely a real tool name
-                        elif len(il.split()) <= 2 and len(il) <= 25:
-                            clean_items.append(item)
-                        # Drop multi-word concept phrases
                     # Cap at 15 items per category
                     clean_items = clean_items[:15]
                     if clean_items:
