@@ -269,21 +269,18 @@ async def run_pipeline_background(
 
             print(f"[AutoAdd] {len(all_missing)} missing keywords, {len(true_gaps)} true gaps")
 
-            # Add ALL missing keywords — don't skip any.
-            # Even if equivalence says "already present", adding the exact keyword
-            # form ensures the ATS scorer finds it on the next check.
+            # Add ALL missing keywords — no exceptions.
+            # The gap analyzer's "true_skill_gaps" is unreliable — it marks things
+            # like "code reviews" and "scalable systems" as gaps when the user has them.
+            # Just add everything to maximize the ATS score.
             skills_to_add = []
             summary_additions = []
             for kw in all_missing:
-                kw_lower = kw.lower().strip()
-                if kw_lower in true_gaps:
-                    continue
-                # Multi-word phrases (>3 words) go to summary, short ones to skills
                 if len(kw.split()) > 3:
                     summary_additions.append(kw)
                 else:
                     skills_to_add.append(kw)
-                    print(f"[AutoAdd] ADD skill: {kw}")
+            print(f"[AutoAdd] Adding {len(skills_to_add)} skills + {len(summary_additions)} to summary")
 
             # Add missing skills to the correct category
             current_skills = tailored_content.get("skills", [])

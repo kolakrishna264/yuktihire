@@ -331,19 +331,12 @@ def extract_nice_to_have(jd_analysis: dict) -> list[str]:
 def generate_tips(missing_kw, missing_skills, gap_analysis, placement_details) -> list[str]:
     tips = []
     seen = set()
-    true_gaps = set(g.lower() for g in gap_analysis.get("true_skill_gaps", []))
 
-    # Genuine gaps
-    cannot_fix = [kw for kw in missing_kw + missing_skills if kw.lower() in true_gaps and kw.lower() not in seen]
-    for kw in cannot_fix: seen.add(kw.lower())
-    if cannot_fix:
-        tips.append(f"Cannot fix (need real experience): {', '.join(cannot_fix[:5])}")
-
-    # Fixable
-    fixable = [kw for kw in missing_kw if kw.lower() not in seen]
+    # All missing keywords are fixable — tailoring adds them automatically
+    fixable = [kw for kw in missing_kw + missing_skills if kw.lower() not in seen]
     for kw in fixable: seen.add(kw.lower())
     if fixable:
-        tips.append(f"Add to boost score: {', '.join(fixable[:5])}")
+        tips.append(f"Auto-adding to boost score: {', '.join(fixable[:6])}")
 
     # Skills-only (need experience bullets)
     skills_only = [kw for kw, d in placement_details.items() if d.get("section") == "skills_only" and kw.lower() not in seen]
@@ -504,17 +497,12 @@ def calculate_ats_score(
 
     tips = generate_tips(missing_kw, missing_skills, gap_analysis, placement_details)
 
-    # Blockers
-    true_gaps = gap_analysis.get("true_skill_gaps", [])
-    fixable, unfixable = [], []
-    for kw in missing_mh[:5]:
-        (unfixable if any(kw.lower() in tg.lower() for tg in true_gaps) else fixable).append(kw)
+    # All missing are auto-added by the tailoring engine
+    fixable = list(missing_mh[:5])
+    unfixable = []  # Nothing is unfixable — we add everything
 
-    if overall < 85:
-        if fixable:
-            tips.insert(0, f"Easy fix — add: {', '.join(fixable[:5])}")
-        if unfixable:
-            tips.append(f"Cannot fix (need experience): {', '.join(unfixable[:3])}")
+    if overall < 85 and fixable:
+        tips.insert(0, f"Auto-adding: {', '.join(fixable[:5])}")
 
     return {
         "overall_score": min(overall, 100),
