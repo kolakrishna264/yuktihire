@@ -104,8 +104,25 @@ async def run_pipeline_background(
                 cached_jd_analysis=jd_analysis,
             )
 
+            # ── Fix corrupted summary (keyword-dump from previous tailoring) ──
+            current_summary = (resume_content.get("summary", "") or "").strip()
+            if current_summary.startswith(".") or current_summary.startswith("Skilled in") or current_summary.startswith("Proficient in") or len(current_summary) < 30:
+                # Summary is corrupted — try to restore from profile
+                try:
+                    from sqlalchemy import text as sql_text
+                    prof_summary = await db.execute(sql_text(
+                        "SELECT summary, headline FROM profiles WHERE user_id = (SELECT user_id FROM resumes WHERE id = (SELECT resume_id FROM tailoring_sessions WHERE id = :sid) LIMIT 1) LIMIT 1"
+                    ), {"sid": session_id})
+                    prof_row = prof_summary.mappings().first()
+                    if prof_row:
+                        restored = prof_row.get("summary") or prof_row.get("headline") or ""
+                        if restored and len(restored) > 50:
+                            resume_content["summary"] = restored
+                            print(f"[Pipeline] Restored summary from profile ({len(restored)} chars)")
+                except Exception as e:
+                    print(f"[Pipeline] Summary restore error: {e}")
+
             # ── Enrich resume content if sections are missing ──
-            # The resume.content may be missing education/projects if saved before parser fixes
             if session_id:
                 try:
                     sess_r = await db.execute(
@@ -222,16 +239,13 @@ async def run_pipeline_background(
                             break
 
                 elif section == "summary" and suggested:
-                    # APPEND to original summary, don't replace it
-                    # Preserve the user's original professional summary
+                    # NEVER replace the user's original summary
+                    # Only use AI rewrite if there's NO summary at all
                     original_summary = tailored_content.get("summary", "") or ""
-                    if original_summary and len(original_summary) > 50:
-                        # Only append if the suggested text adds value
-                        if len(suggested) > len(original_summary) * 0.5:
-                            tailored_content["summary"] = suggested
-                    else:
+                    if not original_summary or len(original_summary.strip()) < 30:
                         tailored_content["summary"] = suggested
-                    applied_count += 1
+                        applied_count += 1
+                    # If original exists, skip — keywords will be appended later
 
                 elif section == "skills" and suggested:
                     add_text = suggested.replace("Add: ", "").replace("Add:", "")
@@ -389,19 +403,20 @@ async def run_pipeline_background(
                     applied_count += 1
                 exp["bullets"] = bullets
 
-            # B. Add keywords to summary — APPEND, never replace
+            # B. Add keywords to summary — APPEND naturally, never replace
             if all_keywords_to_add:
                 summary = tailored_content.get("summary", "") or ""
-                # Only append if there's already a real summary
                 if summary and len(summary.strip()) > 30:
                     summary_lower = summary.lower()
                     missing = [kw for kw in all_keywords_to_add if kw.lower() not in summary_lower]
                     if missing:
-                        kw_text = ", ".join(missing[:10])
+                        # Only add up to 8 keywords — keep it natural
+                        kw_list = missing[:8]
+                        kw_text = ", ".join(kw_list)
                         if not summary.rstrip().endswith("."):
                             summary = summary.rstrip() + "."
-                        tailored_content["summary"] = summary + f" Proficient in {kw_text}."
-                        applied_count += len(missing[:10])
+                        tailored_content["summary"] = summary + f" Additional expertise in {kw_text}."
+                        applied_count += len(kw_list)
 
             # NOTE: Do NOT run clean_skills() here — it would remove the keywords
             # we just added (microservices, monitoring, etc. are in the blocklist).
