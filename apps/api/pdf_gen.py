@@ -13,7 +13,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { margin: 0.45in 0.5in; size: letter; }
+  @page { margin: 0.4in 0.5in; size: letter; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Times New Roman', Times, serif; font-size: 10.5pt; line-height: 1.3; color: #000; }
 
@@ -22,11 +22,11 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
   .contact { font-size: 9.5pt; color: #333; margin-top: 2px; }
   .header-line { border: none; border-top: 1px solid #000; margin: 4px 0 0 0; }
 
-  .section { margin-bottom: 6px; }
+  .section { margin-bottom: 4px; }
   .section-title { font-size: 10.5pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
     margin-bottom: 2px; color: #000; padding-top: 3px; }
 
-  .exp-item { margin-bottom: 6px; }
+  .exp-item { margin-bottom: 4px; }
   .exp-row { display: flex; justify-content: space-between; align-items: baseline; }
   .exp-company { font-weight: bold; font-size: 10.5pt; }
   .exp-dates { font-size: 9.5pt; color: #333; }
