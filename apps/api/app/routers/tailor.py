@@ -291,9 +291,9 @@ async def run_pipeline_background(
             gap_analysis_result = result.get("gap_analysis", {})
             ats_mid = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
 
-            # ── AUTO-ADD missing keywords until score reaches 80%+ ──
-            # Add ALL missing keywords that aren't true gaps.
-            # Skills go to skills section, concepts go to summary.
+            # ── AUTO-ADD missing keywords ──
+            added_to_skills = []
+            added_to_summary = []
             from migrate_clean_skills import categorize_clean_skills
             true_gaps = set(g.lower() for g in gap_analysis_result.get("true_skill_gaps", []))
 
@@ -439,10 +439,9 @@ async def run_pipeline_background(
             # The initial cleanup migration already cleaned the base resume.
 
             added_to_summary = summary_additions
-            print(f"[AutoAdd] Added {len(added_to_skills)} skills, {len(added_to_summary)} concepts to summary")
-            print(f"[AutoAdd] Skills added: {added_to_skills}")
+            print(f"[AutoAdd] Added {len(added_to_skills)} skills, {len(added_to_summary)} concepts")
 
-            # ── Final re-score with all keywords added ──
+            # ── Final re-score ──
             ats_after = calculate_ats_score(tailored_content, jd_analysis_result, gap_analysis_result)
             print(f"[AutoAdd] Final score: {ats_after.get('overall_score')}%")
 
