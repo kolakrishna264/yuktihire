@@ -8,7 +8,7 @@
   <div id="app">
     <div class="header">
       <div class="logo">
-        <div class="logo-icon">Y</div>
+        <div class="logo-icon">⚡</div>
         <span class="logo-text">YuktiHire</span>
       </div>
       <div id="auth-status" class="auth-badge"></div>
@@ -31,12 +31,12 @@
       </div>
     </div>
 
-    <!-- Main Panel — ALWAYS visible when authenticated -->
+    <!-- Main Panel -->
     <div id="main-panel" class="state hidden">
       <!-- Job info -->
       <div id="job-info" class="job-card hidden">
         <div class="job-header">
-          <div class="job-logo" id="job-logo">?</div>
+          <div class="job-logo" id="job-logo">🏢</div>
           <div style="flex:1;min-width:0">
             <p class="job-title" id="job-title"></p>
             <p class="job-company" id="job-company"></p>
@@ -52,12 +52,32 @@
         <div class="saved-badge">✓ Already Saved</div>
       </div>
 
-      <!-- ALL actions always visible -->
-      <div class="action-grid">
-        <button id="save-btn" class="action-btn"><span class="action-icon">💾</span><span>Save Job</span></button>
-        <button id="autofill-btn" class="action-btn"><span class="action-icon">⚡</span><span>Fill Form</span></button>
-        <button id="tailor-btn" class="action-btn"><span class="action-icon">✨</span><span>Tailor</span></button>
-        <button id="dashboard-btn" class="action-btn"><span class="action-icon">📊</span><span>Dashboard</span></button>
+      <!-- Action Grid — 6 buttons in 3x2 -->
+      <div class="action-grid-v2">
+        <button id="save-btn" class="action-btn-v2">
+          <div class="action-icon-v2">📌</div>
+          <span class="action-label">Save Job</span>
+        </button>
+        <button id="autofill-btn" class="action-btn-v2 primary">
+          <div class="action-icon-v2">⚡</div>
+          <span class="action-label">Fill All</span>
+        </button>
+        <button id="tailor-btn" class="action-btn-v2">
+          <div class="action-icon-v2">✨</div>
+          <span class="action-label">Tailor Resume</span>
+        </button>
+        <button id="cover-letter-btn" class="action-btn-v2">
+          <div class="action-icon-v2">📝</div>
+          <span class="action-label">Cover Letter</span>
+        </button>
+        <button id="download-resume-btn" class="action-btn-v2">
+          <div class="action-icon-v2">📄</div>
+          <span class="action-label">Download</span>
+        </button>
+        <button id="dashboard-btn" class="action-btn-v2">
+          <div class="action-icon-v2">📊</div>
+          <span class="action-label">Dashboard</span>
+        </button>
       </div>
 
       <div id="status-msg" class="status-msg hidden"></div>
@@ -68,10 +88,10 @@
         <input id="manual-company" class="form-input" placeholder="Company" />
       </div>
 
-      <!-- Tailor section (inline results) -->
+      <!-- Tailor section -->
       <div id="tailor-section" class="tailor-section hidden">
         <div class="section-header">
-          <span class="section-title">Resume Tailoring</span>
+          <span class="section-title">🎯 Resume Tailoring</span>
           <button id="tailor-close" class="close-btn">&times;</button>
         </div>
         <div id="tailor-resume-select" class="hidden">
@@ -92,12 +112,31 @@
           </div>
           <div class="score-breakdown" id="score-breakdown"></div>
           <div class="download-buttons">
-            <button id="dl-pdf-btn" class="btn btn-primary btn-sm">Download PDF</button>
-            <button id="dl-docx-btn" class="btn btn-outline btn-sm">Download Word</button>
+            <button id="dl-pdf-btn" class="btn btn-primary btn-sm">📥 PDF</button>
+            <button id="dl-docx-btn" class="btn btn-outline btn-sm">📥 Word</button>
           </div>
           <button id="open-tailor-dashboard" class="btn btn-outline btn-sm" style="width:100%;margin-top:6px">
-            View Full Results in Dashboard
+            View in Dashboard →
           </button>
+        </div>
+      </div>
+
+      <!-- Cover Letter section -->
+      <div id="cover-letter-section" class="tailor-section hidden">
+        <div class="section-header">
+          <span class="section-title">📝 Cover Letter</span>
+          <button id="cover-letter-close" class="close-btn">&times;</button>
+        </div>
+        <div id="cover-letter-loading" class="hidden" style="text-align:center;padding:16px">
+          <div class="spinner-small"></div>
+          <p style="font-size:11px;color:#6b7280;margin-top:6px">Generating cover letter...</p>
+        </div>
+        <div id="cover-letter-result" class="hidden">
+          <div id="cover-letter-text" style="font-size:11px;line-height:1.6;color:#374151;max-height:300px;overflow-y:auto;padding:8px;background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;white-space:pre-wrap"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button id="copy-cover-letter" class="btn btn-primary btn-sm" style="flex:1">📋 Copy</button>
+            <button id="regenerate-cover-letter" class="btn btn-outline btn-sm" style="flex:1">🔄 Regenerate</button>
+          </div>
         </div>
       </div>
 

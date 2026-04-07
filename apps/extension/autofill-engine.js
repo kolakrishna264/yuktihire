@@ -563,24 +563,21 @@ var YuktiEngine = (function () {
     }
 
     // ── Shape inference from input type when intent is unknown ──
+    // ALL unknown fields go to AI — never skip a blank field
     if (bestIntent === "unknown") {
-      // Textarea → essay
+      bestCategory = "openEnded"  // Route to AI
       if (inputType === "longText") {
-        bestIntent = "additionalInfo"
-        bestCategory = "openEnded"
         bestShape = "essay"
-        bestConfidence = 40
+        bestConfidence = 50
       }
-      // Select with yes/no options → boolean
-      else if ((inputType === "nativeSelect" || inputType === "customSelect")) {
+      else if (inputType === "nativeSelect" || inputType === "customSelect") {
         bestShape = "enum_choice"
         bestCategory = "contextual"
-        bestConfidence = 30
+        bestConfidence = 50
       }
-      // Short text input → short_text
       else if (inputType === "shortText") {
         bestShape = "short_text"
-        bestConfidence = 20
+        bestConfidence = 40
       }
     }
 

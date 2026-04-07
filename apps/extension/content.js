@@ -237,23 +237,31 @@ if (document.location.hostname.includes("yuktihire.com")) {
     `
     document.body.appendChild(panel)
 
-    // State
-    var isOpen = false
+    // State — persist open/close across page loads
     var tab = document.getElementById("yh-tab")
     var dock = document.getElementById("yh-dock")
+    var isOpen = false
+    try { isOpen = localStorage.getItem("yh_panel_open") === "true" } catch(e) {}
 
-    // Toggle
-    tab.addEventListener("click", function() {
-      isOpen = !isOpen
-      dock.style.display = isOpen ? "flex" : "none"
-      tab.style.display = isOpen ? "none" : "flex"
-      if (isOpen) detectJob()
-    })
-    document.getElementById("yh-min").addEventListener("click", function() {
+    function openPanel() {
+      isOpen = true
+      dock.style.display = "flex"
+      tab.style.display = "none"
+      try { localStorage.setItem("yh_panel_open", "true") } catch(e) {}
+      detectJob()
+    }
+    function closePanel() {
       isOpen = false
       dock.style.display = "none"
       tab.style.display = "flex"
-    })
+      try { localStorage.setItem("yh_panel_open", "false") } catch(e) {}
+    }
+
+    // Auto-open if was open before
+    if (isOpen) openPanel()
+
+    tab.addEventListener("click", openPanel)
+    document.getElementById("yh-min").addEventListener("click", closePanel)
 
     // Detect job context
     function detectJob() {

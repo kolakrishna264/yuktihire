@@ -279,6 +279,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  if (msg.type === "GENERATE_COVER_LETTER") {
+    apiCall("/tailor/cover-letter", {
+      method: "POST",
+      body: JSON.stringify({
+        job_description: msg.data.job_description || "",
+        company: msg.data.company || "",
+        role: msg.data.role || "",
+        tone: "professional",
+      }),
+    })
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }))
+    return true
+  }
+
   if (msg.type === "SET_TOKEN") {
     // Strip quotes that may wrap the token from console paste
     const cleanToken = (msg.token || "").replace(/^['"`]+|['"`]+$/g, "").trim()
