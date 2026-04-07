@@ -529,10 +529,31 @@ async def run_pipeline_background(
                 applied_count += 1
             tailored_content["skills"] = current_skills
 
-            # ── 2. Add missing keywords to summary ONLY — no new bullets ──
-            # Adding bullets causes page overflow and accumulation across runs.
-            # Instead, add ALL keywords to summary which is compact and always fits.
+            # ── 2. Extend EXISTING bullets with JD keywords (no new bullets) ──
             all_keywords_to_add = experience_keywords + summary_additions
+            experiences = tailored_content.get("experiences", [])
+
+            if all_keywords_to_add and experiences:
+                # Distribute keywords across existing bullets by appending to shorter ones
+                kw_idx = 0
+                for exp in experiences:
+                    bullets = exp.get("bullets", [])
+                    for bi in range(len(bullets)):
+                        if kw_idx >= len(all_keywords_to_add):
+                            break
+                        bullet = bullets[bi]
+                        # Only extend bullets that are short (< 150 chars)
+                        if len(bullet) < 150:
+                            kw = all_keywords_to_add[kw_idx]
+                            # Append keyword naturally to the end of the bullet
+                            if bullet.rstrip().endswith("."):
+                                bullet = bullet.rstrip()[:-1] + f", incorporating {kw} best practices."
+                            else:
+                                bullet = bullet.rstrip() + f", leveraging {kw}."
+                            bullets[bi] = bullet
+                            kw_idx += 1
+                    exp["bullets"] = bullets
+                print(f"[AutoAdd] Extended {kw_idx} existing bullets with JD keywords")
 
             # Add keywords to summary — APPEND naturally, never replace
             if all_keywords_to_add:
