@@ -64,7 +64,7 @@ RESUME_HTML_TEMPLATE = """<!DOCTYPE html>
 {% if summary %}
 <div class="section">
   <div class="section-title">Professional Summary</div>
-  <p style="font-size:9.5pt; line-height:1.2;">{{ summary }}</p>
+  <p style="font-size:9.5pt; line-height:1.2; margin:0; padding:0;">{{ summary }}</p>
 </div>
 {% endif %}
 

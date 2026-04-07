@@ -407,14 +407,12 @@ def calculate_ats_score(
     # ── Skills ──
     skills_scr, matched_skills, missing_skills = keyword_match_score(resume_text, required_skills) if required_skills else (80, [], [])
 
-    # ── Experience — keyword presence + quality check ──
+    # ── Experience — keyword presence drives the score ──
     kw_exp = experience_keyword_score(sections, all_keywords)
-    # Realistic scoring: even with all keywords, cap experience at 85%
-    # because auto-added bullets aren't as strong as genuine experience
+    # 80% keyword match + 20% baseline quality
     gap_alignments = gap_analysis.get("bullet_alignments", [])
-    gap_avg = int(sum(a.get("alignment_score", 50) for a in gap_alignments) / max(len(gap_alignments), 1)) if gap_alignments else 50
-    # Blend: 60% keyword match + 40% AI quality assessment
-    exp_score = int(kw_exp * 0.6 + gap_avg * 0.4)
+    gap_avg = int(sum(a.get("alignment_score", 50) for a in gap_alignments) / max(len(gap_alignments), 1)) if gap_alignments else 55
+    exp_score = int(kw_exp * 0.8 + gap_avg * 0.2)
 
     # ── Summary ──
     summary_text = sections.get("summary", "")
