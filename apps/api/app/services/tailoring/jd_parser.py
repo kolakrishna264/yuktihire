@@ -60,28 +60,49 @@ def clean_jd(text: str) -> str:
 
 
 def extract_json_safe(text: str) -> dict:
-    """Safely extract JSON from Claude response."""
+    """Safely extract JSON from Claude response — handles truncated/markdown-wrapped."""
     text = text.strip()
+    # Strip markdown code blocks
+    text = re.sub(r'^```(?:json)?\s*', '', text)
+    text = re.sub(r'\s*```\s*$', '', text)
+    text = text.strip()
+
+    # Try direct parse
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Try code block
-    match = re.search(r'```(?:json)?\s*([\s\S]+?)```', text)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
+
     # Try first { to last }
     start = text.find('{')
     end = text.rfind('}') + 1
-    if start != -1 and end > 0:
+    if start != -1 and end > start:
         try:
             return json.loads(text[start:end])
         except json.JSONDecodeError:
             pass
-    raise ValueError(f"Could not parse JSON from response: {text[:300]}")
+
+    # Try fixing truncated JSON — add missing brackets
+    if start != -1:
+        fragment = text[start:]
+        # Count open/close braces and brackets
+        open_braces = fragment.count('{') - fragment.count('}')
+        open_brackets = fragment.count('[') - fragment.count(']')
+        fixed = fragment
+        # Close any open strings
+        if fixed.count('"') % 2 != 0:
+            fixed += '"'
+        # Close arrays and objects
+        fixed += ']' * max(0, open_brackets)
+        fixed += '}' * max(0, open_braces)
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
+    # Return empty dict instead of crashing
+    print(f"[JSON] WARNING: Could not parse response ({len(text)} chars), returning empty")
+    return {}
 
 
 async def analyze_jd(jd_text: str) -> dict:

@@ -227,7 +227,7 @@ async def analyze_gaps(resume_content: dict, jd_analysis: dict) -> dict:
 
     message = await client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=4000,
+        max_tokens=8000,
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",

@@ -99,6 +99,35 @@ async def run_pipeline_background(
             import json
 
             print(f"[Pipeline] Starting for session {session_id}")
+
+            # ── SAVE PRELIMINARY SCORE BEFORE pipeline (in case pipeline crashes) ──
+            try:
+                prelim_score = calculate_ats_score(resume_content, jd_analysis or {}, {})
+                async with AsyncSessionLocal() as prelim_db:
+                    prelim_db.add(AtsScore(
+                        session_id=session_id,
+                        overall_score=int(prelim_score.get("overall_score", 0)),
+                        keyword_score=int(prelim_score.get("keyword_score", 0)),
+                        skills_score=int(prelim_score.get("skills_score", 0)),
+                        experience_score=int(prelim_score.get("experience_score", 0)),
+                        education_score=int(prelim_score.get("education_score", 0)),
+                        format_score=int(prelim_score.get("format_score", 0)),
+                        matched_keywords=prelim_score.get("matched_keywords", []),
+                        missing_keywords=prelim_score.get("missing_keywords", []),
+                        tips=prelim_score.get("tips", []),
+                    ))
+                    sess_p = await prelim_db.execute(select(TailoringSession).where(TailoringSession.id == session_id))
+                    sess_po = sess_p.scalar_one_or_none()
+                    if sess_po:
+                        sess_po.status = SessionStatus.COMPLETED
+                        sess_po.match_score = int(prelim_score.get("overall_score", 0))
+                        sess_po.passes_completed = 1
+                        sess_po.completed_at = datetime.utcnow()
+                    await prelim_db.commit()
+                    print(f"[Pipeline] Preliminary score saved: {prelim_score.get('overall_score')}%")
+            except Exception as pe:
+                print(f"[Pipeline] Prelim score error: {pe}")
+
             result = await execute_pipeline(
                 resume_content=resume_content,
                 jd_text=jd_text,
@@ -106,7 +135,7 @@ async def run_pipeline_background(
             )
             print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
-            # ── SAVE ATS SCORE IN SEPARATE DB SESSION — guaranteed to work ──
+            # ── UPDATE score with full analysis ──
             jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
             gap_analysis_result = result.get("gap_analysis", {})
             early_score = calculate_ats_score(resume_content, jd_analysis_result, gap_analysis_result)
