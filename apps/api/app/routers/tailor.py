@@ -271,13 +271,39 @@ async def run_pipeline_background(
             # ── Remove auto-added bullets from previous tailoring runs ──
             auto_patterns = ["to enhance system performance", "to deliver production-ready",
                              "in cross-functional engineering", "across engineering workflows",
-                             "to drive measurable impact", "in building scalable production"]
+                             "to drive measurable impact", "in building scalable production",
+                             "to optimize system performance", "high-quality engineering outcomes",
+                             "to improve system reliability"]
             for exp in resume_content.get("experiences", []):
                 bullets = exp.get("bullets", [])
                 clean_bullets = [b for b in bullets if not any(p in b for p in auto_patterns)]
                 if len(clean_bullets) < len(bullets):
                     print(f"[Pipeline] Removed {len(bullets) - len(clean_bullets)} auto-added bullets from {exp.get('company', '')}")
                     exp["bullets"] = clean_bullets
+
+            # ── Extend short bullets (18-21 words) to 22-30 words using JD keywords ──
+            from ats_scorer import extract_all_jd_keywords as _extract_jd_kw
+            jd_for_extend = result.get("jd_analysis", jd_analysis or {})
+            extend_keywords = _extract_jd_kw(jd_for_extend)
+            extend_idx = 0
+            for exp in resume_content.get("experiences", []):
+                bullets = exp.get("bullets", [])
+                for bi in range(len(bullets)):
+                    words = bullets[bi].split()
+                    word_count = len(words)
+                    if 18 <= word_count < 22 and extend_idx < len(extend_keywords):
+                        # Bullet is short — extend with JD keyword
+                        kw = extend_keywords[extend_idx]
+                        extend_idx += 1
+                        bullet = bullets[bi].rstrip()
+                        if bullet.endswith("."):
+                            bullet = bullet[:-1] + f", incorporating {kw} methodologies and industry best practices."
+                        else:
+                            bullet = bullet + f", utilizing {kw} techniques for enhanced performance."
+                        bullets[bi] = bullet
+                exp["bullets"] = bullets
+            if extend_idx > 0:
+                print(f"[Pipeline] Extended {extend_idx} short bullets to 22-30 words")
 
             print(f"[Pipeline] Starting skills cleanup")
             # ── HARD CLEAN all skills: cap per category, strip non-tool items ──
