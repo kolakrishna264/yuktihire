@@ -530,8 +530,10 @@ async def run_pipeline_background(
             tailored_content["skills"] = current_skills
 
             # ── 2. Add keyword bullets to fill page gap ──
-            all_keywords_to_add = experience_keywords + summary_additions
+            # Use ALL missing keywords (not just filtered ones)
+            all_keywords_to_add = list(all_missing)  # all keywords missing from experience
             experiences = tailored_content.get("experiences", [])
+            print(f"[AutoAdd] Keywords for bullets: {len(all_keywords_to_add)}, experiences: {len(experiences)}")
 
             if all_keywords_to_add and experiences:
                 # Calculate how many bullets to add based on page fill
