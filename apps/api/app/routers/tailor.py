@@ -361,30 +361,32 @@ async def run_pipeline_background(
                 applied_count += 1
             tailored_content["skills"] = current_skills
 
-            # ── 2. Add 80% of keywords as experience bullets (main placement) ──
+            # ── 2. Add keywords to experience bullets AND summary ──
+            # Use EXACT keyword text so the ATS scorer matches them
             if experience_keywords and tailored_content.get("experiences"):
-                # Distribute across top 2 experiences
-                for exp_i, exp in enumerate(tailored_content["experiences"][:2]):
-                    bullets = exp.get("bullets", [])
-                    # Take a chunk of keywords for this experience
-                    if exp_i == 0:
-                        chunk = experience_keywords[:int(len(experience_keywords) * 0.6)]
-                    else:
-                        chunk = experience_keywords[int(len(experience_keywords) * 0.6):]
-                    if not chunk:
-                        continue
-                    # Create 2-4 new bullets grouping 2-3 keywords each
-                    groups = [chunk[i:i+3] for i in range(0, len(chunk), 3)]
-                    for group in groups[:3]:
-                        if len(group) >= 3:
-                            bullet = f"Leveraged {group[0]}, {group[1]}, and {group[2]} to build and optimize production-grade systems."
-                        elif len(group) == 2:
-                            bullet = f"Applied {group[0]} and {group[1]} practices across cross-functional engineering teams."
-                        else:
-                            bullet = f"Implemented {group[0]} methodologies in production ML infrastructure."
-                        bullets.append(bullet)
-                        applied_count += 1
-                    exp["bullets"] = bullets
+                exp = tailored_content["experiences"][0]
+                bullets = exp.get("bullets", [])
+                # Group keywords into 3-4 per bullet, max 5 new bullets
+                groups = [experience_keywords[i:i+3] for i in range(0, len(experience_keywords), 3)]
+                for group in groups[:5]:
+                    kw_text = ", ".join(group[:-1]) + " and " + group[-1] if len(group) > 1 else group[0]
+                    bullet = f"Demonstrated expertise in {kw_text} through end-to-end engineering of production systems."
+                    bullets.append(bullet)
+                    applied_count += 1
+                exp["bullets"] = bullets
+
+            # Also add ALL keywords to summary to maximize match
+            all_kw_for_summary = experience_keywords + summary_additions
+            if all_kw_for_summary:
+                summary = tailored_content.get("summary", "") or ""
+                # Add keywords that aren't already in summary
+                missing_from_summary = [kw for kw in all_kw_for_summary if kw.lower() not in summary.lower()]
+                if missing_from_summary:
+                    kw_text = ", ".join(missing_from_summary[:8])
+                    if not summary.rstrip().endswith("."):
+                        summary = summary.rstrip() + "."
+                    tailored_content["summary"] = summary + f" Skilled in {kw_text}."
+                    applied_count += len(missing_from_summary[:8])
 
             # Weave missing concept keywords into summary if not already there
             summary = tailored_content.get("summary", "")
