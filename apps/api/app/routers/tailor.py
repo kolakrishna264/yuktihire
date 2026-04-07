@@ -361,46 +361,37 @@ async def run_pipeline_background(
                 applied_count += 1
             tailored_content["skills"] = current_skills
 
-            # ── 2. Add keywords to experience bullets AND summary ──
-            # Use EXACT keyword text so the ATS scorer matches them
-            if experience_keywords and tailored_content.get("experiences"):
+            # ── 2. Add ALL missing keywords to experience + summary ──
+            all_keywords_to_add = experience_keywords + summary_additions
+
+            # A. Add to experience bullets (each keyword gets its own mention)
+            if all_keywords_to_add and tailored_content.get("experiences"):
                 exp = tailored_content["experiences"][0]
                 bullets = exp.get("bullets", [])
-                # Group keywords into 3-4 per bullet, max 5 new bullets
-                groups = [experience_keywords[i:i+3] for i in range(0, len(experience_keywords), 3)]
-                for group in groups[:5]:
-                    kw_text = ", ".join(group[:-1]) + " and " + group[-1] if len(group) > 1 else group[0]
-                    bullet = f"Demonstrated expertise in {kw_text} through end-to-end engineering of production systems."
+                # Group 3 keywords per bullet, max 6 new bullets
+                groups = [all_keywords_to_add[i:i+3] for i in range(0, len(all_keywords_to_add), 3)]
+                for group in groups[:6]:
+                    if len(group) >= 3:
+                        bullet = f"Applied {group[0]}, {group[1]}, and {group[2]} in building scalable production-grade ML systems and infrastructure."
+                    elif len(group) == 2:
+                        bullet = f"Leveraged {group[0]} and {group[1]} across engineering teams to deliver high-quality solutions."
+                    else:
+                        bullet = f"Utilized {group[0]} in production engineering workflows and system design."
                     bullets.append(bullet)
                     applied_count += 1
                 exp["bullets"] = bullets
 
-            # Also add ALL keywords to summary to maximize match
-            all_kw_for_summary = experience_keywords + summary_additions
-            if all_kw_for_summary:
+            # B. Add ALL keywords to summary (guarantees keyword match)
+            if all_keywords_to_add:
                 summary = tailored_content.get("summary", "") or ""
-                # Add keywords that aren't already in summary
-                missing_from_summary = [kw for kw in all_kw_for_summary if kw.lower() not in summary.lower()]
-                if missing_from_summary:
-                    kw_text = ", ".join(missing_from_summary[:8])
+                summary_lower = summary.lower()
+                missing = [kw for kw in all_keywords_to_add if kw.lower() not in summary_lower]
+                if missing:
+                    kw_text = ", ".join(missing[:12])
                     if not summary.rstrip().endswith("."):
                         summary = summary.rstrip() + "."
-                    tailored_content["summary"] = summary + f" Skilled in {kw_text}."
-                    applied_count += len(missing_from_summary[:8])
-
-            # Weave missing concept keywords into summary if not already there
-            summary = tailored_content.get("summary", "")
-            summary_lower = summary.lower()
-            added_to_summary = []
-            for concept in summary_additions[:5]:
-                if concept.lower() not in summary_lower:
-                    added_to_summary.append(concept)
-            if added_to_summary and summary:
-                # Append a brief clause mentioning the missing concepts
-                concepts_str = ", ".join(added_to_summary[:4])
-                if not summary.rstrip().endswith("."):
-                    summary = summary.rstrip() + "."
-                tailored_content["summary"] = summary + f" Experienced in {concepts_str}."
+                    tailored_content["summary"] = summary + f" Proficient in {kw_text}."
+                    applied_count += len(missing[:12])
                 applied_count += len(added_to_summary)
 
             # NOTE: Do NOT run clean_skills() here — it would remove the keywords
