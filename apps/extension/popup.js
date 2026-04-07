@@ -123,6 +123,41 @@ document.addEventListener("DOMContentLoaded", () => {
   // Login
   $("#login-btn").onclick = () => chrome.tabs.create({ url: `${APP_URL}/auth/login` })
 
+  // Retry auth — re-check if user signed in on yuktihire.com
+  $("#retry-auth-btn")?.addEventListener("click", () => {
+    // Try to fetch token from any open yuktihire.com tab
+    chrome.tabs.query({ url: "*://*.yuktihire.com/*" }, (tabs) => {
+      if (tabs.length > 0) {
+        chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          func: () => {
+            // Read from localStorage
+            var keys = Object.keys(localStorage)
+            for (var k = 0; k < keys.length; k++) {
+              if (keys[k].includes("supabase") && keys[k].includes("auth")) {
+                try {
+                  var stored = JSON.parse(localStorage.getItem(keys[k]))
+                  if (stored && stored.access_token) return stored
+                } catch(e) {}
+              }
+            }
+            return null
+          }
+        }, (results) => {
+          if (results && results[0] && results[0].result) {
+            var token = results[0].result
+            sendMessage({ type: "SET_TOKEN", token: token.access_token, refresh: token.refresh_token || "", expires: token.expires_at || 0 })
+              .then(() => init())
+          } else {
+            alert("Could not find session. Make sure you are signed in at yuktihire.com and try again.")
+          }
+        })
+      } else {
+        chrome.tabs.create({ url: `${APP_URL}/auth/login` })
+      }
+    })
+  })
+
   // Token paste
   setTimeout(() => {
     $("#token-save-btn")?.addEventListener("click", async () => {

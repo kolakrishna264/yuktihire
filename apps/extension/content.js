@@ -2,21 +2,63 @@
 
 // ── Auto-auth: on ANY yuktihire.com page, send token to extension ────────
 if (document.location.hostname.includes("yuktihire.com")) {
-  // Read token from cookie and send to background
+  // Read token from Supabase cookie or localStorage and send to background
   function _sendTokenFromCookie() {
     try {
       var cookie = document.cookie
-      var match = cookie.match(/sb-[^=]+-auth-token=base64-([^;]+)/)
-      if (match) {
-        var decoded = JSON.parse(atob(match[1]))
-        if (decoded.access_token) {
-          chrome.runtime.sendMessage({
-            type: "SET_TOKEN",
-            token: decoded.access_token,
-            refresh: decoded.refresh_token || "",
-            expires: decoded.expires_at || 0,
-          })
+      var token = null
+
+      // Strategy 1: base64-encoded cookie (older Supabase format)
+      var match1 = cookie.match(/sb-[^=]+-auth-token=base64-([^;]+)/)
+      if (match1) {
+        try { token = JSON.parse(atob(match1[1])) } catch(e) {}
+      }
+
+      // Strategy 2: URL-encoded JSON cookie (newer Supabase format)
+      if (!token) {
+        var match2 = cookie.match(/sb-[^=]+-auth-token=([^;]+)/)
+        if (match2) {
+          try { token = JSON.parse(decodeURIComponent(match2[1])) } catch(e) {}
         }
+      }
+
+      // Strategy 3: chunked cookies (Supabase SSR splits into .0, .1, etc.)
+      if (!token) {
+        var chunks = []
+        var chunkMatch = cookie.match(/sb-[^=]+-auth-token\.\d+=([^;]+)/g)
+        if (chunkMatch) {
+          chunkMatch.sort()
+          for (var c = 0; c < chunkMatch.length; c++) {
+            var val = chunkMatch[c].split("=").slice(1).join("=")
+            chunks.push(val)
+          }
+          var combined = chunks.join("")
+          try { token = JSON.parse(decodeURIComponent(combined)) } catch(e) {
+            try { token = JSON.parse(atob(combined.replace("base64-", ""))) } catch(e2) {}
+          }
+        }
+      }
+
+      // Strategy 4: localStorage (Supabase client stores session here too)
+      if (!token) {
+        var keys = Object.keys(localStorage)
+        for (var k = 0; k < keys.length; k++) {
+          if (keys[k].includes("supabase") && keys[k].includes("auth")) {
+            try {
+              var stored = JSON.parse(localStorage.getItem(keys[k]))
+              if (stored && stored.access_token) { token = stored; break }
+            } catch(e) {}
+          }
+        }
+      }
+
+      if (token && token.access_token) {
+        chrome.runtime.sendMessage({
+          type: "SET_TOKEN",
+          token: token.access_token,
+          refresh: token.refresh_token || "",
+          expires: token.expires_at || 0,
+        })
       }
     } catch (e) {}
   }
