@@ -1014,117 +1014,195 @@ var YuktiEngine = (function () {
     return { ok: true, method: "checkbox" }
   }
 
-  // Async fill for custom dropdowns (React-Select, MUI, etc.)
+  function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms) }) }
+
+  // ── Async fill for searchable dropdowns / comboboxes ──
+  // Handles: React-Select, MUI, Greenhouse, Workday, Ashby, etc.
   function fillCustomSelectAsync(block, value) {
     return new Promise(function(resolve) {
       var el = block.element
       var valueLower = normalize(value)
+      var log = function(msg) { console.log("[YH-Fill] " + block.questionText?.slice(0,25) + " → " + msg) }
 
       if (valueLower.length > 80) {
         resolve({ ok: false, reason: "value too long for dropdown" })
         return
       }
 
-      // ── Strategy 1: Type into combobox search input first ──
-      // Many custom selects (React-Select, MUI) have an input that filters options
-      var isCombobox = el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox"
-      var searchInput = el.querySelector("input") || el.closest("[class*='select']")?.querySelector("input:not([type='hidden'])")
-      if (!searchInput && isCombobox && el.tagName === "INPUT") searchInput = el
+      // Get all synonym variants to try
+      var variants = [value]
+      var equivGroup = EQUIVALENCES[valueLower]
+      if (equivGroup) variants = variants.concat(equivGroup)
+      // For US states: add both full name and abbreviation
+      var stInfo = normalizeState(value)
+      if (stInfo.full && variants.indexOf(stInfo.full) === -1) variants.push(stInfo.full)
+      if (stInfo.abbr && variants.indexOf(stInfo.abbr) === -1) variants.push(stInfo.abbr)
 
-      if (searchInput) {
-        searchInput.focus()
-        // Type the value to filter options
-        var typeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-        if (typeSetter) typeSetter.call(searchInput, value)
-        else searchInput.value = value
-        searchInput.dispatchEvent(new Event("input", { bubbles: true }))
-        searchInput.dispatchEvent(new Event("change", { bubbles: true }))
-        // Also simulate keydown for React
-        searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: value.slice(-1), bubbles: true }))
+      log("type=" + (el.getAttribute("role") || el.tagName) + " value=" + value + " variants=" + variants.length)
+
+      // ── Find the search input ──
+      var searchInput = null
+      // Check if element IS the input
+      if (el.tagName === "INPUT" && el.type !== "hidden") searchInput = el
+      // Check inside element
+      if (!searchInput) searchInput = el.querySelector("input:not([type='hidden'])")
+      // Check in parent container
+      if (!searchInput) {
+        var container = el.closest("[class*='select'], [class*='combobox'], [class*='dropdown'], [class*='field'], [role='combobox']")
+        if (container) searchInput = container.querySelector("input:not([type='hidden'])")
       }
 
-      // ── Strategy 2: Click to open dropdown ──
-      el.click()
-      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-      var inner = el.querySelector("[class*='value'], [class*='placeholder'], [class*='indicator'], [class*='arrow'], [class*='trigger'], [class*='button']")
-      if (inner) inner.click()
+      // ── Strategy A: Click to open, type to filter, click option ──
+      async function strategyA() {
+        // Step 1: Click to open dropdown
+        el.click()
+        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+        var trigger = el.querySelector("[class*='indicator'], [class*='arrow'], [class*='trigger'], button, [class*='chevron']")
+        if (trigger) trigger.click()
 
-      setTimeout(function() {
-        // Search for options anywhere (portals render outside container)
+        await sleep(200)
+
+        // Step 2: Type short search text to filter (use first word for better filtering)
+        var searchText = value.split(" ")[0]  // "United" instead of "United States of America"
+        if (searchInput) {
+          searchInput.focus()
+          var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+          if (setter) setter.call(searchInput, searchText)
+          else searchInput.value = searchText
+          searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+          searchInput.dispatchEvent(new Event("change", { bubbles: true }))
+          searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: searchText.slice(-1), bubbles: true }))
+          log("typed '" + searchText + "' into search input")
+        }
+
+        await sleep(400)  // Wait for dropdown to filter
+
+        // Step 3: Find and click the best matching option
+        return findAndClickOption(valueLower, variants)
+      }
+
+      // ── Strategy B: Keyboard navigation (ArrowDown + Enter) ──
+      async function strategyB() {
+        if (!searchInput) return { ok: false }
+        searchInput.focus()
+        var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+        if (setter) setter.call(searchInput, value)
+        else searchInput.value = value
+        searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+
+        await sleep(300)
+
+        // Press ArrowDown then Enter
+        searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", keyCode: 40, bubbles: true }))
+        await sleep(100)
+        searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }))
+
+        await sleep(200)
+        return verifySelection()
+      }
+
+      // ── Strategy C: Try each variant ──
+      async function strategyC() {
+        for (var vi = 0; vi < variants.length; vi++) {
+          var variant = variants[vi]
+          if (!searchInput) break
+          searchInput.focus()
+          var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+          // Clear first
+          if (setter) setter.call(searchInput, "")
+          searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+          await sleep(100)
+          // Type variant
+          if (setter) setter.call(searchInput, variant)
+          else searchInput.value = variant
+          searchInput.dispatchEvent(new Event("input", { bubbles: true }))
+          searchInput.dispatchEvent(new Event("change", { bubbles: true }))
+          await sleep(400)
+
+          var result = findAndClickOption(normalize(variant), [variant])
+          if (result.ok) return result
+        }
+        return { ok: false, reason: "no variant matched" }
+      }
+
+      // ── Find visible options and click best match ──
+      function findAndClickOption(targetLower, targetVariants) {
         var optSelectors = [
-          '[class*="select__option"]', '[class*="option"]:not([class*="control"])',
-          '[role="option"]', '[class*="menu"] [class*="item"]',
-          '[class*="MenuList"] > div', 'li[id*="option"]', 'li[role="option"]',
+          '[role="option"]', '[class*="option"]:not([class*="control"])',
+          '[class*="select__option"]', 'li[id*="option"]', 'li[role="option"]',
+          '[class*="menu"] [class*="item"]', '[class*="MenuList"] > div',
           '[class*="MuiMenuItem"]', '[class*="ant-select-item"]',
           '[data-automation-id*="option"]', '[class*="dropdown-item"]',
-          '[class*="listbox"] [class*="option"]',
+          '[class*="listbox"] [class*="option"]', '[class*="list-item"]',
         ]
         var allOpts = document.querySelectorAll(optSelectors.join(", "))
+        log("found " + allOpts.length + " option elements")
 
         var bestOpt = null
         var bestScore = 0
         for (var i = 0; i < allOpts.length; i++) {
           var opt = allOpts[i]
-          if (!opt.offsetParent && !opt.getBoundingClientRect().height) continue
-          var t = normalize(opt.textContent)
+          var rect = opt.getBoundingClientRect()
+          if (rect.height === 0 || rect.width === 0) continue  // Skip invisible
+          var optText = normalize(opt.textContent)
           var optVal = normalize(opt.getAttribute("value") || opt.getAttribute("data-value") || "")
-          var score = Math.max(fuzzyMatch(valueLower, t), fuzzyMatch(valueLower, optVal))
+
+          // Score against all target variants
+          var score = 0
+          for (var v = 0; v < targetVariants.length; v++) {
+            var tv = normalize(targetVariants[v])
+            score = Math.max(score, fuzzyMatch(tv, optText), fuzzyMatch(tv, optVal))
+          }
           if (score > bestScore) { bestScore = score; bestOpt = opt }
         }
 
-        if (bestOpt && bestScore >= 40) {
+        if (bestOpt && bestScore >= 30) {
+          log("clicking option: '" + bestOpt.textContent.trim().slice(0, 40) + "' score=" + bestScore)
+          bestOpt.scrollIntoView({ block: "nearest" })
           bestOpt.click()
-          // Also try Enter key to confirm selection (some React-Select variants need this)
+          bestOpt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+          bestOpt.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+          // Confirm with Enter after a tiny delay
           setTimeout(function() {
-            document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }))
-          }, 100)
+            var active = document.activeElement
+            if (active) active.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }))
+          }, 50)
           highlightEl(el, "success")
-          resolve({ ok: true, method: "customSelect", selected: bestOpt.textContent.trim(), score: bestScore })
-        } else {
-          // Fallback: type into search and pick first filtered result
-          var fallbackInput = document.querySelector(
-            '[class*="select__input"] input, [class*="search"] input, ' +
-            'input[role="combobox"], [class*="combobox"] input, ' +
-            '[class*="MuiAutocomplete"] input, [class*="ant-select-search"] input'
-          )
-          if (fallbackInput) {
-            fallbackInput.focus()
-            var fbSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-            if (fbSetter) fbSetter.call(fallbackInput, value)
-            else fallbackInput.value = value
-            fallbackInput.dispatchEvent(new Event("input", { bubbles: true }))
-            fallbackInput.dispatchEvent(new Event("change", { bubbles: true }))
-            setTimeout(function() {
-              var filtered = document.querySelectorAll('[role="option"], [class*="option"]:not([class*="control"])')
-              // Find best match among filtered results
-              var bestFiltered = null
-              var bestFScore = 0
-              for (var fi = 0; fi < filtered.length; fi++) {
-                if (!filtered[fi].offsetParent) continue
-                var ft = normalize(filtered[fi].textContent)
-                var fs = fuzzyMatch(valueLower, ft)
-                if (fs > bestFScore) { bestFScore = fs; bestFiltered = filtered[fi] }
-              }
-              if (bestFiltered && bestFScore >= 30) {
-                bestFiltered.click()
-                highlightEl(el, "success")
-                resolve({ ok: true, method: "customSelect_search", selected: bestFiltered.textContent.trim() })
-              } else if (filtered.length > 0 && filtered[0].offsetParent) {
-                // Just pick the first visible option
-                filtered[0].click()
-                highlightEl(el, "success")
-                resolve({ ok: true, method: "customSelect_first", selected: filtered[0].textContent.trim() })
-              } else {
-                document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-                resolve({ ok: false, reason: "no matching custom option" })
-              }
-            }, 300)
-          } else {
-            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-            resolve({ ok: false, reason: "no matching custom option for: " + value })
-          }
+          return { ok: true, method: "customSelect", selected: bestOpt.textContent.trim(), score: bestScore }
         }
-      }, 400)
+
+        log("no match found (best score=" + bestScore + ")")
+        return { ok: false, reason: "no matching option", bestScore: bestScore }
+      }
+
+      // ── Verify selection committed ──
+      function verifySelection() {
+        var displayText = normalize(el.textContent || "")
+        var inputVal = searchInput ? normalize(searchInput.value || "") : ""
+        if (displayText.includes(valueLower.split(" ")[0]) || inputVal.includes(valueLower.split(" ")[0])) {
+          return { ok: true, method: "keyboard", selected: displayText || inputVal }
+        }
+        return { ok: false }
+      }
+
+      // ── Run strategies in order ──
+      (async function() {
+        var result = await strategyA()
+        if (result.ok) { resolve(result); return }
+        log("Strategy A failed, trying B")
+
+        result = await strategyB()
+        if (result.ok) { resolve(result); return }
+        log("Strategy B failed, trying C (variants)")
+
+        result = await strategyC()
+        if (result.ok) { resolve(result); return }
+        log("All strategies failed")
+
+        // Close any open dropdown
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+        resolve({ ok: false, reason: "all strategies failed for: " + value })
+      })()
     })
   }
 
