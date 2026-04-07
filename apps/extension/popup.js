@@ -607,26 +607,17 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#cover-letter-btn")?.click()
   })
 
-  // ── DOWNLOAD RESUME ───────────────────────────────────────────────────
-  $("#download-resume-btn")?.addEventListener("click", async () => {
-    const btn = $("#download-resume-btn")
-    btn.disabled = true
-    const result = await sendMessage({ type: "GET_RESUMES" })
-    if (result?.ok && result.data?.length > 0) {
-      const resumeId = result.data[0].id
-      const dlResult = await sendMessage({
-        type: "DOWNLOAD_RESUME",
-        data: { resume_id: resumeId, format: "pdf" }
-      })
-      if (dlResult?.ok && dlResult.data?.url) {
-        chrome.tabs.create({ url: dlResult.data.url })
-      } else {
-        chrome.tabs.create({ url: `${APP_URL}/dashboard/resumes` })
-      }
-    } else {
-      chrome.tabs.create({ url: `${APP_URL}/dashboard/resumes` })
-    }
-    btn.disabled = false
+  // Download cover letter as text file
+  $("#download-cover-letter")?.addEventListener("click", () => {
+    const text = $("#cover-letter-text")?.textContent || ""
+    if (!text) return
+    const blob = new Blob([text], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "cover-letter.txt"
+    a.click()
+    URL.revokeObjectURL(url)
   })
 
   // ── MANUAL SAVE ───────────────────────────────────────────────────────

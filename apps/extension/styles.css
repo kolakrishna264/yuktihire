@@ -528,16 +528,7 @@ body {
   transform: none;
 }
 
-.action-btn-v2.fill-btn {
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: #fff;
-  border-color: transparent;
-}
-
-.action-btn-v2.fill-btn:hover {
-  opacity: 0.9;
-  background: linear-gradient(135deg, #16a34a, #15803d);
-}
+/* All buttons same style — no special colors */
 
 .action-icon-v2 {
   font-size: 20px;
