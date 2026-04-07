@@ -61,6 +61,13 @@ export default function ExtensionPage() {
             <p className="text-[11px] text-white/40 mt-2">
               Currently under review — available for install soon
             </p>
+            <a
+              href="/yuktihire-extension.zip"
+              download
+              className="text-[10px] text-white/25 hover:text-white/50 mt-3 inline-block underline"
+            >
+              Developer install (beta testers only)
+            </a>
           </div>
 
           {/* Right — floating mocks */}
