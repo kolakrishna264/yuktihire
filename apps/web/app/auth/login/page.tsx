@@ -34,10 +34,20 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setGoogleLoading(true)
     const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
     })
+    if (error) {
+      setGoogleLoading(false)
+      setError(error.message)
+    }
   }
 
   const inputStyle: React.CSSProperties = {

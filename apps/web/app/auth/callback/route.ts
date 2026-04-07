@@ -32,13 +32,26 @@ export async function GET(request: NextRequest) {
   // Used for: Google OAuth, magic links
   const code = searchParams.get("code")
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
-      console.error("[auth/callback] exchangeCodeForSession error:", error.message)
+      console.error("[auth/callback] exchangeCodeForSession error:", error.message, "code:", code.slice(0, 10) + "...")
+      // If code exchange fails, try to check if user is already authenticated
+      const { data: userData } = await supabase.auth.getUser()
+      if (userData?.user) {
+        console.log("[auth/callback] User already authenticated, redirecting")
+        return NextResponse.redirect(`${origin}${next}`)
+      }
       return NextResponse.redirect(
         `${origin}/auth/error?message=${encodeURIComponent(error.message)}`
       )
     }
+    console.log("[auth/callback] OAuth success for:", data?.user?.email)
+    return NextResponse.redirect(`${origin}${next}`)
+  }
+
+  // ── Path 3: Check if already authenticated (e.g., hash fragment was handled client-side) ──
+  const { data: sessionData } = await supabase.auth.getUser()
+  if (sessionData?.user) {
     return NextResponse.redirect(`${origin}${next}`)
   }
 
