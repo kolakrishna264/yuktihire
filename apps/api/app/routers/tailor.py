@@ -98,11 +98,13 @@ async def run_pipeline_background(
             from migrate_clean_skills import clean_skills
             import json
 
+            print(f"[Pipeline] Starting for session {session_id}")
             result = await execute_pipeline(
                 resume_content=resume_content,
                 jd_text=jd_text,
                 cached_jd_analysis=jd_analysis,
             )
+            print(f"[Pipeline] execute_pipeline done. Recommendations: {len(result.get('recommendations', []))}")
 
             # ── Fix corrupted summary (keyword-dump from previous tailoring) ──
             current_summary = (resume_content.get("summary", "") or "").strip()
@@ -154,6 +156,7 @@ async def run_pipeline_background(
                 except Exception as enrich_err:
                     print(f"[Pipeline] Education enrich error: {enrich_err}")
 
+            print(f"[Pipeline] Starting skills cleanup")
             # ── HARD CLEAN all skills: cap per category, strip non-tool items ──
             REAL_TOOL_SET = {
                 # Languages
@@ -286,6 +289,7 @@ async def run_pipeline_background(
                         applied_count += 1
                     tailored_content["skills"] = current_skills
 
+            print(f"[Pipeline] Skills cleanup done. Starting re-score")
             # ── Re-score with the IMPROVED resume content ──
             jd_analysis_result = result.get("jd_analysis", jd_analysis or {})
             gap_analysis_result = result.get("gap_analysis", {})
@@ -540,6 +544,8 @@ async def run_pipeline_background(
             await db.commit()
 
         except Exception as e:
+            print(f"[Pipeline] CRITICAL ERROR: {e}")
+            import traceback; traceback.print_exc()
             async with AsyncSessionLocal() as err_db:
                 result = await err_db.execute(
                     select(TailoringSession).where(TailoringSession.id == session_id)
