@@ -168,7 +168,7 @@ async def rewrite_bullet(
                 "confidence": 1.0, "truthful": True, "changed": False}
 
     message = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=500,
         system=BULLET_SYSTEM,
         messages=[{
@@ -235,7 +235,7 @@ async def rewrite_summary(
                 skill_names.append(s["name"])
 
     message = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=600,
         system=SUMMARY_SYSTEM,
         messages=[{

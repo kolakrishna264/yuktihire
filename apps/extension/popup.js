@@ -611,13 +611,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#download-cover-letter")?.addEventListener("click", () => {
     const text = $("#cover-letter-text")?.textContent || ""
     if (!text) return
-    const blob = new Blob([text], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "cover-letter.txt"
-    a.click()
-    URL.revokeObjectURL(url)
+    // Use data URI — works in Chrome extension popup
+    const dataUri = "data:text/plain;charset=utf-8," + encodeURIComponent(text)
+    chrome.downloads.download({
+      url: dataUri,
+      filename: "cover-letter.txt",
+      saveAs: true,
+    })
   })
 
   // ── MANUAL SAVE ───────────────────────────────────────────────────────
