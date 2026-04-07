@@ -55,7 +55,7 @@ export default function ExtensionPage() {
               Save jobs from any website, autofill applications, and tailor resumes — all from your browser.
             </p>
             <a
-              href="https://github.com/kolakrishna264/yuktihire/archive/refs/heads/main.zip"
+              href="https://api.yuktihire.com/api/v1/extension/download"
               className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white text-indigo-700 rounded-2xl font-bold text-sm hover:bg-white/90 transition-all shadow-xl shadow-black/10 hover:-translate-y-0.5"
             >
               <Download className="w-4 h-4" />
@@ -85,10 +85,10 @@ export default function ExtensionPage() {
         </p>
         <div className="grid sm:grid-cols-4 gap-4">
           {[
-            { step: "1", text: "Download & unzip the file", icon: Download },
+            { step: "1", text: "Download & unzip the extension", icon: Download },
             { step: "2", text: "Open chrome://extensions", icon: Chrome },
             { step: "3", text: "Enable Developer Mode → Load unpacked", icon: Shield },
-            { step: "4", text: "Select the apps/extension folder", icon: Check },
+            { step: "4", text: "Select the yuktihire-extension folder", icon: Check },
           ].map((item) => (
             <div key={item.step} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-indigo-100/60">
               <span className="w-7 h-7 rounded-lg gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
