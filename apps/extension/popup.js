@@ -165,8 +165,11 @@ document.addEventListener("DOMContentLoaded", () => {
         page_title: pageData?.pageTitle || "",
         extracted_title: title,
         extracted_company: company,
-        extracted_description: desc.slice(0, 10000),
+        extracted_description: desc.slice(0, 15000),
         source_domain: pageData?.source_domain || "",
+        location: pageData?.location || "",
+        salary: pageData?.salary || "",
+        work_type: pageData?.employmentType || "",
       },
     })
 

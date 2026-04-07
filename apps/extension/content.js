@@ -925,6 +925,8 @@ if (document.location.hostname.includes("yuktihire.com")) {
       company: getText(".job-details-jobs-unified-top-card__company-name, .topcard__org-name-link, .jobs-unified-top-card__company-name"),
       location: getText(".job-details-jobs-unified-top-card__bullet, .topcard__flavor--bullet, .jobs-unified-top-card__bullet"),
       description: getText(".jobs-description__content, .jobs-box__html-content, .show-more-less-html__markup, #job-details"),
+      salary: getText("[class*='salary'], .compensation__salary"),
+      employmentType: getText("[class*='workplace-type'], .workplace-type"),
       source: "linkedin",
       confidence: 90,
     }),
@@ -932,7 +934,8 @@ if (document.location.hostname.includes("yuktihire.com")) {
     "greenhouse.io": () => ({
       title: getText("#header .app-title, .opening h1, [data-mapped='true'] h1, h1"),
       company: getText(".company-name, #header .company-name") || document.title.split(" at ").pop()?.split(" - ")[0]?.trim() || "",
-      description: getText("#content .body, .opening .body, #app_body, .job-post-content, main, [id*='content'], [class*='content']") || getText("body")?.slice(0, 8000) || "",
+      location: getText(".location, [class*='location']"),
+      description: getText("#content .body, .opening .body, #app_body, .job-post-content, main, [id*='content'], [class*='content']") || getText("body")?.slice(0, 10000) || "",
       source: "greenhouse",
       confidence: 90,
     }),
@@ -940,7 +943,9 @@ if (document.location.hostname.includes("yuktihire.com")) {
     "lever.co": () => ({
       title: getText(".posting-headline h2, .section-wrapper h1, h1"),
       company: getText(".posting-headline .company") || document.title.split(" - ").pop()?.trim() || "",
+      location: getText(".posting-categories .location, .location"),
       description: getText(".section-wrapper .content, .posting-page .content, [data-qa='job-description']"),
+      employmentType: getText(".posting-categories .commitment, .commitment"),
       source: "lever",
       confidence: 90,
     }),
@@ -1030,29 +1035,77 @@ if (document.location.hostname.includes("yuktihire.com")) {
       getDomain().split(".")[0] ||
       ""
 
-    // Try multiple location strategies
+    // Location extraction — expanded selectors
     const location =
       getText(".location, .job-location, [data-testid='location'], .office-location") ||
       getText("[class*='location'], [class*='Location']") ||
+      getText("[class*='workplace'], [class*='workType']") ||
       ""
 
-    // Try multiple description strategies — always get SOMETHING
-    const description =
-      getText(".job-description, .job-details, #job-description, .description-section") ||
-      getText("[class*='description'], [class*='Description'], [data-testid*='description']") ||
-      getText("main, article, [role='main']") ||
-      (document.body?.innerText || "").slice(0, 8000) ||
+    // Salary extraction
+    const salary =
+      getText("[class*='salary'], [class*='compensation'], [class*='pay-range'], [data-testid*='salary']") ||
       ""
+
+    // Work type extraction
+    const workType =
+      getText("[class*='employment-type'], [class*='job-type'], [class*='work-type']") ||
+      ""
+
+    // ── SMART JD extraction — avoid nav/footer noise ──
+    // Strategy: try specific JD containers first, then clean body text
+    let description = ""
+
+    // Priority 1: Known JD containers
+    const jdSelectors = [
+      ".job-description", ".job-details", "#job-description", ".description-section",
+      "[class*='job-description']", "[class*='jobDescription']", "[class*='posting-description']",
+      "[class*='Description']:not(nav):not(footer):not(header)",
+      "[data-testid*='description']", "[data-automation-id*='description']",
+      ".content-body", ".posting-content", ".job-post-content",
+    ]
+    for (const sel of jdSelectors) {
+      const el = document.querySelector(sel)
+      if (el && el.textContent.trim().length > 200) {
+        description = el.textContent.trim()
+        break
+      }
+    }
+
+    // Priority 2: Main/article content (stripped of nav/header/footer)
+    if (!description || description.length < 200) {
+      const main = document.querySelector("main, article, [role='main']")
+      if (main) {
+        // Clone and strip navigation/header/footer from the clone
+        const clone = main.cloneNode(true)
+        clone.querySelectorAll("nav, header, footer, [class*='nav'], [class*='footer'], [class*='header'], [class*='sidebar']").forEach(el => el.remove())
+        description = clone.textContent.trim()
+      }
+    }
+
+    // Priority 3: Body text as last resort (heavily cleaned)
+    if (!description || description.length < 200) {
+      const body = document.body?.cloneNode(true)
+      if (body) {
+        body.querySelectorAll("nav, header, footer, script, style, [class*='nav'], [class*='footer'], [class*='cookie']").forEach(el => el.remove())
+        description = body.textContent.trim()
+      }
+    }
+
+    // Clean up: collapse whitespace, limit size
+    description = (description || "").replace(/\s+/g, " ").trim()
 
     if (!title && !description) return null
 
     return {
-      title: title.slice(0, 200),
+      title: title.slice(0, 300),
       company: company.slice(0, 200),
       location: location.slice(0, 200),
-      description: description.slice(0, 10000),
+      salary: salary.slice(0, 100),
+      employmentType: workType.slice(0, 100),
+      description: description.slice(0, 15000),
       source: "dom",
-      confidence: title ? 50 : 20,
+      confidence: title ? 55 : 20,
     }
   }
 
@@ -1201,10 +1254,10 @@ if (document.location.hostname.includes("yuktihire.com")) {
     return {
       title: (result.title || "").slice(0, 300),
       company: (result.company || "").slice(0, 200),
-      description: (result.description || "").slice(0, 10000),
+      description: (result.description || "").replace(/\s+/g, " ").trim().slice(0, 15000),
       location: (result.location || "").slice(0, 200),
-      salary: result.salary || "",
-      employmentType: result.employmentType || "",
+      salary: (result.salary || "").slice(0, 100),
+      employmentType: (result.employmentType || "").slice(0, 100),
       url: document.location.href,
       pageTitle: document.title,
       source_domain: domain,

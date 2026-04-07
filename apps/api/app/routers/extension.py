@@ -380,7 +380,7 @@ async def update_job_description(
         if not result.first():
             raise HTTPException(status_code=404, detail="Job not found")
 
-        desc = (data.description or "")[:10000]
+        desc = (data.description or "")[:15000]
         await db.execute(
             text("UPDATE job_applications SET description = :desc, notes = COALESCE(NULLIF(notes, ''), :desc), updated_at = NOW() WHERE id = :id"),
             {"id": data.tracker_id, "desc": desc},
