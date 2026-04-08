@@ -102,6 +102,20 @@ export default function DashboardShell({ user }: DashboardShellProps) {
         }
       />
 
+      {/* ── Beta Extension Banner ────────────────────────────────────── */}
+      <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 rounded-xl p-4 flex items-center gap-4">
+        <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+          <Chrome className="w-5 h-5 text-indigo-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-indigo-900">Install the Browser Extension</p>
+          <p className="text-xs text-indigo-600/70">Download, unzip, load in Chrome, and enter your invite code to start autofilling job applications.</p>
+        </div>
+        <Link href="/dashboard/extension" className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap">
+          Get Extension
+        </Link>
+      </div>
+
       {/* ── Onboarding (new users) ────────────────────────────────────── */}
       {isNewUser && <OnboardingChecklist />}
 
