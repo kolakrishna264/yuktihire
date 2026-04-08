@@ -62,21 +62,19 @@ export default function ExtensionPage() {
             </p>
             <div className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-white/10 border border-white/20 text-white/80 rounded-2xl font-bold text-sm cursor-default">
               <Chrome className="w-4 h-4" />
-              Coming Soon on Chrome Web Store
+              Private Beta
             </div>
             <p className="text-[11px] text-white/40 mt-2">
-              Currently under review — available for install soon
+              Download the extension and enter your invite code to get started
             </p>
-            {isAdmin && (
-              <a
-                href="/yuktihire-extension.zip"
-                download
-                className="inline-flex items-center gap-2 px-5 py-2.5 mt-3 bg-white text-indigo-700 rounded-xl font-bold text-xs hover:bg-white/90 transition-all"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download Extension (Admin)
-              </a>
-            )}
+            <a
+              href="/yuktihire-extension.zip"
+              download
+              className="inline-flex items-center gap-2 px-5 py-2.5 mt-3 bg-white text-indigo-700 rounded-xl font-bold text-xs hover:bg-white/90 transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download Extension
+            </a>
           </div>
 
           {/* Right — floating mocks */}
@@ -93,15 +91,33 @@ export default function ExtensionPage() {
         </div>
       </div>
 
-      {/* ── Quick Install Steps ────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-6 text-center">
-        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center justify-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5" /> Pending Chrome Web Store Review
+      {/* ── Install Steps ────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-violet-50/50 p-6">
+        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-4 flex items-center justify-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5" /> How to Install (Beta)
         </p>
-        <p className="text-sm text-gray-600 max-w-md mx-auto">
-          The YuktiHire extension is currently under review by the Chrome Web Store team.
-          Once approved, you&apos;ll be able to install it with one click — just like any other Chrome extension.
-        </p>
+        <div className="grid sm:grid-cols-4 gap-4 text-center">
+          <div className="space-y-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold text-sm flex items-center justify-center mx-auto">1</div>
+            <p className="text-xs font-semibold text-gray-800">Download</p>
+            <p className="text-[11px] text-gray-500">Click the download button above to get the .zip file</p>
+          </div>
+          <div className="space-y-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold text-sm flex items-center justify-center mx-auto">2</div>
+            <p className="text-xs font-semibold text-gray-800">Unzip</p>
+            <p className="text-[11px] text-gray-500">Extract the zip file to a folder on your computer</p>
+          </div>
+          <div className="space-y-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold text-sm flex items-center justify-center mx-auto">3</div>
+            <p className="text-xs font-semibold text-gray-800">Load in Chrome</p>
+            <p className="text-[11px] text-gray-500">Go to <code className="bg-gray-100 px-1 rounded text-[10px]">chrome://extensions</code>, enable Developer Mode, click &quot;Load unpacked&quot;, select the folder</p>
+          </div>
+          <div className="space-y-2">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold text-sm flex items-center justify-center mx-auto">4</div>
+            <p className="text-xs font-semibold text-gray-800">Enter Invite Code</p>
+            <p className="text-[11px] text-gray-500">Click the extension icon, enter your invite code to unlock</p>
+          </div>
+        </div>
       </div>
 
       {/* ── Feature Posters ────────────────────────────────────────────── */}
