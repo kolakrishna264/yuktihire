@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Quick Apply Assistant",
-  "description": "Speed up your job applications with smart form filling.",
-  "version": "1.0.1",
+  "name": "YuktiHire — AI Job Assistant",
+  "description": "Save jobs, autofill applications, tailor your resume, and track your job search — all from one extension.",
+  "version": "1.0.2",
   "permissions": ["activeTab", "storage", "tabs", "cookies", "scripting", "downloads"],
   "host_permissions": ["<all_urls>"],
   "action": {

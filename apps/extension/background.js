@@ -23,7 +23,7 @@ async function getToken() {
 async function fetchTokenFromTab() {
   try {
     // Find any open yuktihire.com tab
-    const tabs = await chrome.tabs.query({ url: ["https://yuktihire.com/*", "https://www.yuktihire.com/*", "http://localhost:3000/*"] })
+    const tabs = await chrome.tabs.query({ url: ["https://yuktihire.com/*", "https://www.yuktihire.com/*"] })
     if (!tabs.length) return null
 
     // Inject a script to read the cookie from the page context
