@@ -43,15 +43,20 @@ async function init() {
   }
   setAuthBadge(true)
 
-  // 1.5 Beta access check
-  const beta = await sendMessage({ type: "CHECK_BETA" })
-  if (!beta || !beta.approved) {
-    // Check if killed vs just not verified
-    const stored = await chrome.storage.local.get(["beta_approved"])
-    if (!stored.beta_approved) {
-      showState("#beta-gate")
-      return
+  // 1.5 Beta access check — forgiving: if API fails, allow through
+  try {
+    const beta = await sendMessage({ type: "CHECK_BETA" })
+    if (beta && beta.ok === true && beta.approved === false) {
+      // Explicitly denied — check local storage before blocking
+      const stored = await chrome.storage.local.get(["beta_approved"])
+      if (!stored.beta_approved) {
+        showState("#beta-gate")
+        return
+      }
     }
+    // If beta.approved is true, or call failed (ok: false), or no response — allow through
+  } catch (e) {
+    // API unreachable — don't block the user
   }
 
   // 2. Get tab

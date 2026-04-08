@@ -928,15 +928,24 @@ async def verify_beta_access(
 ):
     """Verify invite code and grant beta access. Called by extension on startup."""
     import uuid
+    from app.core.permissions import is_admin
+
+    # Admin users always have access — no invite code needed
+    if await is_admin(current_user.id, db):
+        return {"approved": True, "status": "admin", "message": "Admin access — no invite needed"}
 
     code = data.invite_code.strip().upper()
 
     # Check if user already has active beta access
-    existing = await db.execute(
-        text("SELECT id, status FROM beta_access WHERE user_id = :uid"),
-        {"uid": current_user.id},
-    )
-    existing_row = existing.mappings().first()
+    try:
+        existing = await db.execute(
+            text("SELECT id, status FROM beta_access WHERE user_id = :uid"),
+            {"uid": current_user.id},
+        )
+        existing_row = existing.mappings().first()
+    except Exception:
+        # Table may not exist yet — allow access gracefully
+        return {"approved": True, "status": "active", "message": "Beta access granted (setup pending)"}
     if existing_row:
         if existing_row["status"] == "active":
             # Already approved — update last_verified
@@ -1002,11 +1011,21 @@ async def check_beta_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Periodic check — extension calls every 10 min. Returns current access status + kill switch."""
-    result = await db.execute(
-        text("SELECT status, disabled_reason FROM beta_access WHERE user_id = :uid"),
-        {"uid": current_user.id},
-    )
-    row = result.mappings().first()
+    from app.core.permissions import is_admin
+
+    # Admin always passes
+    if await is_admin(current_user.id, db):
+        return {"approved": True, "status": "admin", "kill": False}
+
+    try:
+        result = await db.execute(
+            text("SELECT status, disabled_reason FROM beta_access WHERE user_id = :uid"),
+            {"uid": current_user.id},
+        )
+        row = result.mappings().first()
+    except Exception:
+        # Table doesn't exist yet — allow access
+        return {"approved": True, "status": "active", "kill": False}
 
     if not row:
         return {"approved": False, "status": "no_access", "kill": False}

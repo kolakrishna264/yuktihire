@@ -641,6 +641,7 @@ async def beta_summary(
 class GenerateInvitesRequest(BaseModel):
     count: int = 5
     expiry_hours: int = 48
+    custom_codes: Optional[list] = None  # e.g. ["RAMA", "BETA-TEST"] — creates specific codes
 
 
 @router.post("/beta/generate-invites")
@@ -649,25 +650,44 @@ async def generate_beta_invites(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate beta invite codes. Admin only."""
+    """Generate beta invite codes. Admin only. Supports custom codes or auto-generated."""
     if not await is_admin(current_user.id, db):
         raise HTTPException(403, "Admin access required")
 
     import uuid, secrets
 
-    count = min(data.count, 50)  # Max 50 at a time
     expiry = datetime.now(timezone.utc) + __import__("datetime").timedelta(hours=data.expiry_hours)
     codes = []
 
-    for _ in range(count):
-        code = "BETA-" + secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
-        invite_id = str(uuid.uuid4())
-        await db.execute(
-            text("""INSERT INTO beta_invites (id, code, created_by, status, expires_at, created_at)
-                    VALUES (:id, :code, :uid, 'active', :exp, NOW())"""),
-            {"id": invite_id, "code": code, "uid": current_user.id, "exp": expiry},
-        )
-        codes.append({"code": code, "expiresAt": expiry.isoformat(), "id": invite_id})
+    # Custom codes (admin-specified names like "RAMA", "FRIEND1", etc.)
+    if data.custom_codes and len(data.custom_codes) > 0:
+        for custom in data.custom_codes[:50]:
+            code = custom.strip().upper()
+            if not code:
+                continue
+            invite_id = str(uuid.uuid4())
+            try:
+                await db.execute(
+                    text("""INSERT INTO beta_invites (id, code, created_by, status, expires_at, created_at)
+                            VALUES (:id, :code, :uid, 'active', :exp, NOW())"""),
+                    {"id": invite_id, "code": code, "uid": current_user.id, "exp": expiry},
+                )
+                codes.append({"code": code, "expiresAt": expiry.isoformat(), "id": invite_id})
+            except Exception:
+                # Code already exists — skip
+                pass
+    else:
+        # Auto-generate random codes
+        count = min(data.count, 50)
+        for _ in range(count):
+            code = "BETA-" + secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
+            invite_id = str(uuid.uuid4())
+            await db.execute(
+                text("""INSERT INTO beta_invites (id, code, created_by, status, expires_at, created_at)
+                        VALUES (:id, :code, :uid, 'active', :exp, NOW())"""),
+                {"id": invite_id, "code": code, "uid": current_user.id, "exp": expiry},
+            )
+            codes.append({"code": code, "expiresAt": expiry.isoformat(), "id": invite_id})
 
     await db.commit()
     return {"codes": codes, "count": len(codes), "expiryHours": data.expiry_hours}
