@@ -323,6 +323,7 @@ async def delete_answer(
 
 class AutofillSessionData(BaseModel):
     portal_domain: Optional[str] = None
+    portal_name: Optional[str] = None    # detected portal (greenhouse, workday, etc.)
     job_title: Optional[str] = None
     company: Optional[str] = None
     fields_total: int = 0
@@ -331,6 +332,9 @@ class AutofillSessionData(BaseModel):
     fields_failed: int = 0
     fields_ai: int = 0
     fields_memory: int = 0
+    fields_option: int = 0               # option-based fields (select/radio) filled
+    upload_interrupted: bool = False       # did we pause for file upload?
+    submit_ready: bool = False             # was submit bar shown?
     readiness_score: int = 0
     duration_ms: int = 0
 
@@ -391,6 +395,21 @@ async def get_autofill_stats(
         total_filled = row.get("total_filled", 0)
         time_saved_min = round(total_filled * 1.5)  # ~1.5 min saved per field
 
+        # Portal success rate breakdown
+        portal_result = await db.execute(
+            text("""SELECT portal_domain,
+                    COUNT(*) as sessions,
+                    COALESCE(AVG(CASE WHEN fields_total > 0 THEN fields_filled * 100.0 / fields_total ELSE 0 END), 0) as success_rate
+                    FROM autofill_sessions WHERE user_id = :uid
+                    GROUP BY portal_domain ORDER BY sessions DESC LIMIT 10"""),
+            {"uid": current_user.id},
+        )
+        portal_stats = [
+            {"portal": r.get("portal_domain", ""), "sessions": r.get("sessions", 0),
+             "successRate": round(float(r.get("success_rate", 0)))}
+            for r in portal_result.mappings()
+        ]
+
         return {
             "totalSessions": row.get("total_sessions", 0),
             "totalFieldsFilled": total_filled,
@@ -400,6 +419,7 @@ async def get_autofill_stats(
             "totalFailed": row.get("total_failed", 0),
             "avgReadiness": round(float(row.get("avg_readiness", 0))),
             "estimatedTimeSavedMin": time_saved_min,
+            "portalStats": portal_stats,
         }
     except Exception:
         return {"totalSessions": 0}
@@ -889,3 +909,124 @@ def _extract_domain(url_or_domain: str) -> str:
     domain = url_or_domain.replace("https://", "").replace("http://", "").split("/")[0]
     parts = domain.replace("www.", "").split(".")
     return parts[0].title() if parts else "Unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BETA ACCESS SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════
+
+class BetaVerifyRequest(BaseModel):
+    invite_code: str
+    device_id: Optional[str] = None
+
+
+@router.post("/beta/verify")
+async def verify_beta_access(
+    data: BetaVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify invite code and grant beta access. Called by extension on startup."""
+    import uuid
+
+    code = data.invite_code.strip().upper()
+
+    # Check if user already has active beta access
+    existing = await db.execute(
+        text("SELECT id, status FROM beta_access WHERE user_id = :uid"),
+        {"uid": current_user.id},
+    )
+    existing_row = existing.mappings().first()
+    if existing_row:
+        if existing_row["status"] == "active":
+            # Already approved — update last_verified
+            await db.execute(
+                text("UPDATE beta_access SET last_verified_at = NOW() WHERE user_id = :uid"),
+                {"uid": current_user.id},
+            )
+            await db.commit()
+            return {"approved": True, "status": "active", "message": "Beta access active"}
+        elif existing_row["status"] == "disabled":
+            return {"approved": False, "status": "disabled", "message": "Beta access has been revoked"}
+
+    # Look up invite code
+    invite = await db.execute(
+        text("""SELECT id, code, status, expires_at, redeemed_by, device_id
+                FROM beta_invites WHERE code = :code"""),
+        {"code": code},
+    )
+    invite_row = invite.mappings().first()
+
+    if not invite_row:
+        return {"approved": False, "message": "Invalid invite code"}
+    if invite_row["status"] == "revoked":
+        return {"approved": False, "message": "This invite code has been revoked"}
+    if invite_row["redeemed_by"] and invite_row["redeemed_by"] != current_user.id:
+        return {"approved": False, "message": "This invite code has already been used"}
+    if invite_row["expires_at"] and invite_row["expires_at"] < datetime.now(timezone.utc):
+        return {"approved": False, "message": "This invite code has expired"}
+
+    # Check device binding — if invite was already used from a different device
+    if invite_row["device_id"] and data.device_id and invite_row["device_id"] != data.device_id:
+        return {"approved": False, "message": "This invite code is bound to another device"}
+
+    # Check total beta user limit (25)
+    count_result = await db.execute(
+        text("SELECT COUNT(*) as cnt FROM beta_access WHERE status = 'active'")
+    )
+    active_count = count_result.mappings().first()["cnt"]
+    if active_count >= 25:
+        return {"approved": False, "message": "Beta is full (25/25 users). Please try again later."}
+
+    # Redeem the invite
+    await db.execute(
+        text("""UPDATE beta_invites SET redeemed_by = :uid, redeemed_at = NOW(),
+                device_id = :did, status = 'redeemed' WHERE id = :id"""),
+        {"uid": current_user.id, "did": data.device_id, "id": invite_row["id"]},
+    )
+
+    # Create beta access record
+    await db.execute(
+        text("""INSERT INTO beta_access (id, user_id, invite_id, device_id, status, last_verified_at, created_at)
+                VALUES (:id, :uid, :iid, :did, 'active', NOW(), NOW())"""),
+        {"id": str(uuid.uuid4()), "uid": current_user.id, "iid": invite_row["id"], "did": data.device_id},
+    )
+    await db.commit()
+
+    return {"approved": True, "status": "active", "message": "Beta access granted!"}
+
+
+@router.get("/beta/check")
+async def check_beta_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Periodic check — extension calls every 10 min. Returns current access status + kill switch."""
+    result = await db.execute(
+        text("SELECT status, disabled_reason FROM beta_access WHERE user_id = :uid"),
+        {"uid": current_user.id},
+    )
+    row = result.mappings().first()
+
+    if not row:
+        return {"approved": False, "status": "no_access", "kill": False}
+
+    if row["status"] == "disabled":
+        return {"approved": False, "status": "disabled", "kill": True, "reason": row.get("disabled_reason", "")}
+
+    # Check global kill switch
+    kill_result = await db.execute(
+        text("SELECT enabled FROM feature_flags WHERE name = 'beta_active'")
+    )
+    kill_row = kill_result.mappings().first()
+    if kill_row and not kill_row["enabled"]:
+        return {"approved": False, "status": "beta_paused", "kill": True, "reason": "Beta is temporarily paused"}
+
+    # Update last verified
+    await db.execute(
+        text("UPDATE beta_access SET last_verified_at = NOW() WHERE user_id = :uid"),
+        {"uid": current_user.id},
+    )
+    await db.commit()
+
+    return {"approved": True, "status": "active", "kill": False}

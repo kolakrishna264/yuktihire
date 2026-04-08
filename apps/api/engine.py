@@ -42,28 +42,35 @@ async def execute_pipeline(
     if cached_jd_analysis and cached_jd_analysis.get("required_skills"):
         jd_analysis = cached_jd_analysis
     else:
-        jd_analysis = await analyze_jd(jd_text)
+        try:
+            jd_analysis = await analyze_jd(jd_text)
+        except Exception as jd_err:
+            print(f"[Engine] JD analysis failed: {jd_err}")
+            # Return minimal fallback so pipeline doesn't crash
+            jd_analysis = {"required_skills": [], "must_have_keywords": [], "nice_to_have_skills": [], "role": "", "seniority_level": "mid"}
 
-    # Pass 2: Gap Analysis + ATS Score — run concurrently
-    gap_analysis = await analyze_gaps(resume_content, jd_analysis)
+    # Pass 2: Gap Analysis + ATS Score
+    try:
+        gap_analysis = await analyze_gaps(resume_content, jd_analysis)
+    except Exception as gap_err:
+        print(f"[Engine] Gap analysis failed: {gap_err}")
+        gap_analysis = {"bullet_alignments": [], "role_relevance": [], "true_skill_gaps": [], "unhighlighted_skills": [], "overall_fit_score": 40}
+
     ats_score_before = calculate_ats_score(resume_content, jd_analysis, gap_analysis)
 
     # Pass 3: Rewrites — skip if gap analysis shows resume is already strong
-    # The auto-add in run_pipeline_background handles keyword insertion
-    # Rewrites only improve bullet WORDING (not keywords) — expensive and slow
     overall_before = ats_score_before.get("overall_score", 0)
     if overall_before >= 70:
-        # Resume already strong — skip expensive rewrites, let auto-add handle keywords
         print(f"[Engine] Score {overall_before}% — skipping rewrites (auto-add will handle)")
         recommendations = []
     else:
-        recommendations = await generate_all_rewrites(gap_analysis, resume_content, jd_analysis)
+        try:
+            recommendations = await generate_all_rewrites(gap_analysis, resume_content, jd_analysis)
+        except Exception as rw_err:
+            print(f"[Engine] Rewriter failed: {rw_err}")
+            recommendations = []  # Skip rewrites gracefully
 
-    # ATS Score AFTER (uses same resume content — actual score change happens when applied)
-    # The "after" score here estimates improvement based on recommendations
-    ats_score = ats_score_before  # Same content; delta shown after apply
-
-    # Add before score and delta info
+    ats_score = ats_score_before
     ats_score["score_before"] = ats_score_before["overall_score"]
 
     return {

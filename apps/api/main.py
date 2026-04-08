@@ -203,6 +203,29 @@ async def lifespan(app: FastAPI):
                         duration_ms INTEGER DEFAULT 0,
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )""",
+                    """CREATE TABLE IF NOT EXISTS beta_invites (
+                        id VARCHAR PRIMARY KEY,
+                        code VARCHAR(20) UNIQUE NOT NULL,
+                        created_by VARCHAR REFERENCES users(id),
+                        redeemed_by VARCHAR REFERENCES users(id),
+                        redeemed_at TIMESTAMPTZ,
+                        device_id VARCHAR(255),
+                        status VARCHAR(20) DEFAULT 'active',
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        revoked_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS beta_access (
+                        id VARCHAR PRIMARY KEY,
+                        user_id VARCHAR UNIQUE NOT NULL REFERENCES users(id),
+                        invite_id VARCHAR REFERENCES beta_invites(id),
+                        device_id VARCHAR(255),
+                        status VARCHAR(20) DEFAULT 'active',
+                        last_verified_at TIMESTAMPTZ,
+                        disabled_at TIMESTAMPTZ,
+                        disabled_reason VARCHAR(500),
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )""",
                 ]
                 for table_sql in saas_tables:
                     try:
@@ -219,6 +242,7 @@ async def lifespan(app: FastAPI):
                     ("company_intel", True, "Enable company research feature"),
                     ("autofill", True, "Enable extension autofill"),
                     ("promo_codes", True, "Enable promo code redemption"),
+                    ("beta_active", True, "Master kill switch for beta access — disable to pause all beta users"),
                 ]
                 for name, enabled, desc in default_flags:
                     try:

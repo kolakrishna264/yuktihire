@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YuktiHire — AI Job Tracker",
-  "description": "Save jobs from any website. Track, tailor, and apply smarter.",
-  "version": "1.0.0",
+  "name": "Quick Apply Assistant",
+  "description": "Speed up your job applications with smart form filling.",
+  "version": "1.0.1",
   "permissions": ["activeTab", "storage", "tabs", "cookies", "scripting", "downloads"],
   "host_permissions": ["<all_urls>"],
   "action": {

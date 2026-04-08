@@ -9,7 +9,7 @@
     <div class="header">
       <div class="logo">
         <div class="logo-icon">⚡</div>
-        <span class="logo-text">YuktiHire</span>
+        <span class="logo-text">Quick Apply</span>
       </div>
       <div id="auth-status" class="auth-badge"></div>
     </div>
@@ -22,13 +22,23 @@
     <div id="login-state" class="state hidden">
       <p class="msg">Sign in to get started</p>
       <p class="sub">Sign in at yuktihire.com, then come back here</p>
-      <button id="login-btn" class="btn btn-primary">Open YuktiHire Sign In</button>
+      <button id="login-btn" class="btn btn-primary">Open Sign In</button>
       <button id="retry-auth-btn" class="btn btn-outline" style="margin-top:8px">I'm already signed in — retry</button>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f3f4f6">
         <p style="font-size:10px;color:#9ca3af;margin-bottom:6px">Or paste access token:</p>
         <input id="token-input" class="form-input" placeholder="Paste token" style="font-size:11px" />
         <button id="token-save-btn" class="btn btn-outline" style="margin-top:4px;font-size:11px;padding:6px">Connect</button>
       </div>
+    </div>
+
+    <!-- Beta Invite Gate -->
+    <div id="beta-gate" class="state hidden">
+      <p class="msg">Beta Access Required</p>
+      <p class="sub" style="margin-bottom:12px">Enter your invite code to unlock the extension</p>
+      <input id="invite-code-input" class="form-input" placeholder="BETA-XXXX-XXXX" style="font-size:13px;text-align:center;letter-spacing:2px;text-transform:uppercase;font-weight:700" />
+      <button id="invite-verify-btn" class="btn btn-primary" style="margin-top:8px;width:100%">Verify Code</button>
+      <p id="invite-error" style="color:#dc2626;font-size:11px;margin-top:8px;display:none"></p>
+      <p id="invite-success" style="color:#16a34a;font-size:11px;margin-top:8px;display:none"></p>
     </div>
 
     <!-- Main Panel -->

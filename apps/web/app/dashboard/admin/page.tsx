@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Badge } from "@/components/ui/Badge"
 import { Skeleton } from "@/components/ui/Skeleton"
-import { Shield, Users, BarChart3, Tag, Flag, Clock, Search, ChevronDown } from "lucide-react"
+import { Shield, Users, BarChart3, Tag, Flag, Clock, Search, ChevronDown, Key, Copy, Power, UserX, UserCheck } from "lucide-react"
 import { toast } from "sonner"
 
-type Tab = "overview" | "users" | "promo" | "features" | "activity" | "audit" | "quality" | "health"
+type Tab = "overview" | "users" | "promo" | "features" | "beta" | "activity" | "audit" | "quality" | "health"
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview")
@@ -37,6 +37,7 @@ export default function AdminPage() {
     { id: "users", label: "Users", icon: Users },
     { id: "promo", label: "Promo Codes", icon: Tag },
     { id: "features", label: "Features", icon: Flag },
+    { id: "beta", label: "Beta Access", icon: Key },
     { id: "quality", label: "Autofill Quality", icon: BarChart3 },
     { id: "activity", label: "Activity", icon: Clock },
     { id: "audit", label: "Audit Log", icon: Shield },
@@ -66,6 +67,7 @@ export default function AdminPage() {
       {tab === "users" && <UsersTab />}
       {tab === "promo" && <PromoTab />}
       {tab === "features" && <FeaturesTab />}
+      {tab === "beta" && <BetaTab />}
       {tab === "quality" && <QualityTab />}
       {tab === "activity" && <ActivityTab />}
       {tab === "audit" && <AuditTab />}
@@ -498,6 +500,264 @@ function HealthTab() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Beta Access Management ──
+
+function BetaTab() {
+  const qc = useQueryClient()
+  const [codeCount, setCodeCount] = useState(5)
+  const [expiryHours, setExpiryHours] = useState(168)
+  const [generatedCodes, setGeneratedCodes] = useState<string[]>([])
+
+  const { data: invites, isLoading: invitesLoading } = useQuery({
+    queryKey: ["admin-beta-invites"],
+    queryFn: () => apiFetch("/admin/beta/invites"),
+  })
+
+  const { data: users, isLoading: usersLoading } = useQuery({
+    queryKey: ["admin-beta-users"],
+    queryFn: () => apiFetch("/admin/beta/users"),
+  })
+
+  const { data: features } = useQuery({
+    queryKey: ["admin-features"],
+    queryFn: () => apiFetch("/admin/features"),
+  })
+
+  const generateMut = useMutation({
+    mutationFn: () => apiFetch("/admin/beta/generate-invites", {
+      method: "POST",
+      body: JSON.stringify({ count: codeCount, expiry_hours: expiryHours }),
+    }),
+    onSuccess: (data: any) => {
+      setGeneratedCodes(data.codes?.map((c: any) => c.code) || [])
+      qc.invalidateQueries({ queryKey: ["admin-beta-invites"] })
+      toast.success(`Generated ${data.count} invite codes`)
+    },
+    onError: () => toast.error("Failed to generate codes"),
+  })
+
+  const revokeMut = useMutation({
+    mutationFn: (id: string) => apiFetch(`/admin/beta/invites/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-beta-invites"] })
+      toast.success("Invite revoked")
+    },
+  })
+
+  const userActionMut = useMutation({
+    mutationFn: ({ userId, action, reason }: { userId: string; action: string; reason?: string }) =>
+      apiFetch(`/admin/beta/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action, reason }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-beta-users"] })
+      toast.success("User updated")
+    },
+  })
+
+  const toggleBeta = useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch("/admin/features", { method: "PATCH", body: JSON.stringify({ name: "beta_active", enabled }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-features"] })
+      toast.success("Beta status updated")
+    },
+  })
+
+  const betaActive = features?.find((f: any) => f.name === "beta_active")?.enabled ?? true
+  const activeUsers = users?.active || 0
+  const totalInvites = invites?.total || 0
+  const usedInvites = invites?.invites?.filter((i: any) => i.status === "redeemed").length || 0
+  const remaining = 25 - activeUsers
+
+  function copyCode(code: string) {
+    navigator.clipboard.writeText(code)
+    toast.success("Copied: " + code)
+  }
+
+  function copyAllCodes() {
+    navigator.clipboard.writeText(generatedCodes.join("\n"))
+    toast.success(`Copied ${generatedCodes.length} codes`)
+  }
+
+  function timeAgo(dateStr: string) {
+    if (!dateStr) return "—"
+    const d = new Date(dateStr)
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000)
+    if (mins < 1) return "just now"
+    if (mins < 60) return mins + "m ago"
+    if (mins < 1440) return Math.floor(mins / 60) + "h ago"
+    return Math.floor(mins / 1440) + "d ago"
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Active Users</p>
+          <p className="text-2xl font-bold">{activeUsers}<span className="text-sm text-muted-foreground font-normal"> / 25</span></p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Invites Used</p>
+          <p className="text-2xl font-bold">{usedInvites}<span className="text-sm text-muted-foreground font-normal"> / {totalInvites}</span></p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Remaining Slots</p>
+          <p className={`text-2xl font-bold ${remaining <= 5 ? "text-amber-600" : "text-emerald-600"}`}>{remaining}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-muted-foreground">Beta Active</p>
+            <p className={`text-sm font-bold ${betaActive ? "text-emerald-600" : "text-red-600"}`}>{betaActive ? "ON" : "OFF"}</p>
+          </div>
+          <button onClick={() => toggleBeta.mutate(!betaActive)}
+            className={`w-12 h-6 rounded-full transition-colors ${betaActive ? "bg-emerald-500" : "bg-gray-300"}`}>
+            <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${betaActive ? "translate-x-6" : "translate-x-0.5"}`} />
+          </button>
+        </CardContent></Card>
+      </div>
+
+      {/* Emergency Kill */}
+      {betaActive && (
+        <Card className="border-red-200 bg-red-50/50">
+          <CardContent className="p-3 flex items-center gap-3">
+            <Power className="w-4 h-4 text-red-500" />
+            <span className="text-sm text-red-700 flex-1">Emergency: disable all beta access instantly</span>
+            <Button variant="destructive" size="sm" onClick={() => toggleBeta.mutate(false)}>Kill Switch</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Generate Invites */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <h3 className="text-sm font-bold flex items-center gap-2"><Key className="w-4 h-4" /> Generate Invite Codes</h3>
+          <div className="flex gap-3 items-end">
+            <div>
+              <label className="text-xs text-muted-foreground">Count</label>
+              <Input type="number" min={1} max={25} value={codeCount} onChange={e => setCodeCount(+e.target.value)} className="w-20" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Expiry (hours)</label>
+              <Input type="number" min={1} max={720} value={expiryHours} onChange={e => setExpiryHours(+e.target.value)} className="w-24" />
+            </div>
+            <Button onClick={() => generateMut.mutate()} disabled={generateMut.isPending || remaining <= 0}>
+              {generateMut.isPending ? "Generating..." : "Generate"}
+            </Button>
+          </div>
+          {generatedCodes.length > 0 && (
+            <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">Generated {generatedCodes.length} codes:</p>
+                <Button variant="outline" size="sm" onClick={copyAllCodes} className="text-xs h-7"><Copy className="w-3 h-3 mr-1" /> Copy All</Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                {generatedCodes.map(code => (
+                  <div key={code} className="flex items-center gap-2 bg-white rounded px-3 py-1.5 border text-sm font-mono">
+                    <span className="flex-1 tracking-wider">{code}</span>
+                    <button onClick={() => copyCode(code)} className="text-muted-foreground hover:text-foreground"><Copy className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Invite Codes Table */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-bold">All Invite Codes</h3>
+          {invitesLoading ? <Skeleton className="h-20" /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pr-3">Code</th><th className="pb-2 pr-3">Status</th>
+                  <th className="pb-2 pr-3">Created</th><th className="pb-2 pr-3">Expires</th>
+                  <th className="pb-2 pr-3">Used By</th><th className="pb-2">Action</th>
+                </tr></thead>
+                <tbody>
+                  {(invites?.invites || []).map((inv: any) => (
+                    <tr key={inv.id} className="border-b border-muted/50 hover:bg-muted/30">
+                      <td className="py-2 pr-3">
+                        <span className="font-mono tracking-wider cursor-pointer hover:text-primary" onClick={() => copyCode(inv.code)}>{inv.code}</span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Badge variant={inv.status === "active" ? "default" : inv.status === "redeemed" ? "secondary" : "destructive"} className="text-[9px]">{inv.status}</Badge>
+                      </td>
+                      <td className="py-2 pr-3 text-muted-foreground">{timeAgo(inv.created_at)}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : "—"}</td>
+                      <td className="py-2 pr-3">{inv.redeemed_email || <span className="text-muted-foreground">—</span>}</td>
+                      <td className="py-2">
+                        {inv.status === "active" && (
+                          <Button variant="ghost" size="sm" className="text-red-600 h-6 text-[10px] px-2" onClick={() => revokeMut.mutate(inv.id)}>Revoke</Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(!invites?.invites || invites.invites.length === 0) && (
+                <p className="text-xs text-muted-foreground text-center py-4">No invite codes yet.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Beta Users Table */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="text-sm font-bold">Beta Users ({activeUsers}/25)</h3>
+          {usersLoading ? <Skeleton className="h-20" /> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pr-3">Email</th><th className="pb-2 pr-3">Name</th>
+                  <th className="pb-2 pr-3">Status</th><th className="pb-2 pr-3">Device</th>
+                  <th className="pb-2 pr-3">Last Active</th><th className="pb-2">Action</th>
+                </tr></thead>
+                <tbody>
+                  {(users?.users || []).map((u: any) => (
+                    <tr key={u.id} className="border-b border-muted/50 hover:bg-muted/30">
+                      <td className="py-2 pr-3 font-medium">{u.email || "—"}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{u.full_name || "—"}</td>
+                      <td className="py-2 pr-3">
+                        <Badge variant={u.status === "active" ? "default" : "destructive"} className="text-[9px]">{u.status}</Badge>
+                        {u.disabled_reason && <span className="text-[9px] text-red-500 ml-1">({u.disabled_reason})</span>}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-muted-foreground text-[10px]">{u.device_id || "—"}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{timeAgo(u.last_verified_at)}</td>
+                      <td className="py-2">
+                        {u.status === "active" ? (
+                          <Button variant="ghost" size="sm" className="text-red-600 h-6 text-[10px] px-2"
+                            onClick={() => userActionMut.mutate({ userId: u.user_id, action: "disable", reason: "Admin disabled" })}>
+                            <UserX className="w-3 h-3 mr-1" /> Disable
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="sm" className="text-emerald-600 h-6 text-[10px] px-2"
+                            onClick={() => userActionMut.mutate({ userId: u.user_id, action: "enable" })}>
+                            <UserCheck className="w-3 h-3 mr-1" /> Enable
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(!users?.users || users.users.length === 0) && (
+                <p className="text-xs text-muted-foreground text-center py-4">No beta users yet. Generate and share invite codes above.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

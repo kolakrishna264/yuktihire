@@ -225,21 +225,37 @@ async def analyze_gaps(resume_content: dict, jd_analysis: dict) -> dict:
 
     from app.services.tailoring.jd_parser import extract_json_safe
 
-    message = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=8000,
-        system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": USER_PROMPT.format(
-                profile_json=profile_json,
-                jd_analysis_json=jd_json,
-            )
-        }]
-    )
-
-    raw = message.content[0].text
-    result = extract_json_safe(raw)
+    try:
+        message = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8000,
+            system=SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": USER_PROMPT.format(
+                    profile_json=profile_json,
+                    jd_analysis_json=jd_json,
+                )
+            }]
+        )
+        raw = message.content[0].text
+        result = extract_json_safe(raw)
+    except Exception as api_err:
+        print(f"[Gap Analyzer] Claude API error: {api_err}")
+        # Return conservative fallback — don't crash the pipeline
+        return {
+            "bullet_alignments": [],
+            "role_relevance": [],
+            "true_skill_gaps": jd_analysis.get("required_skills", [])[:10],
+            "unhighlighted_skills": [],
+            "concept_keywords_for_bullets": [],
+            "summary_keywords": jd_analysis.get("must_have_keywords", [])[:5],
+            "summary_score": 40,
+            "overall_fit_score": 40,
+            "top_strengths": [],
+            "top_gaps": ["Gap analysis unavailable — API error"],
+            "resume_structure": resume_structure,
+        }
 
     # Normalize all fields
     result.setdefault("bullet_alignments", [])

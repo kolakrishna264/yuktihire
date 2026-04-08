@@ -116,6 +116,50 @@ async function apiCall(path, options = {}) {
   return resp.json()
 }
 
+// ── Beta Access Gate ─────────────────────────────────────────────────────
+
+let _betaStatus = null  // cached: { approved, checkedAt }
+const BETA_CHECK_INTERVAL = 10 * 60 * 1000  // 10 minutes
+
+async function checkBetaAccess(force = false) {
+  // Return cache if fresh
+  if (!force && _betaStatus && (Date.now() - _betaStatus.checkedAt < BETA_CHECK_INTERVAL)) {
+    return _betaStatus.approved
+  }
+  try {
+    const result = await apiCall("/extension/beta/check")
+    _betaStatus = { approved: result.approved, checkedAt: Date.now(), kill: result.kill }
+
+    if (result.kill) {
+      // Kill switch — clear beta status and notify user
+      console.warn("[Beta] Kill switch activated:", result.reason || "")
+      await chrome.storage.local.set({ beta_killed: true, beta_reason: result.reason || "" })
+    } else {
+      await chrome.storage.local.remove(["beta_killed", "beta_reason"])
+    }
+
+    return result.approved
+  } catch (e) {
+    // If we can't reach API, keep last known status for 30 min grace
+    if (_betaStatus && (Date.now() - _betaStatus.checkedAt < 30 * 60 * 1000)) {
+      return _betaStatus.approved
+    }
+    return false
+  }
+}
+
+// Generate stable device ID (per-browser install)
+async function getDeviceId() {
+  const stored = await chrome.storage.local.get(["yh_device_id"])
+  if (stored.yh_device_id) return stored.yh_device_id
+  const id = "dev-" + crypto.randomUUID().slice(0, 12)
+  await chrome.storage.local.set({ yh_device_id: id })
+  return id
+}
+
+// Periodic beta check — runs every 10 min
+setInterval(() => { checkBetaAccess(true).catch(() => {}) }, BETA_CHECK_INTERVAL)
+
 // ── Message Handler ───────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -139,6 +183,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+
+  // ── Beta access verification ──
+  if (msg.type === "VERIFY_BETA") {
+    (async () => {
+      try {
+        const deviceId = await getDeviceId()
+        const result = await apiCall("/extension/beta/verify", {
+          method: "POST",
+          body: JSON.stringify({ invite_code: msg.code, device_id: deviceId }),
+        })
+        if (result.approved) {
+          _betaStatus = { approved: true, checkedAt: Date.now(), kill: false }
+          await chrome.storage.local.set({ beta_approved: true })
+        }
+        sendResponse({ ok: result.approved, data: result })
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message })
+      }
+    })()
+    return true
+  }
+
+  if (msg.type === "CHECK_BETA") {
+    (async () => {
+      try {
+        const approved = await checkBetaAccess()
+        sendResponse({ ok: true, approved: approved })
+      } catch (e) {
+        sendResponse({ ok: false, approved: false })
+      }
+    })()
+    return true
+  }
 
   if (msg.type === "CHECK_URL") {
     apiCall(`/extension/check-url?url=${encodeURIComponent(msg.url)}`)

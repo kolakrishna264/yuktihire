@@ -177,8 +177,8 @@ if (document.location.hostname.includes("yuktihire.com")) {
           <div class="yh-header-left">
             <div class="yh-header-logo">YH</div>
             <div>
-              <div class="yh-header-title">YuktiHire</div>
-              <div class="yh-header-subtitle">AI Job Assistant</div>
+              <div class="yh-header-title">Quick Apply <span style="font-size:8px;background:rgba(255,255,255,0.25);padding:1px 5px;border-radius:4px;margin-left:4px;vertical-align:middle">BETA</span></div>
+              <div class="yh-header-subtitle">Smart form assistant — accuracy improves with use</div>
             </div>
           </div>
           <button class="yh-minimize" id="yh-min">
@@ -227,7 +227,8 @@ if (document.location.hostname.includes("yuktihire.com")) {
         </div>
         <div class="yh-log-area" id="yh-logs"></div>
         <div class="yh-submit-bar" id="yh-submit-bar">
-          <p>All required fields filled</p>
+          <p id="yh-submit-msg">All required fields filled</p>
+          <div id="yh-submit-confidence" style="font-size:9px;color:#6b7280;margin-bottom:8px"></div>
           <div class="yh-submit-btns">
             <button class="yh-btn" id="yh-review">Review Form</button>
             <button class="yh-btn yh-btn-primary" id="yh-submit-click" style="flex-direction:row">Submit Application</button>
@@ -243,10 +244,36 @@ if (document.location.hostname.includes("yuktihire.com")) {
     var isOpen = false
     try { isOpen = localStorage.getItem("yh_panel_open") === "true" } catch(e) {}
 
+    // ── Layout mode: overlay (default) vs push (safe portals only) ──
+    // Push mode shifts page content left. Overlay mode floats on top.
+    // Push breaks Workday, Rippling, iCIMS, and portals with fixed/absolute layouts.
+    var PUSH_SAFE_PORTALS = ["greenhouse", "lever", "ashby", "bamboohr", "teamtailor", "recruitee", "workable", "generic_career", "generic"]
+    var OVERLAY_PORTALS = ["workday", "rippling", "icims", "taleo", "adp", "successfactors", "phenom", "smartrecruiters"]
+
+    function getLayoutMode() {
+      var host = location.hostname.toLowerCase()
+      for (var op = 0; op < OVERLAY_PORTALS.length; op++) {
+        if (host.includes(OVERLAY_PORTALS[op])) return "overlay"
+      }
+      // Default: try push, but check if body uses fixed/absolute that would break
+      var bodyPos = getComputedStyle(document.body).position
+      if (bodyPos === "fixed" || bodyPos === "absolute") return "overlay"
+      // Check if body has overflow-x hidden (indicates tight layout)
+      var bodyOverflow = getComputedStyle(document.body).overflowX
+      if (bodyOverflow === "hidden") return "overlay"
+      return "push"
+    }
+
+    var layoutMode = getLayoutMode()
+
     function openPanel() {
       isOpen = true
       dock.style.display = "flex"
       tab.style.display = "none"
+      if (layoutMode === "push") {
+        document.body.style.marginRight = "360px"
+        document.body.style.transition = "margin-right 0.25s ease"
+      }
       try { localStorage.setItem("yh_panel_open", "true") } catch(e) {}
       detectJob()
     }
@@ -254,6 +281,9 @@ if (document.location.hostname.includes("yuktihire.com")) {
       isOpen = false
       dock.style.display = "none"
       tab.style.display = "flex"
+      if (layoutMode === "push") {
+        document.body.style.marginRight = ""
+      }
       try { localStorage.setItem("yh_panel_open", "false") } catch(e) {}
     }
 
@@ -262,6 +292,31 @@ if (document.location.hostname.includes("yuktihire.com")) {
 
     tab.addEventListener("click", openPanel)
     document.getElementById("yh-min").addEventListener("click", closePanel)
+
+    // Keyboard shortcut: Alt+Y to toggle panel
+    document.addEventListener("keydown", function(e) {
+      if (e.altKey && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault()
+        if (isOpen) closePanel()
+        else openPanel()
+      }
+    })
+
+    // ── Portal-aware timing ──
+    // Slow portals (heavy React/Angular) need longer waits between operations.
+    // Fast portals use minimal delays for speed.
+    var SLOW_PORTALS = { workday: true, rippling: true, icims: true, taleo: true, adp: true, successfactors: true }
+    var portalHost = location.hostname.toLowerCase()
+    var isSlow = false
+    for (var sp in SLOW_PORTALS) { if (portalHost.includes(sp)) { isSlow = true; break } }
+
+    var TIMING = {
+      asyncDropdown: isSlow ? 300 : 150,  // between each custom dropdown fill
+      aiAnswer:      isSlow ? 200 : 100,  // between each AI answer fill
+      interPass:     isSlow ? 500 : 250,  // between fill passes
+      finalVerify:   isSlow ? 500 : 300,  // before final verification pass
+      nextStepPoll:  isSlow ? 400 : 300,  // DOM mutation polling interval
+    }
 
     // Detect job context
     function detectJob() {
@@ -378,27 +433,51 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     // ── Submit button detection ──
+    // Returns { element, isFinal } where isFinal distinguishes "Submit Application"
+    // from "Save Draft" or "Save & Continue"
     function detectSubmitButton() {
+      // 1. Workday-specific
+      var wdSubmit = document.querySelector('[data-automation-id="submit"], [data-automation-id="submitButton"]')
+      if (wdSubmit) return { element: wdSubmit, isFinal: true }
+
+      // 2. Type-based selectors
       var selectors = [
         'button[type="submit"]', 'input[type="submit"]',
         'button[class*="submit"]', 'button[class*="apply"]',
         'a[class*="submit"]', 'a[class*="apply"]',
       ]
-      var btn = null
       for (var s = 0; s < selectors.length; s++) {
-        btn = document.querySelector(selectors[s])
-        if (btn) return btn
+        var el = document.querySelector(selectors[s])
+        if (el) {
+          var elText = (el.textContent || el.value || "").toLowerCase().trim()
+          // Skip if it's a save/draft button
+          if (elText.includes("save") && !elText.includes("submit")) continue
+          if (elText.includes("draft")) continue
+          return { element: el, isFinal: isFinalSubmit(elText) }
+        }
       }
-      // Text-based search
+
+      // 3. Text-based search
       var allBtns = document.querySelectorAll("button, input[type='submit'], a[role='button']")
-      var submitWords = ["submit", "apply", "send application", "submit application"]
+      var submitWords = ["submit application", "submit your application", "apply now", "send application", "submit"]
       for (var b = 0; b < allBtns.length; b++) {
-        var text = (allBtns[b].textContent || allBtns[b].value || "").toLowerCase().trim()
+        var btn = allBtns[b]
+        if (btn.disabled || btn.getAttribute("aria-disabled") === "true") continue
+        var text = (btn.textContent || btn.value || "").toLowerCase().trim()
+        // Skip next/continue/save buttons
+        if (text.includes("next") || text.includes("continue") || text.includes("save") || text.includes("draft")) continue
         for (var w = 0; w < submitWords.length; w++) {
-          if (text.includes(submitWords[w])) return allBtns[b]
+          if (text.includes(submitWords[w])) return { element: btn, isFinal: isFinalSubmit(text) }
         }
       }
       return null
+    }
+
+    function isFinalSubmit(text) {
+      var t = text.toLowerCase()
+      return t.includes("submit application") || t.includes("apply now") ||
+             t.includes("send application") || t.includes("submit your") ||
+             (t.includes("submit") && !t.includes("save") && !t.includes("next"))
     }
 
     function checkAllRequiredFilled() {
@@ -411,19 +490,60 @@ if (document.location.hostname.includes("yuktihire.com")) {
     }
 
     function showSubmitBar() {
-      if (checkAllRequiredFilled()) {
-        document.getElementById("yh-submit-bar").style.display = "block"
+      if (!checkAllRequiredFilled()) return
+
+      document.getElementById("yh-submit-bar").style.display = "block"
+
+      // Populate confidence summary
+      var msgEl = document.getElementById("yh-submit-msg")
+      var confEl = document.getElementById("yh-submit-confidence")
+
+      var statsEl = document.getElementById("yh-stats")
+      var statsText = statsEl ? statsEl.textContent : ""
+      // Parse filled/review/failed from stats display
+      var filledMatch = statsText.match(/(\d+)\s*filled/)
+      var reviewMatch = statsText.match(/(\d+)\s*review/)
+      var failedMatch = statsText.match(/(\d+)\s*failed/)
+      var filled = filledMatch ? parseInt(filledMatch[1]) : 0
+      var review = reviewMatch ? parseInt(reviewMatch[1]) : 0
+      var failed = failedMatch ? parseInt(failedMatch[1]) : 0
+      var total = filled + review + failed
+
+      if (failed === 0 && review === 0) {
+        msgEl.textContent = "✓ All " + filled + " fields filled — ready to submit"
+        msgEl.style.color = "#15803d"
+        confEl.textContent = "High confidence — all fields verified"
+        confEl.style.color = "#16a34a"
+      } else if (failed === 0) {
+        msgEl.textContent = filled + " filled, " + review + " need review"
+        msgEl.style.color = "#92400e"
+        confEl.textContent = "Medium confidence — review highlighted fields before submitting"
+        confEl.style.color = "#d97706"
+      } else {
+        msgEl.textContent = filled + " filled, " + failed + " failed"
+        msgEl.style.color = "#b91c1c"
+        confEl.textContent = "Low confidence — some fields could not be filled automatically"
+        confEl.style.color = "#dc2626"
       }
     }
 
     // ── Next/Continue button detection ──
     function detectNextButton() {
-      var allBtns = document.querySelectorAll("button, a[role='button'], input[type='button']")
-      var nextWords = ["next", "continue", "proceed", "save & continue", "save and continue", "next step", "next page"]
+      // Workday-specific: data-automation-id buttons
+      var wdNext = document.querySelector('[data-automation-id="bottom-navigation-next-button"], [data-automation-id="nextButton"]')
+      if (wdNext) return wdNext
+
+      var allBtns = document.querySelectorAll("button, a[role='button'], input[type='button'], input[type='submit']")
+      var nextWords = ["next", "continue", "proceed", "save & continue", "save and continue", "next step", "next page", "save & next", "submit & continue"]
       for (var b = 0; b < allBtns.length; b++) {
-        var text = (allBtns[b].textContent || allBtns[b].value || "").toLowerCase().trim()
+        var btn = allBtns[b]
+        var text = (btn.textContent || btn.value || "").toLowerCase().trim()
+        // Skip if it's disabled
+        if (btn.disabled || btn.getAttribute("aria-disabled") === "true") continue
+        // Skip if it says "submit application" — that's the final submit
+        if (text.includes("submit application") || text.includes("submit your")) continue
         for (var w = 0; w < nextWords.length; w++) {
-          if (text.includes(nextWords[w])) return allBtns[b]
+          if (text.includes(nextWords[w])) return btn
         }
       }
       return null
@@ -471,12 +591,28 @@ if (document.location.hostname.includes("yuktihire.com")) {
     document.getElementById("yh-fill").addEventListener("click", async function() {
       var btn = document.getElementById("yh-fill")
       btn.disabled = true
+      btn.textContent = "Checking access..."
+
+      // ── Beta gate: verify access before filling ──
+      try {
+        var betaCheck = await sendMsg({ type: "CHECK_BETA" })
+        if (!betaCheck || !betaCheck.approved) {
+          btn.disabled = false
+          btn.textContent = "Fill All"
+          addLog("Beta access required — enter invite code in extension popup", "fail", "review")
+          return
+        }
+      } catch(e) {
+        // If check fails, allow fill (graceful degradation)
+      }
+
       btn.textContent = "Filling..."
       clearLogs()
       showProgress()
       document.getElementById("yh-submit-bar").style.display = "none"
 
       var totalFilled = 0, totalReview = 0, totalFailed = 0
+      var aiCount = 0, memoryCount = 0, optionCount = 0
       var startTime = Date.now()
 
       // Step 1: Get profile
@@ -524,11 +660,18 @@ if (document.location.hostname.includes("yuktihire.com")) {
         totalReview++
       }
 
-      // Step 3: Continuous fill loop (up to 5 passes)
-      var maxPasses = 5
+      // Step 3: Continuous fill loop (up to 3 passes — most forms finish in 1-2)
+      var maxPasses = 3
+      var AUTOFILL_TIMEOUT = 30000  // 30 seconds max for entire autofill
       for (var pass = 1; pass <= maxPasses; pass++) {
+        // Global safety timeout — never let autofill run forever
+        if (Date.now() - startTime > AUTOFILL_TIMEOUT) {
+          addLog("Autofill timeout (30s) — some fields may need manual review", "warn", "review")
+          setStatus("Timeout — review remaining fields")
+          break
+        }
         setStatus("Pass " + pass + "/" + maxPasses + " — scanning...")
-        setBar(10 + (pass - 1) * 15)
+        setBar(10 + (pass - 1) * 25)
 
         var result = null
         if (typeof YuktiEngine !== "undefined") {
@@ -552,19 +695,72 @@ if (document.location.hostname.includes("yuktihire.com")) {
           totalReview++
         })
 
-        // Fill async custom dropdowns
+        // Fill async custom dropdowns with verification + retry
         for (var a = 0; a < result.needsAsync.length; a++) {
           var af = result.needsAsync[a]
           setStatus("Pass " + pass + " — dropdown: " + af.label.slice(0, 20))
           try {
-            var asyncEl = document.querySelector(af.selector)
-            if (asyncEl) {
-              var ar = await YuktiEngine.fillAsync({ element: asyncEl, container: asyncEl.parentElement, inputType: "customSelect" }, af.value)
-              if (ar.ok) { addLog(af.label.slice(0, 35) + ": " + (ar.selected || af.value), "ok", "medium"); totalFilled++ }
-              else { addLog(af.label.slice(0, 35), "fail"); totalFailed++ }
+            var asyncEl = af.element || document.querySelector(af.selector)
+            if (!asyncEl) {
+              // Fallback: broader search
+              var possibleEls = document.querySelectorAll('[role="combobox"], [class*="select__control"], [aria-haspopup="listbox"]')
+              for (var pe = 0; pe < possibleEls.length; pe++) {
+                var peContainer = possibleEls[pe].closest("[class*='field'], [class*='question'], [class*='form-group']")
+                if (peContainer && peContainer.textContent.toLowerCase().includes(af.label.toLowerCase().split(" ")[0])) {
+                  asyncEl = possibleEls[pe]; break
+                }
+              }
             }
-          } catch(e) { totalFailed++ }
-          await sleep(300)
+            if (asyncEl) {
+              var asyncBlock = { element: asyncEl, container: asyncEl.parentElement || asyncEl.closest("[class*='field']"), inputType: "customSelect", questionText: af.label }
+              var ar = await YuktiEngine.fillAsync(asyncBlock, af.value)
+              if (ar.ok) {
+                // Verify the selection stuck
+                await sleep(200)
+                var displayText = (asyncEl.textContent || "").trim().toLowerCase()
+                var firstWord = af.value.split(" ")[0].toLowerCase()
+                var dropdownVerified = displayText.includes(firstWord) || (ar.selected && ar.selected.toLowerCase().includes(firstWord))
+                if (dropdownVerified) {
+                  addLog(af.label.slice(0, 35) + ": " + (ar.selected || af.value).slice(0, 25), "ok", "medium"); totalFilled++; optionCount++
+                } else {
+                  // Retry once
+                  addLog(af.label.slice(0, 35) + ": retrying...", "warn", "low")
+                  var ar2 = await YuktiEngine.fillAsync(asyncBlock, af.value)
+                  if (ar2.ok) { addLog(af.label.slice(0, 35) + ": " + (ar2.selected || af.value).slice(0, 25), "ok", "medium"); totalFilled++; optionCount++ }
+                  else {
+                    addLog(af.label.slice(0, 35) + ": dropdown failed" + (ar2.reason ? " (" + ar2.reason.slice(0, 30) + ")" : ""), "fail")
+                    // Log correlation data for debugging
+                    console.warn("[YH-Panel] dropdown retry failed:", JSON.stringify({
+                      portal: result.portal,
+                      label: af.label,
+                      value: af.value,
+                      failureCode: ar2.reason || "unknown",
+                      trace: ar2.trace ? { strategies: ar2.trace.strategies, failureCode: ar2.trace.failureCode } : null,
+                    }))
+                    totalFailed++
+                  }
+                }
+              } else {
+                addLog(af.label.slice(0, 35) + ": " + (ar.reason || "failed").slice(0, 35), "fail")
+                console.warn("[YH-Panel] dropdown failed:", JSON.stringify({
+                  portal: result.portal,
+                  label: af.label,
+                  value: af.value,
+                  failureCode: ar.reason || "unknown",
+                  trace: ar.trace ? { strategies: ar.trace.strategies, failureCode: ar.trace.failureCode } : null,
+                }))
+                totalFailed++
+              }
+            } else {
+              addLog(af.label.slice(0, 35) + ": element not found", "fail")
+              console.warn("[YH-Panel] element not found for dropdown:", af.label, "selector:", af.selector)
+              totalFailed++
+            }
+          } catch(e) {
+            console.error("[YH] Async fill error:", e)
+            totalFailed++
+          }
+          await sleep(TIMING.asyncDropdown)
         }
 
         // AI fill — pass job context for better answers
@@ -620,13 +816,31 @@ if (document.location.hostname.includes("yuktihire.com")) {
             if (answer?.ok && answer.data?.answer) {
               var val = answer.data.answer.trim()
 
-              // ── Enforce answer length by shape ──
+              // ── Enforce answer length/format by shape ──
               if (shape === "boolean") {
-                // Extract just yes/no from any response
+                // Extract just yes/no from any response — no essays
                 var valLow = val.toLowerCase()
-                if (valLow.includes("yes") || valLow.startsWith("y")) val = "Yes"
-                else if (valLow.includes("no") || valLow.startsWith("n")) val = "No"
-                else val = val.split(/[.\n]/)[0].trim()  // First sentence only
+                if (valLow.includes("yes") || valLow.startsWith("y") || valLow.includes("true") || valLow.includes("affirmative")) val = "Yes"
+                else if (valLow.includes("no") || valLow.startsWith("n") || valLow.includes("false")) val = "No"
+                else val = val.split(/[.\n]/)[0].trim().slice(0, 20)  // First sentence only, max 20 chars
+              } else if (shape === "enum_choice" && field.options && field.options.length > 0) {
+                // Pick the closest option — don't generate a new value
+                var bestOptMatch = null; var bestOptScore = 0
+                var valNorm = val.toLowerCase().trim()
+                for (var oi = 0; oi < field.options.length; oi++) {
+                  var optNorm = field.options[oi].toLowerCase().trim()
+                  var optScore = 0
+                  if (valNorm === optNorm) optScore = 100
+                  else if (optNorm.includes(valNorm) || valNorm.includes(optNorm)) optScore = 70
+                  else {
+                    var vWords = valNorm.split(/\s+/)
+                    var oWords = optNorm.split(/\s+/)
+                    var overlap = vWords.filter(function(w) { return w.length > 2 && oWords.indexOf(w) !== -1 }).length
+                    if (overlap > 0) optScore = 30 + overlap * 15
+                  }
+                  if (optScore > bestOptScore) { bestOptScore = optScore; bestOptMatch = field.options[oi] }
+                }
+                if (bestOptMatch && bestOptScore >= 30) val = bestOptMatch
               } else if (shape === "numeric") {
                 // Extract just the number
                 var numMatch = val.match(/\d+/)
@@ -655,7 +869,7 @@ if (document.location.hostname.includes("yuktihire.com")) {
                   filled = ar2.ok
                 }
                 if (filled) {
-                  addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++
+                  addLog("AI: " + field.label.slice(0, 30), "ok", "low"); totalFilled++; aiCount++
                   // Save to answer memory for reuse
                   if (typeof YuktiEngine !== "undefined" && field.label.length > 5) {
                     var qHash = YuktiEngine.hash(field.label)
@@ -665,12 +879,12 @@ if (document.location.hostname.includes("yuktihire.com")) {
               }
             }
           } catch(e) { totalFailed++ }
-          await sleep(200)
+          await sleep(TIMING.aiAnswer)
         }
 
         // Check for new fields
         if (pass < maxPasses) {
-          await sleep(500)
+          await sleep(TIMING.interPass)
           var newEmpty = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
           // Filter out file inputs from "empty" count
           newEmpty = newEmpty.filter(function(b) { return b.inputType !== "file" })
@@ -682,74 +896,244 @@ if (document.location.hostname.includes("yuktihire.com")) {
         }
       }
 
-      // ── Auto-continue multi-step forms ──
-      // After filling, check if there's a Next/Continue button
-      var nextBtn = detectNextButton()
-      if (nextBtn) {
-        addLog("Next/Continue button found — auto-advancing...", "ok", "medium")
-        setStatus("Advancing to next section...")
-        setBar(95)
-        nextBtn.click()
-        nextBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      // ── Resume upload gate ──
+      // If file uploads were detected, pause here and wait for user to attach files
+      var pendingUploads = detectResumeInputs()
+      var requiredUploads = pendingUploads.filter(function(u) {
+        // Check if the file input's container has a "required" indicator
+        var container = u.element.closest("[class*='field'], [class*='question']") || u.element.parentElement
+        var hasRequired = u.element.required || (container && container.querySelector("[class*='required'], [class*='asterisk']"))
+        var labelText = container ? container.textContent.toLowerCase() : ""
+        return hasRequired || labelText.includes("*") || labelText.includes("required")
+      })
 
-        // Wait for new section to load
-        await sleep(1500)
+      if (requiredUploads.length > 0) {
+        addLog("⏸ " + requiredUploads.length + " required upload" + (requiredUploads.length > 1 ? "s" : "") + " — attach files, then click Fill again", "warn", "review")
+        setStatus("Waiting for file uploads...")
+        btn.disabled = false
+        btn.textContent = "Continue After Upload"
 
-        // Rescan and fill the new section
-        var newBlocks = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
-        newBlocks = newBlocks.filter(function(b) { return b.inputType !== "file" })
-        if (newBlocks.length > 0) {
-          addLog(newBlocks.length + " new fields in next section — filling...", "warn")
-          // Run one more fill pass on the new section
-          var newResult = YuktiEngine.fillAll(profile.data)
-          newResult.filled.forEach(function(f) {
-            addLog(f.label + ": " + f.value, f.verified ? "ok" : "warn", getConfidence(f.source, ""))
-            if (f.verified) totalFilled++; else totalReview++
-          })
-          // Fill async dropdowns in new section
-          for (var na = 0; na < newResult.needsAsync.length; na++) {
-            var naf = newResult.needsAsync[na]
-            try {
-              var nael = document.querySelector(naf.selector)
-              if (nael) {
-                var nar = await YuktiEngine.fillAsync({ element: nael, container: nael.parentElement, inputType: "customSelect" }, naf.value)
-                if (nar.ok) { addLog(naf.label.slice(0, 35) + ": " + (nar.selected || naf.value), "ok", "medium"); totalFilled++ }
-              }
-            } catch(e) {}
-            await sleep(300)
+        // Watch file inputs — auto-continue when files are attached
+        var uploadWatcher = setInterval(function() {
+          var allAttached = true
+          var attachedCount = 0
+          for (var uw = 0; uw < requiredUploads.length; uw++) {
+            if (requiredUploads[uw].element.files && requiredUploads[uw].element.files.length > 0) {
+              attachedCount++
+            } else {
+              allAttached = false
+            }
           }
-          // Highlight new resume uploads
-          highlightResumeInputs()
-        }
+          // Update progress
+          if (attachedCount > 0 && !allAttached) {
+            setStatus("Uploads: " + attachedCount + "/" + requiredUploads.length + " attached...")
+          }
+          if (allAttached) {
+            clearInterval(uploadWatcher)
+            addLog("All files attached — auto-continuing fill...", "ok", "medium")
+            setStatus("Resuming fill...")
+            btn.textContent = "Fill Everything"
+            // Auto-click the fill button to continue
+            setTimeout(function() { btn.click() }, 500)
+          }
+        }, 800)
+      } else {
+        // ── Auto-continue multi-step forms ──
+        var nextBtn = detectNextButton()
+        var submitInfo = detectSubmitButton()
 
-        // Check for another Next button (for 3+ step forms)
-        var nextBtn2 = detectNextButton()
-        if (nextBtn2) {
-          addLog("More sections available — click Fill again to continue", "warn", "review")
+        // Safety: if we see a final submit button and NO next button, don't auto-advance
+        if (submitInfo && submitInfo.isFinal && !nextBtn) {
+          addLog("Ready to submit — review your answers first", "ok", "high")
+          showSubmitBar()
+        } else if (nextBtn) {
+          addLog("Next/Continue button found — auto-advancing...", "ok", "medium")
+          setStatus("Advancing to next section...")
+          setBar(95)
+          nextBtn.click()
+          nextBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+          // Wait for DOM to actually change (not a fixed timeout)
+          var preHash = getFormHash()
+          var domChanged = false
+          for (var waitStep = 0; waitStep < 15; waitStep++) {
+            await sleep(TIMING.nextStepPoll)
+            var postHash = getFormHash()
+            if (postHash !== preHash) { domChanged = true; break }
+          }
+          if (!domChanged) {
+            // Fallback: wait a bit more in case of slow portal
+            await sleep(1000)
+          }
+
+          // Rescan and fill the new section
+          var newBlocks = typeof YuktiEngine !== "undefined" ? YuktiEngine.getEmptyBlocks() : []
+          newBlocks = newBlocks.filter(function(b) { return b.inputType !== "file" })
+          if (newBlocks.length > 0) {
+            addLog(newBlocks.length + " new fields in next section — filling...", "warn")
+            var newResult = YuktiEngine.fillAll(profile.data)
+            newResult.filled.forEach(function(f) {
+              addLog(f.label + ": " + f.value, f.verified ? "ok" : "warn", getConfidence(f.source, ""))
+              if (f.verified) totalFilled++; else totalReview++
+            })
+            // Fill async dropdowns in new section
+            for (var na = 0; na < newResult.needsAsync.length; na++) {
+              var naf = newResult.needsAsync[na]
+              try {
+                var nael = naf.element || document.querySelector(naf.selector)
+                if (nael) {
+                  var nar = await YuktiEngine.fillAsync({ element: nael, container: nael.parentElement, inputType: "customSelect", questionText: naf.label }, naf.value)
+                  if (nar.ok) { addLog(naf.label.slice(0, 35) + ": " + (nar.selected || naf.value), "ok", "medium"); totalFilled++ }
+                }
+              } catch(e) {}
+              await sleep(TIMING.asyncDropdown)
+            }
+            // Highlight new resume uploads
+            highlightResumeInputs()
+
+            // AI fill for new section
+            for (var nai = 0; nai < newResult.needsAI.length; nai++) {
+              var nf = newResult.needsAI[nai]
+              if (!nf.label) continue
+              setStatus("AI: " + nf.label.slice(0, 25) + "...")
+              try {
+                var nfAnswer = await sendMsg({
+                  type: "GENERATE_ANSWER",
+                  data: { question: nf.label + (nf.helperText ? " (" + nf.helperText.slice(0, 100) + ")" : ""), shape: nf.answerShape || "essay", company: jobCompany || "", role: jobTitle || "" }
+                })
+                if (nfAnswer?.ok && nfAnswer.data?.answer) {
+                  var nfVal = nfAnswer.data.answer.trim()
+                  if (nf.answerShape === "boolean") {
+                    nfVal = nfVal.toLowerCase().includes("yes") ? "Yes" : "No"
+                  }
+                  var nfEl = document.querySelector(nf.selector)
+                  if (nfEl) {
+                    var nfBlock = { element: nfEl, container: nfEl.parentElement, inputType: nf.inputType, options: [], radioGroupName: null }
+                    var nfr = YuktiEngine.fill(nfBlock, nfVal)
+                    if (nfr.ok || nfr.reason === "needs_async") {
+                      if (nfr.reason === "needs_async") await YuktiEngine.fillAsync(nfBlock, nfVal)
+                      addLog("AI: " + nf.label.slice(0, 30), "ok", "low"); totalFilled++
+                    }
+                  }
+                }
+              } catch(e) {}
+              await sleep(200)
+            }
+          }
+
+          // Check for more steps
+          var nextBtn2 = detectNextButton()
+          var submitInfo2 = detectSubmitButton()
+          if (submitInfo2 && submitInfo2.isFinal && !nextBtn2) {
+            addLog("Ready to submit — review your answers first", "ok", "high")
+          } else if (nextBtn2) {
+            addLog("More sections available — click Fill again to continue", "warn", "review")
+          }
         }
       }
 
       // Final
       var endTime = Date.now()
+      var durationSec = ((endTime - startTime) / 1000).toFixed(1)
       setBar(100)
-      setStatus("Done — " + totalFilled + " filled")
+      setStatus("Done — " + totalFilled + " filled in " + durationSec + "s")
       setStats(totalFilled, totalReview, totalFailed)
-      btn.disabled = false
-      btn.textContent = nextBtn ? "Fill Next Section" : "Fill Everything"
+      // Summary log
+      addLog("── Summary: " + totalFilled + " filled, " + totalReview + " review, " + totalFailed + " failed (" + durationSec + "s) ──",
+             totalFailed === 0 ? "ok" : "warn", totalFailed === 0 ? "high" : "review")
+      // Only reset button if we didn't set it to "Continue After Upload"
+      if (btn.textContent !== "Continue After Upload") {
+        btn.disabled = false
+        var hasMoreSteps = detectNextButton()
+        var hasFinalSubmit = detectSubmitButton()
+        if (hasFinalSubmit && hasFinalSubmit.isFinal && !hasMoreSteps) {
+          btn.textContent = "Fill Everything"
+          showSubmitBar()
+        } else if (hasMoreSteps) {
+          btn.textContent = "Fill Next Section"
+        } else {
+          btn.textContent = "Fill Everything"
+        }
+      }
+
+      // ── Final verification pass: re-check all option fields ──
+      // Some portals re-render dropdowns after other fields change (cascading selects).
+      // Also catches customSelect fields where the selection was lost.
+      await sleep(TIMING.finalVerify)
+      if (typeof YuktiEngine !== "undefined") {
+        var recheck = YuktiEngine.scan()
+        recheck = applyPortalAdapterIfAvailable(recheck)
+        var fixedCount = 0
+        for (var rc = 0; rc < recheck.length; rc++) {
+          var rcBlock = recheck[rc]
+          // Check nativeSelect, multiSelect, radio, AND customSelect
+          var isOptionType = rcBlock.inputType === "nativeSelect" || rcBlock.inputType === "multiSelect" ||
+                             rcBlock.inputType === "radio" || rcBlock.inputType === "customSelect"
+          if (!isOptionType) continue
+          if (!rcBlock.isEmpty) continue  // still has a value — fine
+          if (!rcBlock.required) continue  // not required — skip
+
+          // This required option field reverted to empty — try to re-fill
+          console.log("[YH-Fill] Final pass: re-filling reverted field: " + rcBlock.questionText.slice(0, 30))
+          var rcAnswer = YuktiEngine.resolve(rcBlock, profile.data)
+          if (rcAnswer.value) {
+            var rcResult = YuktiEngine.fill(rcBlock, rcAnswer.value)
+            if (rcResult.ok) {
+              addLog("Re-fixed: " + rcBlock.questionText.slice(0, 30), "ok", "medium")
+              fixedCount++
+            } else if (rcResult.reason === "needs_async") {
+              // CustomSelect needs async fill
+              try {
+                var rcEl = rcBlock.element
+                var rcAsyncResult = await YuktiEngine.fillAsync(
+                  { element: rcEl, container: rcBlock.container, inputType: "customSelect", questionText: rcBlock.questionText },
+                  rcAnswer.value
+                )
+                if (rcAsyncResult.ok) {
+                  addLog("Re-fixed (async): " + rcBlock.questionText.slice(0, 30), "ok", "medium")
+                  fixedCount++
+                }
+              } catch(e) {}
+            }
+          }
+        }
+        if (fixedCount > 0) {
+          addLog(fixedCount + " field(s) re-fixed after re-render", "ok", "medium")
+          totalFilled += fixedCount
+        }
+      }
+
+      function applyPortalAdapterIfAvailable(blocks) {
+        // If engine exposes portal adapter, use it; otherwise return blocks as-is
+        if (typeof YuktiEngine !== "undefined" && YuktiEngine.scan) {
+          // Blocks from scan() already have portal adapter applied via engine internals
+          return blocks
+        }
+        return blocks
+      }
 
       // Track autofill session for analytics
+      // Count AI and option fills from results
+      var aiCount = 0, memoryCount = 0, optionCount = 0
+      // We need to track these during the fill loop. Use the accumulated results.
+      // The fillAll results track needsAI length and filled method types.
+
       sendMsg({
         type: "SAVE_AUTOFILL_SESSION",
         data: {
           portal_domain: location.hostname,
+          portal_name: typeof YuktiEngine !== "undefined" ? YuktiEngine.portal() : "unknown",
           job_title: document.getElementById("yh-job-title")?.textContent || "",
           company: document.getElementById("yh-job-company")?.textContent || "",
           fields_total: totalFilled + totalReview + totalFailed,
           fields_filled: totalFilled,
           fields_review: totalReview,
           fields_failed: totalFailed,
-          fields_ai: 0,  // TODO: track separately
-          fields_memory: 0,
+          fields_ai: aiCount,
+          fields_memory: memoryCount,
+          fields_option: optionCount,
+          upload_interrupted: btn.textContent === "Continue After Upload" || requiredUploads.length > 0,
+          submit_ready: document.getElementById("yh-submit-bar")?.style.display === "block",
           readiness_score: pd.readiness?.score || 0,
           duration_ms: endTime - startTime,
         }
@@ -767,12 +1151,16 @@ if (document.location.hostname.includes("yuktihire.com")) {
       document.getElementById("yh-submit-bar").style.display = "none"
     })
     document.getElementById("yh-submit-click").addEventListener("click", function() {
-      var submitBtn = detectSubmitButton()
-      if (submitBtn) {
-        submitBtn.scrollIntoView({ behavior: "smooth", block: "center" })
-        submitBtn.style.outline = "3px solid #22c55e"
-        submitBtn.style.outlineOffset = "2px"
-        addLog("Submit button highlighted — click it to apply", "ok", "high")
+      var submitInfo = detectSubmitButton()
+      if (submitInfo) {
+        submitInfo.element.scrollIntoView({ behavior: "smooth", block: "center" })
+        submitInfo.element.style.outline = "3px solid #22c55e"
+        submitInfo.element.style.outlineOffset = "2px"
+        if (submitInfo.isFinal) {
+          addLog("Submit button highlighted — click it to apply", "ok", "high")
+        } else {
+          addLog("Submit button highlighted — verify before clicking", "warn", "review")
+        }
       } else {
         addLog("Submit button not found — submit manually", "warn")
       }
@@ -1301,10 +1689,30 @@ if (document.location.hostname.includes("yuktihire.com")) {
   }
 
   function _finalize(result, domain, pageType, extractionMode) {
+    // Get full description — don't truncate too aggressively
+    var desc = (result.description || "").replace(/\s+/g, " ").trim()
+
+    // If description is short, try to capture more from the page
+    if (desc.length < 500) {
+      var jdSelectors = [
+        "[class*='job-description']", "[class*='jobDescription']",
+        "[class*='posting-description']", "[data-testid*='description']",
+        ".job-description", "#job-description", "[class*='description']",
+        "article", "main", "[role='main']",
+      ]
+      for (var js = 0; js < jdSelectors.length; js++) {
+        var jdEl = document.querySelector(jdSelectors[js])
+        if (jdEl && jdEl.textContent.trim().length > desc.length) {
+          desc = jdEl.textContent.replace(/\s+/g, " ").trim()
+          break
+        }
+      }
+    }
+
     return {
       title: (result.title || "").slice(0, 300),
       company: (result.company || "").slice(0, 200),
-      description: (result.description || "").replace(/\s+/g, " ").trim().slice(0, 15000),
+      description: desc.slice(0, 20000),  // Increased from 15k to 20k for complete JD capture
       location: (result.location || "").slice(0, 200),
       salary: (result.salary || "").slice(0, 100),
       employmentType: (result.employmentType || "").slice(0, 100),

@@ -43,6 +43,17 @@ async function init() {
   }
   setAuthBadge(true)
 
+  // 1.5 Beta access check
+  const beta = await sendMessage({ type: "CHECK_BETA" })
+  if (!beta || !beta.approved) {
+    // Check if killed vs just not verified
+    const stored = await chrome.storage.local.get(["beta_approved"])
+    if (!stored.beta_approved) {
+      showState("#beta-gate")
+      return
+    }
+  }
+
   // 2. Get tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   if (!tab?.id || !tab.url || tab.url.startsWith("chrome://")) {
@@ -635,6 +646,36 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     if (r.ok) showStatus("Saved!", "success")
     else { showStatus(r.error || "Failed", "error"); btn.disabled = false; btn.textContent = "Save Job" }
+  })
+
+  // ── Beta invite code verification ──
+  $("#invite-verify-btn")?.addEventListener("click", async () => {
+    const code = $("#invite-code-input")?.value?.trim()
+    if (!code || code.length < 8) {
+      $("#invite-error").textContent = "Please enter a valid invite code"
+      $("#invite-error").style.display = "block"
+      return
+    }
+    const btn = $("#invite-verify-btn")
+    btn.disabled = true
+    btn.textContent = "Verifying..."
+    $("#invite-error").style.display = "none"
+    $("#invite-success").style.display = "none"
+
+    const result = await sendMessage({ type: "VERIFY_BETA", code: code })
+    if (result.ok && result.data?.approved) {
+      await chrome.storage.local.set({ beta_approved: true })
+      $("#invite-success").textContent = result.data.message || "Access granted!"
+      $("#invite-success").style.display = "block"
+      btn.textContent = "Verified!"
+      // Reload popup after a moment
+      setTimeout(() => { init() }, 1500)
+    } else {
+      $("#invite-error").textContent = result.data?.message || result.error || "Invalid code"
+      $("#invite-error").style.display = "block"
+      btn.disabled = false
+      btn.textContent = "Verify Code"
+    }
   })
 
   init()

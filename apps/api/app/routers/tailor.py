@@ -90,14 +90,22 @@ async def run_pipeline_background(
     jd_analysis: Optional[dict],
 ):
     """Runs the AI tailoring pipeline in the background and persists results."""
-    async with AsyncSessionLocal() as db:
-        try:
-            # Import here to avoid circular import issues at startup
-            from engine import execute_pipeline
-            from ats_scorer import calculate_ats_score
-            from migrate_clean_skills import clean_skills
-            import json
+    import copy as _copy_mod
+    import asyncio as _asyncio
 
+    # ── CRITICAL: Deep copy resume at entry — never mutate the original ──
+    resume_content = _copy_mod.deepcopy(resume_content)
+
+    pipeline_start = datetime.utcnow()
+
+    async def _run_with_timeout():
+        """Inner function wrapped with timeout."""
+        from engine import execute_pipeline
+        from ats_scorer import calculate_ats_score
+        from migrate_clean_skills import clean_skills
+        import json
+
+        async with AsyncSessionLocal() as db:
             print(f"[Pipeline] Starting for session {session_id}")
 
             # ── SAVE PRELIMINARY SCORE BEFORE pipeline (in case pipeline crashes) ──
@@ -715,18 +723,39 @@ async def run_pipeline_background(
             except Exception as score_err:
                 print(f"[Pipeline] Final score update error: {score_err}")
 
-        except Exception as e:
-            print(f"[Pipeline] CRITICAL ERROR: {e}")
-            import traceback; traceback.print_exc()
-            async with AsyncSessionLocal() as err_db:
-                result = await err_db.execute(
-                    select(TailoringSession).where(TailoringSession.id == session_id)
-                )
-                session = result.scalar_one_or_none()
-                if session:
-                    session.status = SessionStatus.FAILED
-                    session.error_message = str(e)[:500]
-                await err_db.commit()
+            except Exception as e:
+                print(f"[Pipeline] CRITICAL ERROR: {e}")
+                import traceback; traceback.print_exc()
+                await _mark_session_failed(session_id, str(e)[:500], pipeline_start)
+
+    # ── Run with 5-minute timeout ──
+    try:
+        await _asyncio.wait_for(_run_with_timeout(), timeout=300)  # 5 minutes
+    except _asyncio.TimeoutError:
+        print(f"[Pipeline] TIMEOUT after 5 minutes for session {session_id}")
+        await _mark_session_failed(session_id, "Pipeline timed out after 5 minutes", pipeline_start)
+    except Exception as outer_err:
+        print(f"[Pipeline] OUTER ERROR: {outer_err}")
+        await _mark_session_failed(session_id, f"Unexpected error: {str(outer_err)[:400]}", pipeline_start)
+
+
+async def _mark_session_failed(session_id: str, error_msg: str, start_time=None):
+    """Safely mark a tailoring session as FAILED."""
+    try:
+        async with AsyncSessionLocal() as err_db:
+            result = await err_db.execute(
+                select(TailoringSession).where(TailoringSession.id == session_id)
+            )
+            session = result.scalar_one_or_none()
+            if session:
+                session.status = SessionStatus.FAILED
+                session.error_message = error_msg
+                if start_time:
+                    session.completed_at = datetime.utcnow()
+            await err_db.commit()
+            print(f"[Pipeline] Session {session_id} marked FAILED: {error_msg[:100]}")
+    except Exception as db_err:
+        print(f"[Pipeline] Failed to mark session as FAILED: {db_err}")
 
 
 # ── Quick Tailor (one-call shortcut) ──────────────────────────────────────
@@ -744,6 +773,33 @@ async def quick_tailor(
     db: AsyncSession = Depends(get_db),
 ):
     """One-call tailor shortcut - creates JD + starts tailoring in one step."""
+    # ── Concurrent guard: if a session is already RUNNING for this user, return it ──
+    existing_running = await db.execute(
+        select(TailoringSession)
+        .where(
+            TailoringSession.user_id == current_user.id,
+            TailoringSession.status == SessionStatus.RUNNING,
+        )
+        .order_by(TailoringSession.created_at.desc())
+        .limit(1)
+    )
+    running_session = existing_running.scalar_one_or_none()
+    if running_session:
+        # Check if it's been running > 5 min (stuck) — if so, mark failed and proceed
+        if running_session.created_at and (datetime.utcnow() - running_session.created_at).total_seconds() > 300:
+            running_session.status = SessionStatus.FAILED
+            running_session.error_message = "Timed out (replaced by new request)"
+            running_session.completed_at = datetime.utcnow()
+            await db.commit()
+        else:
+            # Still legitimately running — return existing session
+            return {
+                "sessionId": running_session.id,
+                "resumeId": running_session.resume_id,
+                "status": "RUNNING",
+                "message": "Tailoring already in progress",
+            }
+
     # Get resume (use default if not specified)
     if data.resume_id:
         resume_result = await db.execute(
@@ -760,10 +816,18 @@ async def quick_tailor(
     if not resume:
         raise HTTPException(status_code=404, detail="No resume found. Upload one first.")
 
+    # ── Validate JD text ──
+    jd_text_clean = (data.job_description or "").strip()
+    if len(jd_text_clean) < 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Job description is too short (minimum 100 characters). Please capture the full JD before tailoring."
+        )
+
     # Create JobDescription
     jd = JobDescription(
         user_id=current_user.id,
-        raw_text=data.job_description[:20000],
+        raw_text=jd_text_clean[:20000],
     )
     db.add(jd)
     await db.flush()

@@ -632,3 +632,136 @@ async def beta_summary(
         metrics["error"] = str(e)
 
     return metrics
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BETA INVITE MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+class GenerateInvitesRequest(BaseModel):
+    count: int = 5
+    expiry_hours: int = 48
+
+
+@router.post("/beta/generate-invites")
+async def generate_beta_invites(
+    data: GenerateInvitesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate beta invite codes. Admin only."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin access required")
+
+    import uuid, secrets
+
+    count = min(data.count, 50)  # Max 50 at a time
+    expiry = datetime.now(timezone.utc) + __import__("datetime").timedelta(hours=data.expiry_hours)
+    codes = []
+
+    for _ in range(count):
+        code = "BETA-" + secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
+        invite_id = str(uuid.uuid4())
+        await db.execute(
+            text("""INSERT INTO beta_invites (id, code, created_by, status, expires_at, created_at)
+                    VALUES (:id, :code, :uid, 'active', :exp, NOW())"""),
+            {"id": invite_id, "code": code, "uid": current_user.id, "exp": expiry},
+        )
+        codes.append({"code": code, "expiresAt": expiry.isoformat(), "id": invite_id})
+
+    await db.commit()
+    return {"codes": codes, "count": len(codes), "expiryHours": data.expiry_hours}
+
+
+@router.get("/beta/invites")
+async def list_beta_invites(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all beta invite codes with redemption status. Admin only."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin access required")
+
+    result = await db.execute(
+        text("""SELECT bi.id, bi.code, bi.status, bi.expires_at, bi.created_at,
+                bi.redeemed_by, bi.redeemed_at,
+                u.email as redeemed_email, u.full_name as redeemed_name
+                FROM beta_invites bi
+                LEFT JOIN users u ON u.id = bi.redeemed_by
+                ORDER BY bi.created_at DESC LIMIT 100""")
+    )
+    invites = [dict(r) for r in result.mappings()]
+    return {"invites": invites, "total": len(invites)}
+
+
+@router.get("/beta/users")
+async def list_beta_users(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all active beta users. Admin only."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin access required")
+
+    result = await db.execute(
+        text("""SELECT ba.id, ba.user_id, ba.status, ba.device_id,
+                ba.last_verified_at, ba.created_at, ba.disabled_reason,
+                u.email, u.full_name
+                FROM beta_access ba
+                JOIN users u ON u.id = ba.user_id
+                ORDER BY ba.created_at DESC""")
+    )
+    users = [dict(r) for r in result.mappings()]
+
+    active = sum(1 for u in users if u["status"] == "active")
+    return {"users": users, "total": len(users), "active": active, "limit": 25}
+
+
+class BetaUserAction(BaseModel):
+    action: str  # "disable" or "enable"
+    reason: Optional[str] = None
+
+
+@router.patch("/beta/users/{user_id}")
+async def update_beta_user(
+    user_id: str,
+    data: BetaUserAction,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enable or disable a beta user. Admin only."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin access required")
+
+    if data.action == "disable":
+        await db.execute(
+            text("""UPDATE beta_access SET status = 'disabled', disabled_at = NOW(),
+                    disabled_reason = :reason WHERE user_id = :uid"""),
+            {"uid": user_id, "reason": data.reason or "Admin revoked access"},
+        )
+    elif data.action == "enable":
+        await db.execute(
+            text("UPDATE beta_access SET status = 'active', disabled_at = NULL, disabled_reason = NULL WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
+
+    await db.commit()
+    return {"status": "updated", "userId": user_id, "action": data.action}
+
+
+@router.delete("/beta/invites/{invite_id}")
+async def revoke_beta_invite(
+    invite_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke an unused invite code. Admin only."""
+    if not await is_admin(current_user.id, db):
+        raise HTTPException(403, "Admin access required")
+
+    await db.execute(
+        text("UPDATE beta_invites SET status = 'revoked', revoked_at = NOW() WHERE id = :id"),
+        {"id": invite_id},
+    )
+    await db.commit()
+    return {"status": "revoked", "inviteId": invite_id}
